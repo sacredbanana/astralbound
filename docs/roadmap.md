@@ -6,12 +6,31 @@ list remains part of that request; it is not a claim of feature completeness.
 
 ## World and navigation
 
-- Real astronomical scales, hierarchical local frames and a star at the system centre.
-- Moving orbital bodies, moons, rings, binary stars and varied atmospheric models.
-- Persistent exploration records, sparse settlement and galaxy density/spiral arms.
-- Terrain LOD stitching, forests/roads, clouds, coastlines and richer generated cities.
-- Station rotation, clearance queues, dock geometry and traffic corridors.
-- Autopilot tests across every generated body type, authority limit and relative frame.
+Implemented in the current development build:
+
+- [x] Astronomical metre scales, translated hierarchical local frames, and a central star
+  (or a binary pair orbiting the system barycentre).
+- [x] Analytic moving orbits, parented moons, rendered rings, and vacuum, thin,
+  temperate, dense, frozen and hydrogen atmospheric models.
+- [x] Portable exploration journals, sparse settlement, and star occupancy following
+  galaxy disc density, a central bulge and four spiral arms.
+- [x] Continuous terrain LOD edges and outer skirts, anchored forests, generated city
+  streets, moving sky clouds, coastlines and varied city blocks/towers.
+- [x] Rotating orbital stations, traffic clearance queues, swept hollow dock geometry,
+  marked approach corridors and moving-port velocity matching.
+- [x] Regression coverage for all six generated body types, 58 generated port arrivals,
+  launch/re-entry, lost thrust authority, local/system frame transitions, clearance
+  queues and portable exploration/approach state.
+
+Q cycles body waypoints, T cycles inhabited ports, Y shows the selected destination
+list, and D requests clearance. Autopilot requests clearance automatically. Empty
+sectors cannot be jumped to; unsettled star systems can be explored using body targets.
+
+These are bounded procedural game models: circular inclined orbits rather than an
+N-body solver, a 128-system exploration journal, decorative forests/buildings/clouds,
+and scheduled clearance traffic rather than a persistent civilian fleet. The local
+terrain grid has shared edges and a skirt to the globe, but the renderer still uses
+painter sorting. Hardware frame rates and long-duration play remain QA work.
 
 ## Careers and economy
 
@@ -36,10 +55,10 @@ list remains part of that request; it is not a claim of feature completeness.
 
 ## Prototype boundaries
 
-Planets are deliberately small and remain at static generated positions. Gravity
-uses the nearest planet. Ships do not currently collide with city buildings or
-station walls. Hostile targets are simple mission encounters with a standoff
-controller. Contracts, markets and commander saves are bounded rather than a full
-persistent world economy. The renderer uses a painter's list and a camera-centred
-terrain patch; LOD seams and polygon ordering still need production treatment.
+Orbits and moving ports now use astronomical scales; flight velocity is relative to
+its translated body frame or the system frame. Gravity uses the nearest body and includes
+solar gravity in the system frame outside body influence regions. Ships collide
+with terrain and station docking walls; decorative city buildings and forests do not
+have collision geometry. Hostile targets remain simple mission encounters. Contracts,
+markets and commander saves remain bounded rather than a full persistent economy.
 No claim is made that stock A500 frame rates or all RTG cards have been validated.

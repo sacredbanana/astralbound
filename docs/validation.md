@@ -1,28 +1,67 @@
-# Validation — Space 0.1 development prototype
+# Validation - World and navigation development build
 
-Verified on 12 October 2026. These checks apply to the prototype, not to the
-unfinished full-game requirements in roadmap.md.
+Verified on 13 October 2026. This records development-model checks, not production
+hardware performance or completion of the remaining careers/presentation roadmap.
 
-## Builds and automated checks
+## Current builds and host checks
 
-- Host C99 build passes with `-Wall -Wextra -Werror`.
-- `make test` passes the core suite.
+- `make test` passes with C99, `-Wall -Wextra -Werror`.
 - `make sanitize` passes with AddressSanitizer and UndefinedBehaviorSanitizer.
-- `./build-amiga.sh` produces both `Space.000` and `Space.020` with `-O2`,
-  `-msoft-float`, `-noixemul` and warnings treated as errors.
-- `Space-tests.020` passes the same core suite in AmiKit/Amiberry, including
-  cross-CPU golden values for generated names, radii, positions and terrain.
+- `make navigation-test` passes the longer, actual AU-scale interplanetary route.
+- `./build-amiga.sh all tests` produces `Space.000`, `Space.020` and
+  `Space-tests.020`, with soft float, libnix and warnings treated as errors.
+  `-Wl,-u,___stkinit` links the stack-swap constructor so the declared 128 KiB
+  stack is honoured for the expanded world and commander data.
 - The AmigaGuide checker reports zero errors and zero warnings.
+- Host surface/orbit previews were rendered and inspected.
 
-The core suite covers deterministic generation, fast swept collisions, cargo
-reservation, duplicate contract rejection, high-compression orbital arrival and
-surface return, head-on avoidance, portable save round trips and corruption,
-planar conversion, varied render views, twelve around-planet/interplanetary
-routes, all six contract types and single payment, and compression trajectory
-consistency. One head-on avoidance fixture reaches 871 m closest separation;
-that is a scenario result, not a universal collision guarantee.
+The core suite covers deterministic astronomical generation and cross-CPU golden
+values, moving parented orbits, sparse settlement/occupancy, disc/arm density,
+atmosphere density, clearance queues, fast station wall/aperture crossings, lost
+fuel and insufficient gravity-compensation authority, inertial velocity preservation
+on leaving a body frame, exploration saves, corruption rejection and planar output.
+It completes 58 generated port arrivals and waypoint arrivals for every generated
+body type (rock, ocean, desert, ice, gas giant and moon), plus the full surface launch,
+moving orbital docking and safe surface return. All six contracts still complete and
+pay once. Requested compression preserves the fixed-tick trajectory.
 
-## Emulator evidence
+The extended host route departs the initial body, crosses the system frame and
+arrives at a moving second body after 8,492,040 physics ticks, with 67 percent fuel
+and a 4 m waypoint error. This is one scenario result, not a universal navigation
+guarantee. The existing head-on avoidance fixture retains an 871 m closest approach.
+
+Orbital samples are cached per simulated second and interpolated through the 32
+physics ticks. Terrain/globe samples share procedural material classification;
+coarse/fine edges share grid vertices and the outer patch has a skirt. Forests,
+clouds and city buildings are decorative; station walls have collision geometry.
+Circular inclined orbits, bounded journals and scheduled clearance traffic remain
+explicit model limits, as described in roadmap.md. Generator version 3 saves reject
+version 2 commanders.
+
+## Current Amiga runtime checks
+
+The rebuilt `Space-tests.020 --quick` suite passes in AmiKit/Amiberry on the
+configured accelerated 68020. It verifies the cross-CPU generation/orbit golden
+values, frames, exploration/save integrity, station collisions, rendering, five
+generated port arrivals, waypoints for all six body types and compression safety.
+The native output is saved in `build/evidence/world-tests-amiga.txt`.
+The rebuilt RTG game opens, accepts Q/Y to display the generated body list and
+returns to Workbench with Escape. Current screenshots are saved as
+`build/evidence/world-final-rtg.png` and `world-final-bodies.png`.
+The full launch/return, 58-port and extended AU-scale routes above are host checks;
+they are not completed full-suite Amiga runtime checks or hardware timings.
+
+## Current host renderer workload
+
+The fixed orbital scene benchmark reports 0.136 ms/frame over 200 frames, with
+indexed frame hash `a66d2d3f`. This scene now uses astronomical planet radii and
+moving-world data and is not the same workload as the previous small-planet scene.
+Host timing does not establish frame rates on Amiga hardware.
+
+## Earlier prototype emulator evidence
+
+The following evidence predates the world/navigation changes. It establishes the
+platform backend's prior behavior, not runtime validation of the new world model.
 
 The tests use the installed AmiKit configuration with an accelerated emulated
 68020, AGA and Picasso96-compatible RTG. Both native display layouts were

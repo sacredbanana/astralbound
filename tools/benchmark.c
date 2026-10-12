@@ -10,7 +10,9 @@ int main(void) {
     clock_t start;
     uint32_t hash = 2166136261U;
     game_init(&g, 0x53504143);
-    g.pos = vec(0, (g.system.planets[0].radius + 35000LL) * FP, -60000LL * FP);
+    g.pos = add(scale(g.system.planets[0].center, FP, 1),
+                vec(0, (g.system.planets[0].radius + g.system.planets[0].atmosphere + 35000LL) * FP,
+                    -60000LL * FP));
     g.docked = -1;
     g.pitch = -70;
     f.pixels = malloc(320 * 256);

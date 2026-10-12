@@ -5,7 +5,8 @@
 #include <stdlib.h>
 #define TRI_MAX 4096
 typedef struct {
-    int x[3], y[3], z;
+    int x[3], y[3];
+    int64_t z;
     uint8_t color;
 } Tri;
 static Tri triangles[TRI_MAX];
@@ -20,7 +21,7 @@ static uint32_t plane_low[256], plane_high[256];
 static int tables_ready;
 static Vec globe_vertices[MAX_PLANETS][17][33];
 static uint8_t globe_colors[MAX_PLANETS][17][33];
-static uint32_t globe_seed;
+static uint32_t globe_seed, globe_hour;
 static int globe_ready, globe_enhanced;
 
 void render_set_pump(void (*pump)(void)) {
@@ -155,7 +156,7 @@ static void emit(Vec a, Vec b, Vec c, int color) {
         (t->y[0] < 0 && t->y[1] < 0 && t->y[2] < 0) ||
         (t->y[0] >= view_h && t->y[1] >= view_h && t->y[2] >= view_h))
         return;
-    t->z = (int)((a.z + b.z + c.z) / 3);
+    t->z = (a.z + b.z + c.z) / 3;
     t->color = (uint8_t)color;
     nt++;
 }
@@ -240,20 +241,29 @@ static void box(Vec center, Vec up, int size, int height, int color) {
 static int ground_color(const Planet *planet, Vec local) {
     int h = terrain_height(planet, local);
     Vec normal = unit(local, 16384);
-    int shade =
-        (int)(((int)normal.x * -6000 + (int)normal.y * 12000 + (int)normal.z * -7000) / 16384);
+    Vec light = unit(sub(game->system.star[0].center, planet->center), 16384);
+    int shade = (int)(((int)normal.x * (int)light.x + (int)normal.y * (int)light.y +
+                       (int)normal.z * (int)light.z) /
+                      16384);
     shade = (shade + 16000) / 2400;
     if (shade < 0)
         shade = 0;
     if (shade > 15)
         shade = 15;
-    if (!frame->enhanced)
-        return h < 5 ? 25 + shade / 4 : h > 700 ? 16 + shade / 6 : 8 + shade / 6;
-    return (h < 5 ? 80 : h > 800 ? 112 : h > 500 ? 96 : 64) + shade;
+    {
+        int material = terrain_material(planet, local);
+        static const int ecs[] = {25, 8, 8, 16, 28, 21};
+        static const int aga[] = {80, 64, 64, 96, 112, 96};
+        (void)h;
+        if (material == 5)
+            shade = (shade + (int)(normal.y / 1200) + 32) % 16;
+        return frame->enhanced ? aga[material] + shade : ecs[material] + shade / 6;
+    }
 }
 static void cache_globes(void) {
     int b, x, y;
-    if (globe_ready && globe_seed == game->system.seed && globe_enhanced == frame->enhanced)
+    if (globe_ready && globe_seed == game->system.seed && globe_enhanced == frame->enhanced &&
+        globe_hour == game->tick / (HZ * 3600U))
         return;
     for (b = 0; b < game->system.count; b++) {
         const Planet *p = &game->system.planets[b];
@@ -262,13 +272,14 @@ static void cache_globes(void) {
                 platform_pump();
             for (x = 0; x <= 32; x++) {
                 Vec dir = forward(x * 32, y * 32 - 256);
-                Vec local = scale(dir, p->radius + terrain_height(p, dir), 16384);
-                globe_vertices[b][y][x] = add(p->center, local);
+                Vec local = radial(dir, p->radius + terrain_height(p, dir));
+                globe_vertices[b][y][x] = local;
                 globe_colors[b][y][x] = (uint8_t)ground_color(p, local);
             }
         }
     }
     globe_seed = game->system.seed;
+    globe_hour = game->tick / (HZ * 3600U);
     globe_enhanced = frame->enhanced;
     globe_ready = 1;
 }
@@ -277,7 +288,7 @@ static void planet_mesh(int body) {
     Vec cam_local = sub(scale(game->pos, 1, FP), p->center);
     int radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
     int64_t distance = length(cam_local), altitude = distance - radius;
-    if (body != game->body || altitude > 3000) {
+    {
         Vec c = camera(p->center);
         if (c.z + radius < 8)
             return;
@@ -290,10 +301,10 @@ static void planet_mesh(int body) {
             for (y = 0; y < lats; y++)
                 for (x = 0; x < lons; x++) {
                     int row = y * step, column = x * step;
-                    Vec a = globe_vertices[body][row][column],
-                        b = globe_vertices[body][row][column + step];
-                    Vec c2 = globe_vertices[body][row + step][column + step],
-                        d = globe_vertices[body][row + step][column];
+                    Vec a = add(p->center, globe_vertices[body][row][column]),
+                        b = add(p->center, globe_vertices[body][row][column + step]);
+                    Vec c2 = add(p->center, globe_vertices[body][row + step][column + step]),
+                        d = add(p->center, globe_vertices[body][row + step][column]);
                     int color = globe_colors[body][row][column];
                     triangle(a, b, c2, color);
                     triangle(a, c2, d, color);
@@ -315,9 +326,13 @@ static void planet_mesh(int body) {
             if (platform_pump)
                 platform_pump();
             for (x = 0; x <= 20; x++) {
-                Vec v = add(scale(up, radius, 16384), add(scale(right, (x - 10) * step, 16384),
-                                                          scale(front, (y - 10) * step, 16384)));
-                rows[y % 2][x] = add(p->center, unit(v, radius + terrain_height(p, v) + 2));
+                /* A continuous grid with cubic spacing: fine central cells and
+                   coarse horizon cells share exactly the same edge vertices.
+                   This has no T junctions as the LOD changes under the camera. */
+                int xx = x - 10, yy = y - 10;
+                rows[y % 2][x] =
+                    terrain_vertex(p, cam_local, right, front, step * xx * xx * xx / 100,
+                                   step * yy * yy * yy / 100);
             }
             if (y)
                 for (x = 0; x < 20; x++) {
@@ -328,13 +343,116 @@ static void planet_mesh(int body) {
                     triangle(a, c2, d, color);
                 }
         }
+        /* Join the terrain patch to the coarse globe with an outer skirt.
+           Its top uses the same vertices as the adjacent LOD cells. */
+        for (y = 0; y < 4; y++)
+            for (x = 0; x < 20; x++) {
+                int q = x - 10, q2 = q + 1;
+                int ox = y < 2 ? (y == 0 ? -span : span) : step * q * q * q / 100;
+                int oz = y >= 2 ? (y == 2 ? -span : span) : step * q * q * q / 100;
+                int nx = y < 2 ? ox : step * q2 * q2 * q2 / 100;
+                int nz = y >= 2 ? oz : step * q2 * q2 * q2 / 100;
+                Vec a = terrain_vertex(p, cam_local, right, front, ox, oz);
+                Vec b = terrain_vertex(p, cam_local, right, front, nx, nz);
+                Vec c = add(p->center, scale(sub(b, p->center), radius - radius / 20, radius));
+                Vec d = add(p->center, scale(sub(a, p->center), radius - radius / 20, radius));
+                int color = ground_color(p, sub(a, p->center));
+                triangle(a, b, c, color);
+                triangle(a, c, d, color);
+            }
+    }
+}
+/* Decorative forests use the same terrain sampler as flight collision.
+   Only nearby land has geometry; the globe material carries distant forests. */
+static void forests(void) {
+    const Planet *p = &game->system.planets[game->body];
+    Vec local = sub(scale(game->pos, 1, FP), p->center), up = unit(local, 16384);
+    Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), front;
+    int x, y;
+    if (altitude_at(game, game->pos) > 3000 || p->type != OCEAN)
+        return;
+    if (!length(right))
+        right = vec(16384, 0, 0);
+    front = cross(right, up);
+    /* A cube-face metre lattice anchors trees to the planet, independent
+       of camera motion and LOD. All six face orientations use the same rule. */
+    {
+        int axis = 0;
+        int64_t dominant = llabs(local.x), u, v, size = p->radius;
+        if (llabs(local.y) > dominant) {
+            axis = 1;
+            dominant = llabs(local.y);
+        }
+        if (llabs(local.z) > dominant) {
+            axis = 2;
+            dominant = llabs(local.z);
+        }
+        if (!dominant)
+            return;
+        u = (axis == 0 ? local.y : local.x) * size / dominant;
+        v = (axis == 2 ? local.y : local.z) * size / dominant;
+        for (y = -4; y <= 4; y++)
+            for (x = -4; x <= 4; x++) {
+                int64_t a = (u / 400 + x) * 400, b = (v / 400 + y) * 400;
+                int64_t sign = (axis == 0   ? local.x
+                                : axis == 1 ? local.y
+                                            : local.z) < 0
+                                   ? -size
+                                   : size;
+                Vec d = axis == 0 ? vec(sign, a, b) : axis == 1 ? vec(a, sign, b) : vec(a, b, sign);
+                uint32_t h = hash32(p->seed ^ (unsigned)(a / 400) ^ (unsigned)(b / 400) * 7919U);
+                Vec pos = scale(unit(d, 16384), p->radius + terrain_height(p, d), 16384);
+                if (h % 3 || terrain_material(p, pos) != 2)
+                    continue;
+                pos = add(p->center, pos);
+                triangle(add(pos, scale(right, -15, 16384)), add(pos, scale(right, 15, 16384)),
+                         add(pos, scale(up, 45 + h % 30, 16384)), 10);
+                triangle(add(pos, scale(front, -15, 16384)), add(pos, scale(front, 15, 16384)),
+                         add(pos, scale(up, 45 + h % 30, 16384)), 8);
+            }
+    }
+}
+static void ring_mesh(const Planet *p) {
+    int i;
+    int64_t outer = (int64_t)p->radius * 2, inner = (int64_t)p->radius * 13 / 10;
+    for (i = 0; i < 32; i++) {
+        Vec a = add(p->center, scale(forward(i * 32, 0), inner, 16384));
+        Vec b = add(p->center, scale(forward((i + 1) * 32, 0), inner, 16384));
+        Vec c = add(p->center, scale(forward((i + 1) * 32, 0), outer, 16384));
+        Vec d = add(p->center, scale(forward(i * 32, 0), outer, 16384));
+        triangle(a, b, c, 12 + i % 3);
+        triangle(a, c, d, 12 + i % 3);
+    }
+}
+static void stellar_discs(void) {
+    int i, j;
+    for (i = 0; i < game->system.stars; i++) {
+        const Star *s = &game->system.star[i];
+        Vec center = s->center, normal = unit(sub(scale(camera_position, 1, FP), center), 16384);
+        Vec right = unit(cross(normal, vec(0, 16384, 0)), 16384), up;
+        if (!length(right))
+            right = vec(16384, 0, 0);
+        up = cross(right, normal);
+        for (j = 0; j < 16; j++) {
+            Vec a = add(center, add(scale(right, (int64_t)cosi(j * 64) * s->radius / 16384, 16384),
+                                    scale(up, (int64_t)sini(j * 64) * s->radius / 16384, 16384)));
+            Vec b = add(center,
+                        add(scale(right, (int64_t)cosi((j + 1) * 64) * s->radius / 16384, 16384),
+                            scale(up, (int64_t)sini((j + 1) * 64) * s->radius / 16384, 16384)));
+            triangle(center, a, b, i ? 14 : 12);
+        }
     }
 }
 static void world(void) {
     int i, x, b;
     cache_globes();
-    for (b = 0; b < game->system.count; b++)
+    stellar_discs();
+    for (b = 0; b < game->system.count; b++) {
         planet_mesh(b);
+        if (game->system.planets[b].rings)
+            ring_mesh(&game->system.planets[b]);
+    }
+    forests();
     for (i = 0; i < port_count(game); i++) {
         const Port *port = &game->ports[i];
         const Planet *body = &game->system.planets[port->body];
@@ -346,24 +464,59 @@ static void world(void) {
         if (length(sub(p, scale(camera_position, 1, FP))) > 80000)
             continue;
         if (port->surface) {
-            for (x = 0; x < 12; x++) {
+            for (x = 0; x < 36; x++) {
                 uint32_t h = hash32(game->system.seed + (unsigned)x * 173 + (unsigned)i);
-                int ox = ((int)(h % 7) - 3) * 160, oz = ((int)((h >> 8) % 7) - 3) * 160;
+                int ox = (x % 6 - 3) * 180 + 70, oz = (x / 6 - 3) * 180 + 70;
                 Vec offset, v;
                 if (abs(ox) < 150 && abs(oz) < 150)
                     ox += 350;
                 offset = add(scale(right, ox, 16384), scale(front, oz, 16384));
                 v = add(local, offset);
                 v = unit(v, body->radius + terrain_height(body, v));
-                box(add(body->center, v), up, 25 + h % 30, 40 + h % 140, 16);
+                box(add(body->center, v), up, 25 + h % 30,
+                    x % 7 == 0 ? 200 + h % 250 : 40 + h % 100, 16);
+                /* Streets meet the actual curved ground, between city blocks. */
+                {
+                    Vec a = terrain_vertex(body, local, right, front, ox - 80, oz - 80);
+                    Vec b2 = terrain_vertex(body, local, right, front, ox + 100, oz - 80);
+                    Vec c = terrain_vertex(body, local, right, front, ox + 100, oz - 60);
+                    Vec d = terrain_vertex(body, local, right, front, ox - 80, oz - 60);
+                    triangle(a, b2, c, 3);
+                    triangle(a, c, d, 3);
+                    a = terrain_vertex(body, local, right, front, ox - 80, oz - 80);
+                    b2 = terrain_vertex(body, local, right, front, ox - 60, oz - 80);
+                    c = terrain_vertex(body, local, right, front, ox - 60, oz + 100);
+                    d = terrain_vertex(body, local, right, front, ox - 80, oz + 100);
+                    triangle(a, b2, c, 3);
+                    triangle(a, c, d, 3);
+                }
             }
             box(add(body->center, unit(local, body->radius)), up, 65, 4, 13);
         } else {
             for (x = 0; x < 8; x++) {
-                Vec d = add(scale(right, cosi(x * 128) * 160 / 16384, 16384),
-                            scale(up, sini(x * 128) * 160 / 16384, 16384));
-                box(add(p, d), up, 35, 55, 16);
+                Vec d = add(scale(right, cosi(x * 128 + port->rotation) * 160 / 16384, 16384),
+                            scale(front, sini(x * 128 + port->rotation) * 160 / 16384, 16384));
+                box(add(p, d), up, 45, 50, 16);
             }
+            for (x = 0; x < 16; x++) {
+                Vec da = add(scale(right, cosi(x * 64 + port->rotation), 16384),
+                             scale(front, sini(x * 64 + port->rotation), 16384));
+                Vec db = add(scale(right, cosi((x + 1) * 64 + port->rotation), 16384),
+                             scale(front, sini((x + 1) * 64 + port->rotation), 16384));
+                Vec a = add(p, scale(da, 60, 16384)), b2 = add(p, scale(db, 60, 16384));
+                Vec c = add(p, scale(db, 240, 16384)), d = add(p, scale(da, 240, 16384));
+                triangle(a, b2, c, 18);
+                triangle(a, c, d, 18);
+            }
+            if (i == game->target)
+                for (x = 1; x <= 4; x++) {
+                    Vec gate = add(p, scale(up, x * 500, 16384));
+                    Vec a = add(gate, scale(right, -60, 16384));
+                    Vec b2 = add(gate, scale(right, 60, 16384));
+                    triangle(a, b2, add(b2, scale(front, 3, 16384)), 13);
+                    triangle(a, add(b2, scale(front, 3, 16384)), add(a, scale(front, 3, 16384)),
+                             13);
+                }
             /* The central approach is open, rather than a solid box in the docking path. */
         }
     }
@@ -445,23 +598,49 @@ static void menus(void) {
             generate_system(game->seed, ss, &sys);
             int x = 55 + (i % 3) * 100, y = 60 + (i / 3) * 35;
             line(x - 40, y + 8, x + 40, y + 8, 3);
-            rect(x, y, 3, 3, i == 4 ? 12 : 13);
-            text(x - 30, y + 12, i == 4 ? 12 : 7, sys.name);
+            if (sys.count)
+                rect(x, y, 3, 3, i == 4 ? 12 : exploration_index(game, ss) >= 0 ? 11 : 13);
+            text(x - 30, y + 12, i == 4 ? 12 : 7, sys.count ? sys.name : "EMPTY");
         }
         snprintf(s, sizeof(s), "%s  SECTOR %ld / %ld", sel.name, (long)game->selected.x,
                  (long)game->selected.z);
         text(12, 29, 15, s);
+        snprintf(s, sizeof(s), "DENSITY %d / PORTS %d / %s", sel.density, system_port_count(&sel),
+                 !sel.count                                     ? "EMPTY"
+                 : exploration_index(game, game->selected) >= 0 ? "VISITED"
+                                                                : "UNEXPLORED");
+        text(12, 157, 13, s);
         text(12, 173, 7, "ARROWS SELECT / X JUMP / V FLIGHT");
         break;
     }
     case SYSTEM_MAP: {
-        int first = game->target / 8 * 8;
+        int first = game->target < 0 ? 0 : game->target / 8 * 8;
         panel("SYSTEM / FLIGHT DESTINATIONS");
+        if (game->target < 0) {
+            int first_body = game->target_body / 8 * 8;
+            for (i = first_body; i < first_body + 8 && i < game->system.count; i++) {
+                const Planet *p = &game->system.planets[i];
+                int journal = exploration_index(game, game->system.sector);
+                snprintf(s, sizeof(s), "%s %s %ld KM %s", p->name, body_names[p->type],
+                         (long)(p->radius / 1000),
+                         journal >= 0 && (game->explored[journal].surveyed & (1U << i)) ? "SCAN"
+                                                                                        : "");
+                text(12, 32 + (i - first_body) * 16, i == game->target_body ? 12 : 15, s);
+            }
+            text(12, 174, 7, "Q NEXT BODY / T PORT / P AUTO");
+            break;
+        }
         for (i = first; i < first + 8 && i < port_count(game); i++) {
             snprintf(s, sizeof(s), "%2d %s", i + 1, game->ports[i].name);
             text(12, 32 + (i - first) * 16, i == game->target ? 12 : 15, s);
         }
-        text(12, 169, 7, "UP DOWN TARGET / V FLIGHT / P AUTO");
+        if (game->target >= 0) {
+            const Planet *p = &game->system.planets[game->ports[game->target].body];
+            snprintf(s, sizeof(s), "%s R %ld KM / %s", body_names[p->type],
+                     (long)(p->radius / 1000), p->parent >= 0 ? "LOCAL MOON FRAME" : "SOLAR ORBIT");
+            text(12, 158, 13, s);
+        }
+        text(12, 174, 7, "UP DOWN PORT / Q BODY / P AUTO");
         break;
     }
     case BOARD:
@@ -530,18 +709,13 @@ static void menus(void) {
     case HELP:
         panel("SPACE / FLIGHT MANUAL");
         {
-            const char *help[] = {"ARROWS STEER / W S CHANGE SET SPEED",
-                                  "CTRL FIRE / E TOGGLE FLIGHT ASSIST",
-                                  "L LAUNCH / Y PORTS / T TARGET / P AUTO",
-                                  "K LANDING GEAR / F SERVICE AT PORT",
-                                  "[ ] TIME RATE / SPACE PAUSE",
-                                  "G GALAXY / ARROWS SELECT / X JUMP",
-                                  "B CONTRACTS / M MARKET / U SHIPYARD",
-                                  "J CONTRACT LOG / V FLIGHT OR CAMERA",
-                                  "F5 SAVE / F9 LOAD / ESC EXIT",
-                                  "PATROLS: AIR 600-6000 M / ORBIT 13 KM",
-                                  "SURVEY: 500-6000 M BELOW 200 M/S",
-                                  "JUMP: ABOVE 12 KM / NO NEARBY TRAFFIC"};
+            const char *help[] = {
+                "ARROWS STEER / W S CHANGE SET SPEED",  "CTRL FIRE / E TOGGLE FLIGHT ASSIST",
+                "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
+                "[ ] TIME RATE / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
+                "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
+                "F5 SAVE / F9 LOAD / ESC EXIT",         "PATROLS: AIR 600-6000 M / ORBIT 13 KM",
+                "SURVEY: 500-6000 M BELOW 200 M/S",     "JUMP: ABOVE 12 KM / NO NEARBY TRAFFIC"};
             for (i = 0; i < 12; i++)
                 text(12, 30 + i * 12, i < 9 ? 15 : 7, help[i]);
         }
@@ -575,6 +749,14 @@ void render_init(Frame *f) {
         f->palette[112 + i] = ((uint32_t)(90 + i * 10) << 16) | ((uint32_t)(102 + i * 9) << 8) |
                               (unsigned)(112 + i * 8);
     }
+    for (i = 0; i < 32; i++) {
+        f->palette[128 + i] =
+            ((uint32_t)(30 + i * 5) << 16) | ((uint32_t)(12 + i * 3) << 8) | (unsigned)(8 + i * 2);
+        f->palette[160 + i] =
+            ((uint32_t)(12 + i * 3) << 16) | ((uint32_t)(14 + i * 3) << 8) | (unsigned)(30 + i * 5);
+        f->palette[192 + i] =
+            ((uint32_t)(22 + i * 4) << 16) | ((uint32_t)(18 + i * 3) << 8) | (unsigned)(12 + i * 2);
+    }
 }
 void render_game(const Game *g, Frame *f) {
     int i;
@@ -598,8 +780,16 @@ void render_game(const Game *g, Frame *f) {
     nt = 0;
     for (i = 0; i < view_h; i++) {
         int c = 0;
-        if (alt < g->system.planets[g->body].atmosphere)
-            c = f->enhanced ? 32 + i * 25 / view_h : 25 + i * 5 / view_h;
+        if (alt < g->system.planets[g->body].atmosphere) {
+            AtmosphereType climate = g->system.planets[g->body].climate;
+            int base = climate == DENSE      ? 128
+                       : climate == FROZEN   ? 160
+                       : climate == HYDROGEN ? 192
+                                             : 32;
+            c = f->enhanced        ? base + i * 25 / view_h
+                : climate == DENSE ? 21 + i * 3 / view_h
+                                   : 25 + i * 5 / view_h;
+        }
         rect(0, i, f->w, 1, c);
     }
     if (alt > 6000) {
@@ -616,10 +806,28 @@ void render_game(const Game *g, Frame *f) {
             }
         }
     }
+    if (g->page == FLIGHT && atmosphere_density(&g->system.planets[g->body], alt) > 4) {
+        const Planet *p = &g->system.planets[g->body];
+        for (i = 0; i < 18; i++) {
+            uint32_t h = hash32(p->seed + (unsigned)i * 173U);
+            Vec dir =
+                forward((int)(h & 1023) + (int)(g->tick / (HZ * 30)), 80 + (int)((h >> 16) % 160));
+            Vec v = camera(add(scale(g->pos, 1, FP), scale(dir, 50000, 16384)));
+            if (v.z > 100) {
+                int x = f->w / 2 + (int)(v.x * (f->w / 2) / v.z),
+                    y = view_h / 2 - (int)(v.y * (f->w / 2) / v.z);
+                int width = 12 + (int)(h % 35);
+                if (y > 0 && y < view_h - 8) {
+                    rect(x, y, width, 3, 7);
+                    rect(x + 4, y - 2, width / 2, 7, 7);
+                }
+            }
+        }
+    }
     if (g->page == FLIGHT)
         world();
     if (g->page == FLIGHT) {
-        Vec p = camera(scale(g->ports[g->target].pos, 1, FP));
+        Vec p = camera(scale(navigation_position(g), 1, FP));
         if (p.z > 8) {
             int x = f->w / 2 + (int)(p.x * (f->w / 2) / p.z),
                 y = view_h / 2 - (int)(p.y * (f->w / 2) / p.z);
@@ -628,10 +836,13 @@ void render_game(const Game *g, Frame *f) {
                 line(x - 8, y + 8, x + 8, y + 8, 13);
                 line(x - 8, y - 8, x - 8, y + 8, 13);
                 line(x + 8, y - 8, x + 8, y + 8, 13);
-                text(x - 30, y + 12, 13, g->ports[g->target].name);
+                text(x - 30, y + 12, 13,
+                     g->target < 0 ? g->system.planets[g->target_body].name
+                                   : g->ports[g->target].name);
             }
         }
-        text(7, 8, 13, g->ports[g->target].name);
+        text(7, 8, 13,
+             g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name);
         if (!g->camera_mode) {
             line(f->w / 2 - 9, view_h / 2, f->w / 2 - 3, view_h / 2, 15);
             line(f->w / 2 + 3, view_h / 2, f->w / 2 + 9, view_h / 2, 15);

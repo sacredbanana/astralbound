@@ -25,19 +25,62 @@ static int noise(uint32_t seed, Vec q, int shift) {
         d = mix(sample(seed, x, y + 1, z + 1), sample(seed, x + 1, y + 1, z + 1), fx);
     return mix(mix(a, b, fy), mix(c, d, fy), fz);
 }
-int terrain_height(const Planet *p, Vec relative) {
+int terrain_elevation(const Planet *p, Vec relative) {
     Vec n = unit(relative, 65536);
     int h =
         noise(p->seed, n, 14) * 1400 / 4096 + noise(p->seed ^ 0x8537U, n, 12) * 250 / 4096 - 650;
     Vec pad = scale(forward(120, 180), 4, 1);
     int64_t d1 = length(sub(n, vec(0, 65536, 0))), d2 = length(sub(n, pad)), d = d1 < d2 ? d1 : d2;
-    if (h < 0)
-        h = 0; /* Flatten landing sites and blend out to the surrounding terrain. */
-    if (d < 350)
+    if (p->type == GAS_GIANT)
+        return 0;
+    if (p->type != OCEAN && h < 0)
         h = 0;
-    else if (d < 700)
-        h = h * (int)(d - 350) / 350;
+    /* Flatten landing sites and blend out to surrounding terrain. */
+    d = d * p->radius / 65536;
+    if (d < 1000)
+        h = 0;
+    else if (d < 2000)
+        h = h * (int)(d - 1000) / 1000;
     return h;
+}
+int terrain_height(const Planet *p, Vec relative) {
+    int h = terrain_elevation(p, relative);
+    return h < 0 ? 0 : h;
+}
+/* Shared land/water/forest/rock/ice classification drives local and globe LOD. */
+int terrain_material(const Planet *p, Vec relative) {
+    int h = terrain_elevation(p, relative);
+    Vec normal = unit(relative, 16384);
+    if (p->type == GAS_GIANT)
+        return 5;
+    if (p->type == ICE || normal.y > 14000 || normal.y < -14000)
+        return 4;
+    if (p->type == OCEAN && h <= 0)
+        return 0;
+    if (p->type == DESERT || p->type == MOON || h > 500)
+        return 3;
+    if (p->type == OCEAN && h > 80 && h < 450)
+        return 2;
+    return 1;
+}
+Vec terrain_vertex(const Planet *p, Vec anchor, Vec right, Vec front, int x, int y) {
+    Vec v = add(radial(anchor, p->radius), add(scale(right, x, 16384), scale(front, y, 16384)));
+    return add(p->center, radial(v, p->radius + terrain_height(p, v)));
+}
+int atmosphere_density(const Planet *p, int64_t altitude) {
+    int base;
+    int64_t remaining;
+    if (!p->atmosphere || altitude >= p->atmosphere)
+        return 0;
+    if (altitude < 0)
+        altitude = 0;
+    base = p->climate == THIN       ? 12
+           : p->climate == FROZEN   ? 6
+           : p->climate == DENSE    ? 220
+           : p->climate == HYDROGEN ? 180
+                                    : 64;
+    remaining = p->atmosphere - altitude;
+    return (int)((int64_t)base * remaining / p->atmosphere * remaining / p->atmosphere);
 }
 int nearest_body(const Game *g, Vec pos) {
     int i, best = 0;

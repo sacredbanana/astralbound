@@ -36,15 +36,103 @@ Vec add(Vec a, Vec b) {
 Vec sub(Vec a, Vec b) {
     return vec(a.x - b.x, a.y - b.y, a.z - b.z);
 }
+/* Common fixed-point divisors compile to shifts on 68k, preserving signed
+   truncation toward zero. General 64-bit division is reserved for other ratios. */
+static int64_t divide(int64_t value, int64_t d) {
+    switch (d) {
+    case 1:
+        return value;
+    case 2:
+        return value / 2;
+    case HZ:
+        return value / HZ;
+    case FP:
+        return value / FP;
+    case 16384:
+        return value / 16384;
+    case 65536:
+        return value / 65536;
+    case (1LL << 30):
+        return value / (1LL << 30);
+    default:
+        return value / d;
+    }
+}
+static int bits(uint64_t x) {
+    uint32_t word = (uint32_t)x;
+    int count = 0;
+    if (x >> 32) {
+        word = (uint32_t)(x >> 32);
+        count = 32;
+    }
+    if (word >> 16) {
+        word >>= 16;
+        count += 16;
+    }
+    if (word >> 8) {
+        word >>= 8;
+        count += 8;
+    }
+    if (word >> 4) {
+        word >>= 4;
+        count += 4;
+    }
+    if (word >> 2) {
+        word >>= 2;
+        count += 2;
+    }
+    if (word >> 1)
+        count++;
+    return count + 1;
+}
+/* Multiply/divide without overflowing intermediate astronomical coordinates.
+   Fast path covers ordinary local physics and all terrain work. */
+static int64_t muldiv(int64_t a, int64_t n, int64_t d) {
+    uint64_t u = a < 0 ? (uint64_t)(-(a + 1)) + 1 : (uint64_t)a;
+    uint64_t v = n < 0 ? (uint64_t)(-(n + 1)) + 1 : (uint64_t)n;
+    uint64_t den = d < 0 ? (uint64_t)(-(d + 1)) + 1 : (uint64_t)d;
+    uint64_t q, rem, fraction = 0, remainder = 0, bit;
+    int negative = (a < 0) ^ (n < 0) ^ (d < 0);
+    if (!den)
+        return 0;
+    if (!a || !n)
+        return 0;
+    if (n == 1)
+        return divide(a, d);
+    if (bits(u) + bits(v) <= 63)
+        return divide(a * n, d);
+    q = u / den;
+    rem = u % den;
+    for (bit = (uint64_t)1 << 63; bit; bit >>= 1) {
+        fraction *= 2;
+        remainder *= 2; /* Inputs here are bounded below 2^62 by the world limits. */
+        if (v & bit)
+            remainder += rem;
+        /* The invariant remainder < den bounds this step below 3*den.
+           Two subtractions replace expensive division/modulo on every bit. */
+        if (remainder >= den) {
+            remainder -= den;
+            fraction++;
+        }
+        if (remainder >= den) {
+            remainder -= den;
+            fraction++;
+        }
+    }
+    q = q * v + fraction;
+    return negative ? -(int64_t)q : (int64_t)q;
+}
 Vec scale(Vec a, int64_t n, int64_t d) {
-    return vec(a.x * n / d, a.y * n / d, a.z * n / d);
+    return vec(muldiv(a.x, n, d), muldiv(a.y, n, d), muldiv(a.z, n, d));
 }
 /* Scale before squaring, keeping lengths safe across the supported local frame. */
 int64_t length(Vec a) {
     int shift = 0;
     while (a.x > 1000000000LL || a.x < -1000000000LL || a.y > 1000000000LL || a.y < -1000000000LL ||
            a.z > 1000000000LL || a.z < -1000000000LL) {
-        a = scale(a, 1, 2);
+        a.x /= 2;
+        a.y /= 2;
+        a.z /= 2;
         shift++;
     }
     return (int64_t)isqrt64((uint64_t)(a.x * a.x + a.y * a.y + a.z * a.z)) << shift;
@@ -52,6 +140,14 @@ int64_t length(Vec a) {
 Vec unit(Vec a, int magnitude) {
     int64_t l = length(a);
     return l ? scale(a, magnitude, l) : vec(0, 0, 0);
+}
+/* Renormalize after expansion: a Q14 direction's tiny norm error would
+   otherwise bury a surface port hundreds of metres inside an Earth-size body. */
+Vec radial(Vec direction, int64_t radius) {
+    int64_t l = length(direction);
+    Vec p = l ? scale(direction, radius, l) : vec(0, 0, 0);
+    l = length(p);
+    return l ? scale(p, radius, l) : p;
 }
 int sini(int a) {
     return sine_table[(unsigned)a & 1023];
@@ -105,8 +201,12 @@ int swept_sphere(Vec start, Vec end, Vec center, int radius) {
 }
 Vec guidance(Vec p, Vec v, Vec target, int accel, int maxspeed) {
     Vec delta = sub(target, p), desired;
-    int64_t d = length(delta),
-            speed = isqrt64((uint64_t)(2LL * accel * (d > 4 * FP ? d - 4 * FP : 0)));
+    int64_t d = length(delta), speed;
+    int64_t envelope = (int64_t)maxspeed * maxspeed / (2 * (accel ? accel : 1));
+    if (d > envelope + 4 * FP)
+        speed = maxspeed;
+    else
+        speed = isqrt64((uint64_t)(2LL * accel * (d > 4 * FP ? d - 4 * FP : 0)));
     if (speed > maxspeed)
         speed = maxspeed; /* Conservative braking envelope, with a four-metre capture zone. */
     speed = speed * 3 / 4;

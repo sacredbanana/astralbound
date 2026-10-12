@@ -7,10 +7,11 @@ the [Unlicense](LICENSE). Reference screenshots and Frontier assets are not
 included in the game.
 
 **Status: playable development prototype, not a finished Frontier-scale game.**
-The current build has deterministic systems, several navigable planets per
-system, spherical procedural terrain, seamless surface/orbit flight, planetary
-and orbital ports, trading, six generated contract types, combat, upgrades,
-inter-system jumps and portable commander saves.
+The current build has astronomical-scale moving systems, central/binary stars,
+moons and rings, hierarchical flight frames, spherical terrain with continuous LOD
+edges, forests, coastlines and generated cities. It includes moving planetary/orbital
+ports, station clearance and docking corridors, sparse settlement, exploration
+journals, trading, six contract types, combat, upgrades and portable commander saves.
 
 ## Amiga builds
 
@@ -55,25 +56,40 @@ make
 ./build/space
 make test
 make sanitize
+make navigation-test  # longer, full interplanetary transfer
 make preview
 ```
 
 `--render FILE.ppm --surface` and `--render FILE.ppm --orbit` write deterministic
 frames without opening a window. The host and Amiga use the same simulation and
-renderer. `Space-tests.020` runs the core regression suite on an Amiga.
+renderer. `Space-tests.020` runs the full core suite on an Amiga;
+`Space-tests.020 --quick` runs the shorter native smoke suite. Full trajectories
+remain in the default suite, which can take a long time under emulation.
 
 ## First flight
 
 Start docked at Haven. Press **L**, then **P**, to travel to the orbital Relay.
-Press **T** to cycle ports, or **Y** to see the system destination list. Select a
-port with Up/Down, return to flight with **V**, and engage **P**. Request time
-compression with **]**; the safety controller reduces the effective rate near
+Press **T** to cycle ports, **Q** to cycle body waypoints, or **Y** to see the
+selected destination list. Up/Down changes its target; return to flight with **V**
+and engage **P**. Body waypoints stop above the atmosphere, including at gas giants.
+Orbital stations rotate and move: autopilot matches port velocity, waits for clearance,
+and enters through the marked corridor. **D** requests clearance for manual docking.
+Request time compression with **]**; the safety controller reduces the effective rate near
 terrain, a port, a braking limit or another ship. It never enlarges a physics tick.
 
 At a port, **B** opens contracts, **M** opens the market and **U** opens the
 shipyard. **J** lists contracts and destinations. **G** opens the galaxy map;
 select a sector using arrows and press **X** above 12 km altitude to jump. **C**
-centres the map on the current system. Jump range is six sectors.
+centres the map on the current system. Jump range is six one-light-year sectors.
+Star occupancy follows a four-arm galactic disc; empty sectors reject jumps. Green
+map markers identify visited systems. Unsettled systems have body targets and no
+markets or contract boards. The commander journal preserves up to 128 systems with
+visited/surveyed body masks. Close approaches below 100 km mark a body surveyed.
+
+Distances are metres, radii are kilometres, and planetary spacing is in AU. Journeys
+can take hours or days of simulated time; compression repeats fixed physics ticks.
+Fuel follows engine impulse, so small cruise corrections cost less than full thrust.
+Delivery deadlines allow six to eight simulated hours for the longer local journeys.
 
 V cycles front/rear/external views while already in flight.
 
@@ -93,6 +109,9 @@ between 600 and 6000 m. Survey work requires twenty simulated seconds between
 delivery and survey jobs pay automatically on completion. Rewards are paid once.
 
 Read [Space.guide](Space.guide) on the Amiga for the controls and prototype limits.
+Save generator version 3 includes exploration, frame, fuel-impulse and approach state.
+Version 2 prototype commanders are rejected rather than loaded into incompatible worlds.
+
 Research sources are in [docs/research.md](docs/research.md). Remaining full-game
 work is tracked in [docs/roadmap.md](docs/roadmap.md), and current test evidence in
 [docs/validation.md](docs/validation.md).

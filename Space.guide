@@ -53,6 +53,8 @@
   K         Raise/lower landing gear while flying.
   P         Toggle autopilot to the selected port.
   T         Cycle port targets.
+  Q         Cycle planet/moon approach waypoints.
+  D         Request manual docking clearance.
   V         Return to flight; in flight cycle front/rear/external view.
   Space     Pause/resume simulation.
   H         Show on-screen help.
@@ -62,7 +64,10 @@
   Space preserves momentum. Turning does not instantly change velocity.
   With assist disabled, W/S applies forward/reverse thrust directly.
   Manual impacts and excessive atmospheric speed can destroy the ship.
-  Lower gear and approach below 8 m/s to land or dock safely.
+  Lower gear and approach below 8 m/s relative to the port to dock.
+  Orbital stations move and rotate. Match their velocity, request D
+  clearance, then enter the central opening through the marked corridor.
+  Autopilot requests clearance and waits outside the corridor if busy.
 
 @endnode
 
@@ -71,9 +76,17 @@
 @prev flight
 @next contracts
 
-  Y opens the system destination list. Up/Down selects a port.
+  Y opens the system destination list. T selects inhabited ports;
+  Q selects body waypoints. Up/Down changes the selected list's target.
   V returns to flight, then P engages its autopilot.
-  The autopilot follows elevated waypoints around obstructing planets.
+  Body waypoints stop above the atmosphere. Gas giants cannot be landed on.
+  Autopilot follows elevated waypoints around planets and central stars.
+
+  Planets have realistic radii and astronomical orbital separations.
+  Stars, planets, moons and stations move in analytic circular orbits.
+  Flight velocities are relative to the current translated local frame.
+  Journeys may take hours or days of simulated time. Fuel use follows
+  engine impulse; small cruise corrections cost less than full thrust.
 
   ] raises requested time compression; [ reduces it.
   The HUD shows effective rate / requested rate.
@@ -85,6 +98,11 @@
   current system. X jumps when above 12 km with sufficient fuel,
   no nearby traffic and a destination within six sectors.
   J shows contract destination sectors and port numbers.
+  Empty galaxy cells reject jumps. Star density follows four spiral arms.
+  Unsettled systems have no ports; use Q and P to explore their bodies.
+  Green map markers show previously visited systems. The commander
+  journal records up to 128 systems and their visited/surveyed bodies.
+  An approach below 100 km marks a body surveyed.
 
 @endnode
 
@@ -137,7 +155,9 @@
 
   F5 saves to PROGDIR:space.sav. F9 loads the commander.
   Native modes restore the OS for file access, then resume takeover.
-  The save includes its format/generator version and checksum.
+  The save includes its format/generator version and checksum, exploration
+  journal, local frame, accumulated fuel impulse and docking approach.
+  Generator version 3 rejects old version 2 prototype commanders.
   A rejected or corrupt load leaves the current game unchanged.
 
   New data is written and closed before replacing the old slot.
@@ -172,10 +192,12 @@
 @prev hardware
 @next help
 
-  Planets are small and at static system positions. Gravity follows
-  the nearest planet. Spherical terrain can be flown over continuously,
-  but its LOD transitions still need refinement. Buildings and station
-  walls do not have collision geometry yet.
+  Orbits are inclined circles, not a full gravitational N-body solver.
+  Gravity follows the nearest body and adds solar gravity in space.
+  Terrain LOD edges share vertices and use a skirt to the coarse globe.
+  The renderer still uses painter sorting. Forests, buildings and clouds
+  are decorative. Station docking walls do have swept collision geometry.
+  Clearance traffic is scheduled; it is not a persistent civilian fleet.
 
   Mining, passengers, crew, factions, military careers, richer missions,
   police, missiles, countermeasures and sound/music remain to be built.
@@ -191,7 +213,7 @@
 @toc main
 @prev limits
 
-  Launch L / Target T / Auto P / Flight or camera V
+  Launch L / Port T / Body Q / Auto P / Clearance D / Flight V
   System ports Y / Galaxy G / Jump X / Contract log J
   Contracts B / Market M / Shipyard U
   Steer arrows / Set speed W S / Fire Ctrl / Assist E / Gear K

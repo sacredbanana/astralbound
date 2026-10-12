@@ -21,7 +21,7 @@ preview: build/space
 amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
-	rm -f build/space build/tests build/tests-sanitize build/*.ppm
+	rm -f build/space build/tests build/tests-sanitize build/navigation-tests build/*.ppm
 
 .PHONY: benchmark package
 build/benchmark: $(CORE) tools/benchmark.c src/space.h src/trig.h | build
@@ -30,3 +30,9 @@ benchmark: build/benchmark
 	./build/benchmark
 package:
 	./package.sh
+
+.PHONY: navigation-test
+build/navigation-tests: $(CORE) tests/test_navigation.c src/space.h src/trig.h | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_navigation.c -o $@
+navigation-test: build/navigation-tests
+	./build/navigation-tests

@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 typedef struct {
-    unsigned char data[8192];
+    unsigned char data[16384];
     size_t pos;
     int read, error;
 } Stream;
@@ -106,7 +106,24 @@ static void payload(Stream *s, Game *g) {
     FIELD(g->warp);
     FIELD(g->dead);
     FIELD(g->shots);
+    FIELD(g->fuel_burn);
     FIELD(g->camera_mode);
+    FIELD(g->dock_stage);
+    FIELD(g->target_body);
+    FIELD(g->frame_body);
+    FIELD(g->clearance);
+    FIELD(g->explored_count);
+    if (g->explored_count < 0 || g->explored_count > MAX_EXPLORED) {
+        s->error = 1;
+        return;
+    }
+    for (i = 0; i < g->explored_count; i++) {
+        sector(s, &g->explored[i].sector);
+        FIELD(g->explored[i].visited);
+        FIELD(g->explored[i].surveyed);
+        FIELD(g->explored[i].first_tick);
+        FIELD(g->explored[i].last_tick);
+    }
 }
 #undef FIELD
 static uint32_t checksum(const unsigned char *p, size_t n) {
@@ -126,15 +143,17 @@ static int good_vec(Vec v, int64_t bound) {
 }
 static int valid(const Game *g) {
     int i;
-    if (!good_sector(g->system.sector) || !good_sector(g->selected) ||
-        !good_vec(g->pos, 100000000000LL) || !good_vec(g->vel, 10000000) || g->ship < 0 ||
-        g->ship > 2 || g->target < 0 || g->target >= port_count(g) || g->docked < -2 ||
-        g->docked >= port_count(g) || g->hull < 0 || g->hull > 100 || g->shield < 0 ||
-        g->shield > 100 || g->fuel < 0 || g->fuel > 100 || g->heat < 0 || g->heat > 100 ||
-        g->credits < 0 || g->credits > 100000000 || g->pitch < -250 || g->pitch > 250 ||
-        g->yaw < 0 || g->yaw > 1023 || g->page < 0 || g->page > HELP || g->selection < 0 ||
-        g->selection >= MAX_MISSIONS || g->upgrade < 0 || g->upgrade > 3 || g->throttle < 0 ||
-        g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 2)
+    if (!g->system.count || !good_sector(g->system.sector) || !good_sector(g->selected) ||
+        !good_vec(g->pos, 2000000000000000LL) || !good_vec(g->vel, 512000000) || g->ship < 0 ||
+        g->ship > 2 ||
+        (g->target < -1 || g->target >= g->nports ||
+         (g->target < 0 && (g->target_body < 0 || g->target_body >= g->system.count))) ||
+        g->docked < -2 || g->docked >= port_count(g) || g->hull < 0 || g->hull > 100 ||
+        g->shield < 0 || g->shield > 100 || g->fuel < 0 || g->fuel > 100 || g->heat < 0 ||
+        g->heat > 100 || g->credits < 0 || g->credits > 100000000 || g->pitch < -250 ||
+        g->pitch > 250 || g->yaw < 0 || g->yaw > 1023 || g->page < 0 || g->page > HELP ||
+        g->selection < 0 || g->selection >= MAX_MISSIONS || g->upgrade < 0 || g->upgrade > 3 ||
+        g->throttle < 0 || g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 2)
         return 0;
     if (g->warp != 1 && g->warp != 4 && g->warp != 16 && g->warp != 64 && g->warp != 256)
         return 0;
@@ -150,9 +169,21 @@ static int valid(const Game *g) {
             return 0;
     }
     for (i = 0; i < MAX_NPC; i++)
-        if (!good_vec(g->npc[i].pos, 100000000000LL) || !good_vec(g->npc[i].vel, 10000000) ||
+        if (!good_vec(g->npc[i].pos, 2000000000000000LL) || !good_vec(g->npc[i].vel, 512000000) ||
             g->npc[i].mission < -1 || g->npc[i].mission >= MAX_MISSIONS)
             return 0;
+    if (g->fuel_burn >= 50000U * FP || g->dock_stage < 0 || g->dock_stage > 1 ||
+        g->target_body < -1 || g->target_body >= g->system.count || g->frame_body < -1 ||
+        g->frame_body >= g->system.count || g->clearance < -1 || g->clearance >= g->nports ||
+        g->explored_count < 0 || g->explored_count > MAX_EXPLORED)
+        return 0;
+    for (i = 0; i < g->explored_count; i++) {
+        const Exploration *e = &g->explored[i];
+        if (!good_sector(e->sector) || (e->surveyed & ~e->visited) ||
+            e->visited >= (1U << MAX_PLANETS) || e->first_tick > e->last_tick ||
+            e->last_tick > g->tick || exploration_index(g, e->sector) != i)
+            return 0;
+    }
     return cargo_used(g) <= ship_capacity[g->ship];
 }
 int save_game(const Game *g, const char *path) {

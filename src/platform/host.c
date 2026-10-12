@@ -34,13 +34,17 @@ int main(int argc, char **argv) {
             f.enhanced = 0;
         if (!strcmp(argv[i], "--orbit")) {
             g.docked = -1;
-            g.pos = vec(0, (g.system.planets[0].radius + 35000LL) * FP, -60000LL * FP);
+            g.pos = add(
+                scale(g.system.planets[0].center, FP, 1),
+                vec(0, (g.system.planets[0].radius + g.system.planets[0].atmosphere + 35000LL) * FP,
+                    -60000LL * FP));
             g.pitch = -70;
         }
         if (!strcmp(argv[i], "--surface")) {
             g.docked = -1;
-            g.pos = vec(0, (g.system.planets[0].radius + 400LL) * FP, -1800LL * FP);
-            g.pitch = -20;
+            g.pos = add(scale(g.system.planets[0].center, FP, 1),
+                        vec(0, (g.system.planets[0].radius + 220LL) * FP, -900LL * FP));
+            g.pitch = -35;
         }
     }
     f.pixels = malloc((size_t)f.w * f.h);
