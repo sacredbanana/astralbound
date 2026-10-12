@@ -1,0 +1,6 @@
+/build/
+/dist/
+*.sav
+*.sav.tmp
+*.sav.bak
+.DS_Store

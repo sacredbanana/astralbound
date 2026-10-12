@@ -1,0 +1,204 @@
+@database "Space.guide"
+@author "Space project"
+@$VER: Space.guide 0.1 (12.10.2026)
+@wordwrap
+@help help
+
+@node main "Space - Flight Manual"
+
+  @{b}SPACE - Amiga development prototype@{ub}
+
+  Original source and generated content released under the Unlicense.
+  This is a playable foundation. Full-game development is still ongoing.
+
+  @{"Installation " link install}
+  @{"Flight       " link flight}
+  @{"Navigation   " link navigation}
+  @{"Contracts    " link contracts}
+  @{"Trade / Ships" link trade}
+  @{"Save / Load  " link saving}
+  @{"Hardware     " link hardware}
+  @{"Known Limits " link limits}
+  @{"Quick Help   " link help}
+
+@endnode
+
+@node install "Installation"
+@toc main
+@next flight
+
+  Copy Space.000 and Space.020 to an Amiga drawer. Run from Shell:
+
+  Space.000 --ecs
+  Space.020 --aga
+  Space.020 --rtg
+
+  Native modes currently require PAL and Kickstart 3.0 or later.
+  AGA requires an AGA chipset. RTG needs CyberGraphX V41 or a
+  Picasso96 setup with the compatible CyberGraphX API.
+  Expansion RAM is needed; stock A500 performance is not established.
+
+@endnode
+
+@node flight "Flying Your Ship"
+@toc main
+@prev install
+@next navigation
+
+  L         Launch from a port or open ground.
+  Arrows    Pitch and yaw.
+  W / S     Increase or decrease set speed.
+  E         Toggle flight assist / direct thrust.
+  Ctrl      Fire the forward laser.
+  K         Raise/lower landing gear while flying.
+  P         Toggle autopilot to the selected port.
+  T         Cycle port targets.
+  V         Return to flight; in flight cycle front/rear/external view.
+  Space     Pause/resume simulation.
+  H         Show on-screen help.
+  Escape    Exit and restore Workbench.
+
+  Start with L, then P, to fly from Haven to its orbital Relay.
+  Space preserves momentum. Turning does not instantly change velocity.
+  With assist disabled, W/S applies forward/reverse thrust directly.
+  Manual impacts and excessive atmospheric speed can destroy the ship.
+  Lower gear and approach below 8 m/s to land or dock safely.
+
+@endnode
+
+@node navigation "Navigation and Time"
+@toc main
+@prev flight
+@next contracts
+
+  Y opens the system destination list. Up/Down selects a port.
+  V returns to flight, then P engages its autopilot.
+  The autopilot follows elevated waypoints around obstructing planets.
+
+  ] raises requested time compression; [ reduces it.
+  The HUD shows effective rate / requested rate.
+  Guidance lowers the effective rate near terrain, traffic, the
+  destination and braking limits. Manual flight stays at normal speed.
+  Compression uses repeated 1/32-second physics ticks.
+
+  G opens the galaxy map. Arrows select a sector. C centres on the
+  current system. X jumps when above 12 km with sufficient fuel,
+  no nearby traffic and a destination within six sectors.
+  J shows contract destination sectors and port numbers.
+
+@endnode
+
+@node contracts "Port Contracts"
+@toc main
+@prev navigation
+@next trade
+
+  Dock, press B, select an offer with 1-8, then Return to accept.
+  J lists contracts. Deadlines are in simulated time.
+
+  Courier / Freight: dock at the destination sector and port.
+  Freight reserves cargo space until the contract ends.
+
+  Orbit Patrol / Bounty: a hostile appears above 13 km altitude.
+  Air Patrol: a hostile appears between 600 and 6000 m.
+  Disable the target with the laser to complete the combat contract.
+
+  Survey: fly between 500 and 6000 m below 200 m/s for twenty seconds.
+
+  Payment is automatic and occurs once. Expired contracts fail.
+  These are simple prototype templates, not the complete career system.
+
+@endnode
+
+@node trade "Trading and Ship Services"
+@toc main
+@prev contracts
+@next saving
+
+  M opens the market. Select a commodity with 1-8.
+  + buys one tonne; - sells one tonne. Transactions require docking.
+  Your hold includes space reserved by active freight contracts.
+
+  U opens the shipyard.
+  F refuels and repairs for 100 credits.
+  O buys a laser upgrade for 2000 credits, up to three upgrades.
+  N buys a larger hull; the displayed cost depends on your ship.
+  L launches again.
+
+  Cinder, Loom and Hearth hulls have 20, 60 and 140 tonne holds.
+  The full equipment catalogue and persistent economy are unfinished.
+
+@endnode
+
+@node saving "Commander Saves"
+@toc main
+@prev trade
+@next hardware
+
+  F5 saves to PROGDIR:space.sav. F9 loads the commander.
+  Native modes restore the OS for file access, then resume takeover.
+  The save includes its format/generator version and checksum.
+  A rejected or corrupt load leaves the current game unchanged.
+
+  New data is written and closed before replacing the old slot.
+  On filesystems that cannot replace via Rename, the old slot is kept
+  as space.sav.bak. A failed replacement attempts to restore it.
+  Prototype save formats can change between development revisions.
+
+@endnode
+
+@node hardware "Hardware Backends"
+@toc main
+@prev saving
+@next limits
+
+  ECS uses 320 x 256 and five bitplanes with 32 colours.
+  AGA uses eight planes, 256 palette entries with 24-bit precision,
+  64-bit display fetches and extra terrain/atmosphere colour ranges.
+  Native output owns its Copper lists and double-buffered Chip RAM.
+  OS scheduling and interrupts are disabled during native play.
+
+  RTG uses a 640 x 480 driver-managed display and safe buffer messages.
+  Its OS remains running because the graphics-card driver requires it.
+  This is the portable RTG path; direct registers differ between cards.
+
+  Simulation uses integer coordinates, a lookup trig table and fixed
+  physics ticks. The 68000 and 68020 executables require no FPU.
+
+@endnode
+
+@node limits "Current Prototype Limits"
+@toc main
+@prev hardware
+@next help
+
+  Planets are small and at static system positions. Gravity follows
+  the nearest planet. Spherical terrain can be flown over continuously,
+  but its LOD transitions still need refinement. Buildings and station
+  walls do not have collision geometry yet.
+
+  Mining, passengers, crew, factions, military careers, richer missions,
+  police, missiles, countermeasures and sound/music remain to be built.
+  Native NTSC, joystick/mouse flight and RTG high-colour are unfinished.
+  Real-hardware frame rates have not been established.
+
+  Passing specific regression tests does not prove absence of all bugs.
+  See the source repository's docs/roadmap.md for the full development list.
+
+@endnode
+
+@node help "Quick Help"
+@toc main
+@prev limits
+
+  Launch L / Target T / Auto P / Flight or camera V
+  System ports Y / Galaxy G / Jump X / Contract log J
+  Contracts B / Market M / Shipyard U
+  Steer arrows / Set speed W S / Fire Ctrl / Assist E / Gear K
+  Time [ ] / Pause Space / Save F5 / Load F9 / Exit Escape
+
+  @{"Flight details" link flight}
+  @{"Navigation    " link navigation}
+  @{"Contents      " link main}
+
+@endnode

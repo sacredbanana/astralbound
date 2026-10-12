@@ -1,0 +1,14 @@
+Space's original code and generated content use the Unlicense in LICENSE.
+The Unlicense does not replace the terms of external tools or libraries.
+
+Amiga builds use m68k-amigaos-gcc and its standard runtime and amiga.lib.
+Those components retain their own terms from the toolchain distribution.
+AmigaOS, graphics.library, intuition.library and CyberGraphX/Picasso96
+are external platform components and are not distributed in this archive.
+
+The optional host preview links SDL2 from the user's installed environment.
+SDL2 and its notices are not bundled in the Amiga archive.
+
+Frontier: Elite II, its manuals and screenshots are research references.
+No Frontier executables, extracted source, ship meshes, fonts, music,
+logos, story text, or screenshot files are included in Space.
