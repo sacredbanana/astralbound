@@ -239,7 +239,7 @@ static void test_render(void) {
     game_init(&g, 8);
     f.pixels = malloc(320 * 256);
     assert(f.pixels);
-    render_init(&f);
+    assert(render_init(&f));
     for (i = 0; i < 320 * 3; i++)
         src[i] = (uint8_t)hash32((unsigned)i);
     {
@@ -267,6 +267,7 @@ static void test_render(void) {
         render_game(&g, &f);
     }
     free(f.pixels);
+    render_shutdown();
     puts("PASS planar conversion and varied renderer views");
 }
 static void test_routes(void) {

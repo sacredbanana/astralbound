@@ -6,11 +6,16 @@
 #define TRI_MAX 4096
 typedef struct {
     int x[3], y[3];
+    uint32_t inverse_z[3];
     int64_t z;
     uint8_t color;
 } Tri;
 static Tri triangles[TRI_MAX];
 static int nt;
+/* Reciprocal depth is linear in screen space. Keep the buffer in ordinary
+   RAM; only the final indexed image is copied to Amiga display memory. */
+static uint32_t *depth_buffer;
+static size_t depth_capacity;
 static Frame *frame;
 static const Game *game;
 static int view_h;
@@ -148,6 +153,7 @@ static void emit(Vec a, Vec b, Vec c, int color) {
         return;
     t = &triangles[nt];
     for (i = 0; i < 3; i++) {
+        t->inverse_z[i] = (uint32_t)(1073741824LL / v[i].z);
         t->x[i] = screen_coord(frame->w / 2 + v[i].x * (frame->w / 2) / v[i].z);
         t->y[i] = screen_coord(view_h / 2 - v[i].y * (frame->w / 2) / v[i].z);
     }
@@ -186,6 +192,16 @@ static int sort_tri(const void *a, const void *b) {
 }
 static void raster(const Tri *t) {
     int y, miny = t->y[0], maxy = t->y[0], i;
+    int64_t ax = t->x[1] - t->x[0], ay = t->y[1] - t->y[0];
+    int64_t bx = t->x[2] - t->x[0], by = t->y[2] - t->y[0];
+    int64_t az = (int64_t)t->inverse_z[1] - t->inverse_z[0];
+    int64_t bz = (int64_t)t->inverse_z[2] - t->inverse_z[0];
+    int64_t area = ax * by - bx * ay;
+    int64_t zx = az * by - bz * ay, zy = ax * bz - bx * az;
+    int64_t dz;
+    if (!area)
+        return;
+    dz = zx * 256 / area;
     for (i = 1; i < 3; i++) {
         if (t->y[i] < miny)
             miny = t->y[i];
@@ -200,18 +216,33 @@ static void raster(const Tri *t) {
         int xs[3], n = 0, j;
         for (i = 0; i < 3; i++) {
             j = (i + 1) % 3;
-            if ((t->y[i] <= y && t->y[j] > y) || (t->y[j] <= y && t->y[i] > y))
-                xs[n++] = t->x[i] +
-                          (int)((int64_t)(y - t->y[i]) * (t->x[j] - t->x[i]) / (t->y[j] - t->y[i]));
+            if ((t->y[i] <= y && t->y[j] > y) || (t->y[j] <= y && t->y[i] > y)) {
+                xs[n] = t->x[i] +
+                        (int)((int64_t)(y - t->y[i]) * (t->x[j] - t->x[i]) / (t->y[j] - t->y[i]));
+                n++;
+            }
         }
         if (n >= 2) {
             int l = xs[0] < xs[1] ? xs[0] : xs[1], r = xs[0] > xs[1] ? xs[0] : xs[1];
+            int64_t z;
             if (l < 0)
                 l = 0;
+            /* Evaluate the triangle's depth plane at the actual pixel, not
+               at a rounded scanline edge. This keeps shared faces coherent. */
+            z = ((int64_t)t->inverse_z[0] +
+                (zx * (l - t->x[0]) + zy * (y - t->y[0])) / area) * 256;
             if (r >= frame->w)
                 r = frame->w - 1;
-            if (r >= l)
-                memset(frame->pixels + y * frame->w + l, t->color, (size_t)(r - l + 1));
+            if (r >= l) {
+                int x;
+                for (x = l; x <= r; x++, z += dz) {
+                    size_t offset = (size_t)y * frame->w + x;
+                    if (z >= 0 && (uint32_t)(z / 256) >= depth_buffer[offset]) {
+                        depth_buffer[offset] = (uint32_t)(z / 256);
+                        frame->pixels[offset] = t->color;
+                    }
+                }
+            }
         }
     }
 }
@@ -724,15 +755,30 @@ static void menus(void) {
         break;
     }
 }
-void render_init(Frame *f) {
+void render_shutdown(void) {
+    free(depth_buffer);
+    depth_buffer = 0;
+    depth_capacity = 0;
+}
+int render_init(Frame *f) {
     int i;
+    size_t count;
+    uint32_t *buffer;
+    if (f->w <= 0 || f->h <= 56)
+        return 0;
+    count = (size_t)f->w * (f->h - 56);
+    buffer = realloc(depth_buffer, count * sizeof(*buffer));
+    if (!buffer)
+        return 0;
+    depth_buffer = buffer;
+    depth_capacity = count;
     if (!tables_ready)
         plane_tables();
     static const uint32_t base[32] = {
         0x040711, 0x0b1729, 0x12273e, 0x20394b, 0x294758, 0x335b71, 0x4b7890, 0x81a7b1,
         0x254b40, 0x35684d, 0x658958, 0x70cd93, 0xf0bb65, 0x65d3d5, 0xd77d65, 0xe9e8d5,
         0x354353, 0x778897, 0xb8c6c9, 0x414f64, 0x9ab3c7, 0x543e4c, 0x93516a, 0xdf827d,
-        0xefb3a0, 0x27376b, 0x384f87, 0x4f70aa, 0x7c9bc4, 0xaac1cf, 0xc3d4d5, 0xffffff};
+        0xefb3a0, 0x27376b, 0x384f87, 0x4f70aa, 0x536879, 0x657e8e, 0x78909e, 0xffffff};
     for (i = 0; i < 256; i++)
         f->palette[i] = base[i % 32];
     for (i = 0; i < 32; i++)
@@ -746,8 +792,8 @@ void render_init(Frame *f) {
             ((uint32_t)(10 + i * 2) << 16) | ((uint32_t)(28 + i * 4) << 8) | (unsigned)(65 + i * 7);
         f->palette[96 + i] =
             ((uint32_t)(42 + i * 7) << 16) | ((uint32_t)(30 + i * 5) << 8) | (unsigned)(20 + i * 3);
-        f->palette[112 + i] = ((uint32_t)(90 + i * 10) << 16) | ((uint32_t)(102 + i * 9) << 8) |
-                              (unsigned)(112 + i * 8);
+        f->palette[112 + i] = ((uint32_t)(44 + i * 5) << 16) | ((uint32_t)(58 + i * 5) << 8) |
+                              (unsigned)(72 + i * 5);
     }
     for (i = 0; i < 32; i++) {
         f->palette[128 + i] =
@@ -757,6 +803,7 @@ void render_init(Frame *f) {
         f->palette[192 + i] =
             ((uint32_t)(22 + i * 4) << 16) | ((uint32_t)(18 + i * 3) << 8) | (unsigned)(12 + i * 2);
     }
+    return 1;
 }
 void render_game(const Game *g, Frame *f) {
     int i;
@@ -778,6 +825,13 @@ void render_game(const Game *g, Frame *f) {
     }
     view_h = f->h - 56;
     nt = 0;
+    {
+        size_t count = (size_t)f->w * view_h;
+        /* Allocation happens in render_init, before native OS takeover. */
+        if (count > depth_capacity || !depth_buffer)
+            return;
+        memset(depth_buffer, 0, count * sizeof(*depth_buffer));
+    }
     for (i = 0; i < view_h; i++) {
         int c = 0;
         if (alt < g->system.planets[g->body].atmosphere) {
@@ -788,7 +842,7 @@ void render_game(const Game *g, Frame *f) {
                                              : 32;
             c = f->enhanced        ? base + i * 25 / view_h
                 : climate == DENSE ? 21 + i * 3 / view_h
-                                   : 25 + i * 5 / view_h;
+                                   : 4 + i * 4 / view_h;
         }
         rect(0, i, f->w, 1, c);
     }

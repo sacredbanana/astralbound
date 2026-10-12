@@ -93,3 +93,27 @@ These are host CPU timings and do not establish Amiga hardware frame rates.
 A GCC 16.1.1b 68000 optimization slowdown was isolated to an unnecessarily
 64-bit lighting dot product. Using bounded 32-bit operands lets the renderer
 compile in about 0.35 seconds at `-O2`, with no need to lower optimization.
+
+
+## City occlusion and polar contrast (2026-10-13)
+
+The painter renderer sorted triangles by average camera depth. Large ground
+triangles could cover parts of nearer buildings when looking down from above.
+The shared rasterizer now interpolates reciprocal depth per pixel, including
+clipped scanline spans. Its buffer is allocated before native OS takeover and
+freed after restoration. Polar ice uses darker blue-grey shades; the ECS
+atmosphere uses separate palette entries from ice and water.
+
+- `make test` and `make sanitize` pass, including crossing-surface occlusion,
+  opposite submission orders, clipped depth interpolation and ECS polar contrast.
+- `./build-amiga.sh all tests` builds both 68000/68020 games and the native suite.
+- Host surface, orbit and 1232-metre overhead city frames were inspected.
+- AmiKit RTG and ECS screenshots show the full overhead city and darker ground
+  after loading an isolated deterministic commander. Evidence:
+  `build/evidence/city-depth-rtg.png` and `city-depth-ecs.png`.
+- Host orbital benchmark: 0.198 ms/frame over 200 frames, hash `c8302a55`.
+  This does not establish native hardware performance or city-scene frame rates.
+
+The depth buffer costs 250 KiB for ECS/AGA and 1060 KiB for RTG. Simple cuboid
+buildings, a flattened landing zone and polar ice are still prototype content;
+this change fixes visibility and contrast rather than redesigning the city.

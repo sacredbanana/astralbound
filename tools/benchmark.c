@@ -18,7 +18,8 @@ int main(void) {
     f.pixels = malloc(320 * 256);
     if (!f.pixels)
         return 1;
-    render_init(&f);
+    if (!render_init(&f))
+        return 1;
     render_game(&g, &f);
     start = clock();
     for (i = 0; i < 200; i++)
@@ -28,5 +29,6 @@ int main(void) {
     printf("orbit: %.3f ms/frame, indexed frame hash %08lx\n",
            (double)(clock() - start) * 1000.0 / CLOCKS_PER_SEC / 200, (unsigned long)hash);
     free(f.pixels);
+    render_shutdown();
     return 0;
 }

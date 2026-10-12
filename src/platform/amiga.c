@@ -303,6 +303,7 @@ static void close_all(void) {
         DeleteMsgPort(timer_port);
     free(mapped);
     free(f.pixels);
+    render_shutdown();
     if (CyberGfxBase)
         CloseLibrary(CyberGfxBase);
     if (IntuitionBase)
@@ -347,7 +348,10 @@ int main(int argc, char **argv) {
         close_all();
         return 1;
     }
-    render_init(&f);
+    if (!render_init(&f)) {
+        close_all();
+        return 1;
+    }
     game_init(&g, 0x53504143);
     if (rtg) {
         timer_port = CreateMsgPort();

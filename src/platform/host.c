@@ -30,6 +30,16 @@ int main(int argc, char **argv) {
     int quit = 0, i;
     game_init(&g, 0x53504143);
     for (i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--rtg")) {
+            f.w = 640;
+            f.h = 480;
+        }
+        if (!strcmp(argv[i], "--city-overhead")) {
+            const Port *port = &g.ports[0];
+            g.docked = -1;
+            g.pos = add(port->pos, scale(port->normal, 1232LL * FP, 16384));
+            aim_angles(sub(port->pos, g.pos), &g.yaw, &g.pitch);
+        }
         if (!strcmp(argv[i], "--ecs"))
             f.enhanced = 0;
         if (!strcmp(argv[i], "--orbit")) {
@@ -51,12 +61,14 @@ int main(int argc, char **argv) {
     rgb = malloc((size_t)f.w * f.h * 4);
     if (!f.pixels || !rgb)
         return 1;
-    render_init(&f);
+    if (!render_init(&f))
+        return 1;
     if (argc > 2 && !strcmp(argv[1], "--render")) {
         render_game(&g, &f);
         ppm(&f, argv[2]);
         free(rgb);
         free(f.pixels);
+        render_shutdown();
         return 0;
     }
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
@@ -137,5 +149,6 @@ int main(int argc, char **argv) {
     SDL_Quit();
     free(rgb);
     free(f.pixels);
+    render_shutdown();
     return 0;
 }

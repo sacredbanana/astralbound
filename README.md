@@ -45,7 +45,9 @@ Native modes allocate all display memory before taking over, suspend scheduling
 and interrupts, and poll the hardware keyboard. Saving and loading temporarily
 restore the OS. Escape restores the display, DMA, interrupts and task scheduling.
 The prototype needs expansion RAM: its C renderer and 64-bit coordinate maths
-are not yet tuned to stock A500 performance. NTSC native output is not implemented.
+are not yet tuned to stock A500 performance. The depth buffer uses an additional
+250 KiB in ECS/AGA or 1060 KiB in RTG, allocated before native takeover and freed
+on exit. NTSC native output is not implemented.
 
 ## Host development preview
 
@@ -61,7 +63,9 @@ make preview
 ```
 
 `--render FILE.ppm --surface` and `--render FILE.ppm --orbit` write deterministic
-frames without opening a window. The host and Amiga use the same simulation and
+frames without opening a window. `--render FILE.ppm --city-overhead --rtg`
+reproduces a downward view of the starting city at 1232 metres in RTG resolution;
+use `--ecs` for the reduced palette. The host and Amiga use the same simulation and
 renderer. `Space-tests.020` runs the full core suite on an Amiga;
 `Space-tests.020 --quick` runs the shorter native smoke suite. Full trajectories
 remain in the default suite, which can take a long time under emulation.
