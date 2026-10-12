@@ -33,7 +33,8 @@
   Space.020 --aga
   Space.020 --rtg
 
-  Native modes currently require PAL and Kickstart 3.0 or later.
+  Native modes require Kickstart 3.0 or later and detect PAL/NTSC.
+  Add --lowres on PAL for a centred 320 x 200 display.
   AGA requires an AGA chipset. RTG needs CyberGraphX V41 or a
   Picasso96 setup with the compatible CyberGraphX API.
   Expansion RAM is needed; stock A500 performance is not established.
@@ -180,7 +181,10 @@
 @prev saving
 @next limits
 
-  ECS uses 320 x 256 and five bitplanes with 32 colours.
+  ECS uses PAL 320 x 256 or NTSC 320 x 200, five planes, 32 colours.
+  --lowres selects centred 320 x 200 on PAL, reducing pixel work.
+  At 200 lines, menus use the whole screen to keep all rows visible.
+  Native timing uses 50 Hz PAL or 60 Hz NTSC with fixed physics ticks.
   AGA uses eight planes, 256 palette entries with 24-bit precision,
   64-bit display fetches and extra terrain/atmosphere colour ranges.
   Native output owns its Copper lists and double-buffered Chip RAM.
@@ -209,7 +213,8 @@
 
   Mining, passengers, crew, factions, military careers, richer missions,
   police, missiles, countermeasures and sound/music remain to be built.
-  Native NTSC, joystick/mouse flight and RTG high-colour are unfinished.
+  Joystick/mouse flight and RTG high-colour are unfinished.
+  Native NTSC output still needs emulator and real-machine QA.
   Real-hardware frame rates have not been established.
 
   Passing specific regression tests does not prove absence of all bugs.

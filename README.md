@@ -31,11 +31,12 @@ Copy the contents of `dist/amiga` to an Amiga drawer and run from Shell:
 Space.000 --ecs
 Space.020 --aga
 Space.020 --rtg
+Space.020 --aga --lowres
 ```
 
-- **ECS:** PAL 320 x 256, 32 colours, double-buffered bitplanes and a private Copper
+- **ECS:** PAL 320 x 256 or NTSC 320 x 200, 32 colours, double-buffered bitplanes and a private Copper
   list. Requires Kickstart 3.0+ in this prototype, including on a 68000 machine.
-- **AGA:** PAL 320 x 256, 256 colours from the 24-bit palette, eight bitplanes,
+- **AGA:** PAL 320 x 256 or NTSC 320 x 200, 256 colours from the 24-bit palette, eight bitplanes,
   64-bit display fetches and double buffering. Use the 68020 executable.
 - **RTG:** 640 x 480, 256 colours, driver-managed double buffering. Requires
   CyberGraphX V41+ or Picasso96's compatible CGX API. RTG deliberately keeps the
@@ -46,8 +47,13 @@ and interrupts, and poll the hardware keyboard. Saving and loading temporarily
 restore the OS. Escape restores the display, DMA, interrupts and task scheduling.
 The prototype needs expansion RAM: its C renderer and 64-bit coordinate maths
 are not yet tuned to stock A500 performance. The depth buffer uses an additional
-250 KiB in ECS/AGA or 1060 KiB in RTG, allocated before native takeover and freed
-on exit. NTSC native output is not implemented.
+250 KiB at 320 x 256, 180 KiB at 320 x 200, or 1060 KiB in RTG, allocated
+before native takeover and freed on exit. Native output detects the OS video
+standard and keeps it: PAL timing is 50 Hz, NTSC is 60 Hz, with the same fixed
+physics ticks. `--lowres` selects a centred 320 x 200 display on PAL, reducing
+framebuffer/bitplane work by 22% and flight viewport pixels by 28%. It is native
+only; NTSC already uses 200 lines. Compact menus use the whole screen to keep
+all rows visible. Real-machine speed gains remain unmeasured.
 
 ## Host development preview
 
@@ -65,7 +71,8 @@ make preview
 `--render FILE.ppm --surface` and `--render FILE.ppm --orbit` write deterministic
 frames without opening a window. `--render FILE.ppm --city-overhead --rtg`
 reproduces a downward view of the starting city at 1232 metres in RTG resolution;
-use `--ecs` for the reduced palette. The host and Amiga use the same simulation and
+use `--ecs` for the reduced palette. `--lowres` or `--ntsc` previews the 320 x 200
+layout on the host; these flags cannot be combined with `--rtg`. The host and Amiga use the same simulation and
 renderer. `Space-tests.020` runs the full core suite on an Amiga;
 `Space-tests.020 --quick` runs the shorter native smoke suite. Full trajectories
 remain in the default suite, which can take a long time under emulation.

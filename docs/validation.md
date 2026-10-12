@@ -150,3 +150,34 @@ atmosphere uses separate palette entries from ice and water.
 The depth buffer costs 250 KiB for ECS/AGA and 1060 KiB for RTG. Simple cuboid
 buildings, a flattened landing zone and polar ice are still prototype content;
 this change fixes visibility and contrast rather than redesigning the city.
+
+## Native video layouts and reduced workload (2026-10-13)
+
+Native ECS/AGA now selects 320 x 256 on PAL or 320 x 200 on NTSC from
+graphics.library's display flags. `--lowres` selects a vertically centred
+320 x 200 window on PAL. Native CIA TOD timing uses the corresponding 50/60 Hz
+rate; physics still advances through fixed ticks. Copper plane pointers,
+allocation/free sizes, ECS palette mapping and C2P follow the selected height.
+AGA/RTG no longer allocate an unused ECS palette-mapping buffer.
+
+At 200 lines, menus occupy the whole screen with a balance/message footer;
+flight keeps the cockpit. This reduces indexed/planar display pixels by 21.875%
+and the flight viewport from 200 to 144 lines (28% fewer pixels). The depth
+buffer falls from 250 to 180 KiB. These are workload/memory reductions, not
+measured hardware speedups.
+
+- `make test` and `make sanitize` pass. New regressions compare all seven compact
+  menus with the established text layout, check PAL/NTSC display windows, and
+  round-trip every pixel of 200-line five/eight-plane C2P with allocation guards.
+- `./build-amiga.sh all tests` builds the 68000 and 68020 games and native suite.
+- AmiKit's PAL AGA configuration runs both AGA and ECS `--lowres` displays.
+  Screenshots show centred output, cockpit rows, all eight market items and
+  trade instructions. Native F5 resumes with a SAVED message, and Escape
+  restores Workbench with DMA flags `03F0` (native play uses `0380`). Evidence:
+  `build/evidence/video-lowres-{aga,ecs,market,save,exit}.png`.
+- Host `--lowres` surface and `--ntsc` orbit previews render at 320 x 200.
+
+NTSC selection/timing and layout have build and host regression coverage only;
+an actual NTSC emulator boot and real PAL/NTSC machines remain unverified.
+The ECS check used AGA hardware emulation, not a physical ECS chipset. Stock
+68000 frame rates and long-duration lifecycle tests remain open QA work.

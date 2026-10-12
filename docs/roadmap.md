@@ -50,7 +50,9 @@ painter sorting. Hardware frame rates and long-duration play remain QA work.
 - Turret views, targeting/radar, a system orbital map and richer system data.
 - Original procedural sound effects and music; the current build is silent.
 - Mouse and joystick flight; the current native input path is keyboard only.
-- NTSC native modes and lower-resolution workload options for slow machines.
+- [x] PAL/NTSC native layout selection and a centred PAL `--lowres` 320 x 200 option,
+  height-aware bitplanes/C2P and compact menus. NTSC runtime QA, real hardware and performance
+  measurements remain QA work (see validation notes).
 - Tuned 68000/020 rasterization, native blitter work, measured C2P and CPU variants.
 - RTG high-colour output and card-specific acceleration where the driver exposes it.
 - A release installer, Workbench icons, ADF/bootable distribution and hardware QA.

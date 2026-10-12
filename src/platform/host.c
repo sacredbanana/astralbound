@@ -27,9 +27,11 @@ int main(int argc, char **argv) {
     uint32_t *rgb;
     Uint64 last, now, freq;
     uint64_t accumulator = 0;
-    int quit = 0, i;
+    int quit = 0, i, compact = 0;
     game_init(&g, 0x53504143);
     for (i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--lowres") || !strcmp(argv[i], "--ntsc"))
+            compact = 1;
         if (!strcmp(argv[i], "--rtg")) {
             f.w = 640;
             f.h = 480;
@@ -56,6 +58,13 @@ int main(int argc, char **argv) {
                         vec(0, (g.system.planets[0].radius + 220LL) * FP, -900LL * FP));
             g.pitch = -35;
         }
+    }
+    if (compact) {
+        if (f.w != 320) {
+            fprintf(stderr, "--lowres/--ntsc previews require native resolution.\n");
+            return 1;
+        }
+        f.h = 200;
     }
     f.pixels = malloc((size_t)f.w * f.h);
     rgb = malloc((size_t)f.w * f.h * 4);

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
-   Native PAL ECS/AGA takeover; RTG stays under the graphics driver. */
+   Native PAL/NTSC ECS/AGA takeover; RTG stays under the graphics driver. */
 #include "space.h"
+#include "native_video.h"
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <devices/timer.h>
@@ -38,6 +39,7 @@ static UWORD *copper[2];
 static struct View *old_view;
 static UWORD old_dma, old_int, old_adk;
 static int taken, depth, aga, rtg, has_aga;
+static NativeVideo video;
 static struct Screen *screen;
 static struct Window *window;
 static struct ScreenBuffer *buffers[2];
@@ -84,12 +86,14 @@ static void build_copper(int b) {
         cmove(&p, 0x106, 0);
     }
     cmove(&p, 0x1e4, 0);
-    cmove(&p, 0x08e, 0x2c81);
-    cmove(&p, 0x090, 0x2cc1);
+    /* With DIWHIGH clear, legacy DIWSTOP infers vertical bit 8 from
+       inverted bit 7: PAL stops at 300/272, NTSC at 244. */
+    cmove(&p, 0x08e, (UWORD)((video.start << 8) | 0x81));
+    cmove(&p, 0x090, (UWORD)(((video.stop & 255) << 8) | 0xc1));
     cmove(&p, 0x092, 0x38);
     cmove(&p, 0x094, aga ? 0xb8 : 0xd0);
     for (i = 0; i < depth; i++) {
-        address = (ULONG)(planes[b] + i * 40 * 256);
+        address = (ULONG)(planes[b] + i * 40 * f.h);
         cmove(&p, (UWORD)(0xe0 + i * 4), (UWORD)(address >> 16));
         cmove(&p, (UWORD)(0xe2 + i * 4), (UWORD)address);
     }
@@ -290,7 +294,7 @@ static void close_all(void) {
     }
     for (i = 0; i < 2; i++) {
         if (planes[i])
-            FreeMem(planes[i], 40 * 256 * depth);
+            FreeMem(planes[i], 40 * f.h * depth);
         if (copper[i])
             FreeMem(copper[i], 4096);
     }
@@ -312,17 +316,23 @@ static void close_all(void) {
         CloseLibrary((struct Library *)GfxBase);
 }
 int main(int argc, char **argv) {
-    int i, j, back = 1, quit = 0;
+    int i, j, back = 1, quit = 0, lowres = 0;
     uint64_t accumulator = 0, last_time;
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--aga"))
             aga = 1;
         else if (!strcmp(argv[i], "--rtg"))
             rtg = 1;
+        else if (!strcmp(argv[i], "--lowres"))
+            lowres = 1;
         else if (strcmp(argv[i], "--ecs")) {
-            puts("Space --ecs | --aga | --rtg");
+            puts("Space --ecs | --aga | --rtg [--lowres (native only)]");
             return 1;
         }
+    }
+    if (rtg && lowres) {
+        puts("--lowres is for native ECS/AGA output.");
+        return 1;
     }
     GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR) "graphics.library", 39);
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR) "intuition.library", 39);
@@ -331,20 +341,23 @@ int main(int argc, char **argv) {
         close_all();
         return 1;
     }
-    if (!rtg &&
-        (!(GfxBase->DisplayFlags & PAL) || (aga && !(GfxBase->ChipRevBits0 & GFXF_AA_LISA)))) {
-        puts("Native prototype requires PAL; --aga also requires AGA hardware.");
+    if (!rtg && aga && !(GfxBase->ChipRevBits0 & GFXF_AA_LISA)) {
+        puts("--aga requires AGA hardware.");
         close_all();
         return 1;
     }
     has_aga = (GfxBase->ChipRevBits0 & GFXF_AA_LISA) != 0;
     depth = aga ? 8 : 5;
+    video = native_video((GfxBase->DisplayFlags & PAL) != 0, lowres);
+    if (!rtg)
+        clock_rate = video.rate;
     f.w = rtg ? 640 : 320;
-    f.h = rtg ? 480 : 256;
+    f.h = rtg ? 480 : video.height;
     f.enhanced = aga || rtg;
     f.pixels = calloc((size_t)f.w * f.h, 1);
-    mapped = malloc(320 * 256);
-    if (!f.pixels || !mapped) {
+    if (!rtg && !aga)
+        mapped = malloc((size_t)f.w * f.h);
+    if (!f.pixels || (!rtg && !aga && !mapped)) {
         close_all();
         return 1;
     }
@@ -376,7 +389,7 @@ int main(int argc, char **argv) {
         }
     } else {
         for (i = 0; i < 2; i++) {
-            planes[i] = AllocMem(40 * 256 * depth, MEMF_CHIP | MEMF_CLEAR);
+            planes[i] = AllocMem(40 * f.h * depth, MEMF_CHIP | MEMF_CLEAR);
             copper[i] = AllocMem(4096, MEMF_CHIP | MEMF_CLEAR);
             if (!planes[i] || !copper[i]) {
                 close_all();
@@ -475,11 +488,11 @@ int main(int argc, char **argv) {
         } else {
             const UBYTE *src = f.pixels;
             if (!aga) {
-                for (i = 0; i < 320 * 256; i++)
+                for (i = 0; i < f.w * f.h; i++)
                     mapped[i] = ecs_map[f.pixels[i]];
                 src = mapped;
             }
-            c2p(src, planes[back], 320, 256, depth);
+            c2p(src, planes[back], f.w, f.h, depth);
             vblank();
             hw->cop1lc = (ULONG)copper[back];
             hw->copjmp1 = 0;

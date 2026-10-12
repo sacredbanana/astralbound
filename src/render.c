@@ -813,6 +813,17 @@ void render_game(const Game *g, Frame *f) {
     int64_t alt = altitude_at(g, g->pos);
     frame = f;
     game = g;
+    /* Keep all eight rows and menu instructions readable at 200 lines.
+       Compact menus use the whole screen; flight retains its cockpit. */
+    if (f->h < 256 && g->page != FLIGHT) {
+        char status[110];
+        view_h = f->h;
+        memset(f->pixels, 0, (size_t)f->w * f->h);
+        menus();
+        snprintf(status, sizeof(status), "%ld CR  %s", (long)g->credits, g->message);
+        text(7, f->h - 12, 12, status);
+        return;
+    }
     camera_position = g->pos;
     camera_yaw = g->yaw;
     camera_pitch = g->pitch;
