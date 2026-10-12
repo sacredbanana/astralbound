@@ -56,8 +56,8 @@ static void mission(Stream *s, Mission *m) {
     FIELD(m->spawned);
     FIELD(m->deadline);
 }
-static void payload(Stream *s, Game *g) {
-    int i;
+static void payload(Stream *s, Game *g, uint32_t version) {
+    int i, j, legacy_stock[GOODS];
     Sector sector_id = g->system.sector;
     FIELD(g->seed);
     FIELD(g->tick);
@@ -84,7 +84,10 @@ static void payload(Stream *s, Game *g) {
     FIELD(g->kills);
     for (i = 0; i < GOODS; i++) {
         FIELD(g->cargo[i]);
-        FIELD(g->stock[i]);
+        legacy_stock[i] = market_stock(g, i);
+        FIELD(legacy_stock[i]);
+        if (s->read && (legacy_stock[i] < 0 || legacy_stock[i] > 10000))
+            s->error = 1;
     }
     for (i = 0; i < MAX_MISSIONS; i++) {
         mission(s, &g->board[i]);
@@ -124,6 +127,29 @@ static void payload(Stream *s, Game *g) {
         FIELD(g->explored[i].first_tick);
         FIELD(g->explored[i].last_tick);
     }
+    if (version >= SAVE_VERSION) {
+        FIELD(g->market_count);
+        if (g->market_count < 0 || g->market_count > MAX_MARKETS) {
+            s->error = 1;
+            return;
+        }
+        for (i = 0; i < g->market_count; i++) {
+            Market *m = &g->markets[i];
+            sector(s, &m->sector);
+            FIELD(m->port);
+            FIELD(m->last_tick);
+            for (j = 0; j < GOODS; j++)
+                FIELD(m->stock[j]);
+        }
+    } else if (s->read && g->docked >= 0 && g->docked < g->nports) {
+        Market *m = &g->markets[0];
+        g->market_count = 1;
+        m->sector = g->system.sector;
+        m->port = g->docked;
+        m->last_tick = g->tick;
+        for (j = 0; j < GOODS; j++)
+            m->stock[j] = legacy_stock[j];
+    }
 }
 #undef FIELD
 static uint32_t checksum(const unsigned char *p, size_t n) {
@@ -158,7 +184,7 @@ static int valid(const Game *g) {
     if (g->warp != 1 && g->warp != 4 && g->warp != 16 && g->warp != 64 && g->warp != 256)
         return 0;
     for (i = 0; i < GOODS; i++)
-        if (g->cargo[i] < 0 || g->cargo[i] > 140 || g->stock[i] < 0 || g->stock[i] > 10000)
+        if (g->cargo[i] < 0 || g->cargo[i] > 140)
             return 0;
     for (i = 0; i < MAX_MISSIONS * 2; i++) {
         const Mission *m = i < MAX_MISSIONS ? &g->contracts[i] : &g->board[i - MAX_MISSIONS];
@@ -184,6 +210,18 @@ static int valid(const Game *g) {
             e->last_tick > g->tick || exploration_index(g, e->sector) != i)
             return 0;
     }
+    if (g->market_count < 0 || g->market_count > MAX_MARKETS)
+        return 0;
+    for (i = 0; i < g->market_count; i++) {
+        const Market *m = &g->markets[i];
+        int j;
+        if (!good_sector(m->sector) || m->port < 0 || m->port >= MAX_PORTS ||
+            m->last_tick > g->tick || market_index(g, m->sector, m->port) != i)
+            return 0;
+        for (j = 0; j < GOODS; j++)
+            if (m->stock[j] < 0 || m->stock[j] > 10000)
+                return 0;
+    }
     return cargo_used(g) <= ship_capacity[g->ship];
 }
 int save_game(const Game *g, const char *path) {
@@ -196,13 +234,13 @@ int save_game(const Game *g, const char *path) {
     if (strlen(path) > 480 || !valid(g))
         return 0;
     s.pos = 16;
-    payload(&s, &copy);
+    payload(&s, &copy, SAVE_VERSION);
     len = s.pos;
     if (s.error)
         return 0;
     s.pos = 0;
     word(&s, 0x53504331);
-    word(&s, GENERATOR_VERSION);
+    word(&s, SAVE_VERSION);
     word(&s, (uint32_t)(len - 16));
     word(&s, checksum(s.data + 16, len - 16));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
@@ -244,7 +282,7 @@ int load_game(Game *g, const char *path) {
     Game copy;
     FILE *f = fopen(path, "rb");
     size_t len;
-    uint32_t size, crc;
+    uint32_t size, crc, version;
     if (!f)
         return 0;
     len = fread(s.data, 1, sizeof(s.data), f);
@@ -256,14 +294,17 @@ int load_game(Game *g, const char *path) {
     if (len < 16)
         return 0;
     s.read = 1;
-    if (word(&s, 0) != 0x53504331 || word(&s, 0) != GENERATOR_VERSION)
+    if (word(&s, 0) != 0x53504331)
+        return 0;
+    version = word(&s, 0);
+    if (version != GENERATOR_VERSION && version != SAVE_VERSION)
         return 0;
     size = word(&s, 0);
     crc = word(&s, 0);
     if (size != len - 16 || crc != checksum(s.data + 16, len - 16))
         return 0;
     game_init(&copy, 1);
-    payload(&s, &copy);
+    payload(&s, &copy, version);
     if (s.error || s.pos != len || !valid(&copy))
         return 0;
     copy.body = nearest_body(&copy, copy.pos);

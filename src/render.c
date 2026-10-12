@@ -695,11 +695,14 @@ static void menus(void) {
         text(12, 174, 7, "1-8 SELECT / ENTER ACCEPT / J LOG");
         break;
     case MARKET:
-        panel("PORT / COMMODITIES");
-        text(12, 28, 7, "ITEM          BUY  STOCK  HOLD");
+        snprintf(s, sizeof(s), "MARKET / %s",
+                 game->docked >= 0 && game->docked < game->nports
+                     ? game->ports[game->docked].name : "DOCK TO TRADE");
+        panel(s);
+        text(12, 28, 7, "ITEM         BUY SELL STOCK HOLD");
         for (i = 0; i < GOODS; i++) {
-            snprintf(s, sizeof(s), "%d %-11s %4d %4d %4d", i + 1, goods_names[i], price(game, i),
-                     game->stock[i], game->cargo[i]);
+            snprintf(s, sizeof(s), "%d %-9s %4d %4d %4d %3d", i + 1, goods_names[i], price(game, i),
+                     sell_price(game, i), market_stock(game, i), game->cargo[i]);
             text(12, 42 + i * 14, i == game->selection ? 12 : 15, s);
         }
         snprintf(s, sizeof(s), "HOLD %d/%d T - 1-8 SELECT  +/- TRADE", cargo_used(game),

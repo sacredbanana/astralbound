@@ -11,7 +11,7 @@ The current build has astronomical-scale moving systems, central/binary stars,
 moons and rings, hierarchical flight frames, spherical terrain with continuous LOD
 edges, forests, coastlines and generated cities. It includes moving planetary/orbital
 ports, station clearance and docking corridors, sparse settlement, exploration
-journals, trading, six contract types, combat, upgrades and portable commander saves.
+journals, persistent port markets, six contract types, combat, upgrades and portable commander saves.
 
 ## Amiga builds
 
@@ -100,7 +100,12 @@ V cycles front/rear/external views while already in flight.
 Flight controls: arrows steer, W/S change set speed, Ctrl fires, E switches flight
 assist, K controls landing gear, Space pauses, H opens help, F5 saves, F9 loads,
 and Escape exits. At ports F refuels and repairs, O upgrades the laser, and N
-buys a larger hull. On the market, 1-8 selects a commodity and +/- buys/sells.
+buys a larger hull. On the market, 1-8 selects a commodity and +/- buys/sells. Both buy and sell
+quotes are shown. Each port has independent supply: purchases raise scarcity prices,
+while sales increase stock and lower prices. Supply returns towards its generated
+level by one tonne per simulated hour, including while travelling elsewhere.
+Up to 128 traded ports are preserved in the commander ledger across jumps and saves;
+when it fills, existing markets remain usable, but trading at new ports is refused.
 On the contract board, 1-8 selects an offer and Return accepts it.
 
 ## Contracts
@@ -113,8 +118,10 @@ between 600 and 6000 m. Survey work requires twenty simulated seconds between
 delivery and survey jobs pay automatically on completion. Rewards are paid once.
 
 Read [Space.guide](Space.guide) on the Amiga for the controls and prototype limits.
-Save generator version 3 includes exploration, frame, fuel-impulse and approach state.
-Version 2 prototype commanders are rejected rather than loaded into incompatible worlds.
+Save format 4 includes the market ledger alongside exploration, frame, fuel-impulse
+and approach state. World generation stays at version 3. Version 3 commanders load
+with their saved stock assigned to the docked port; other ports start with generated
+supply. Version 2 prototype commanders remain incompatible.
 
 Research sources are in [docs/research.md](docs/research.md). Remaining full-game
 work is tracked in [docs/roadmap.md](docs/roadmap.md), and current test evidence in

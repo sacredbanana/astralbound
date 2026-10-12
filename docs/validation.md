@@ -1,3 +1,36 @@
+# Validation - Persistent port market development build
+
+Verified on 13 October 2026:
+
+- `make test` and `make sanitize` pass, including all 58 docking routes and the
+  existing navigation/combat/safe-compression regressions.
+- New market regressions cover independent port inventories, return to a system,
+  scarcity pricing, hourly recovery from shortages and surpluses, exact transaction
+  quotes, failed-trade atomicity, credit limits, and same-port buy/sell losses across
+  32 seeds and all eight commodities.
+- Save checks cover version 3 migration, ledger roundtrips, malformed checksummed
+  ledgers, duplicate records, future timestamps, and a fully occupied 128-market
+  ledger together with the full exploration journal in the bounded save buffer.
+- `make` builds the host preview. `./build-amiga.sh all tests` builds both 68000 and
+  68020 games and the native test executable with warnings treated as errors.
+- The final `Space-tests.020 --quick` passes in AmiKit/Amiberry, including the new
+  market and save regressions. Output: `build/evidence/market-tests-amiga.txt`.
+- The ECS market screen is readable at native resolution and shows the port name,
+  buy/sell quotes, stock and cargo (`build/evidence/market-ecs.png`). Escape returns
+  to Workbench (`build/evidence/market-native-exit.png`).
+- RTG purchase/save/sale/load interaction restores the purchased tonne, reduced
+  stock and matching credits (`build/evidence/market-final-rtg.png`).
+- The AmigaGuide checker reports zero errors and warnings; `package.sh` creates
+  ZIP and LHA bundles and verifies their extracted contents.
+
+The ledger stores at most 128 traded ports. It preserves existing entries rather
+than evicting them; trading at a new port is refused when it is full. Replenishment
+is a deterministic recovery towards generated stock, one tonne per simulated hour,
+not a simulation of civilian industry or freight fleets. Version 3 saves preserve
+legacy stock at the docked port; in-flight legacy saves start with generated markets.
+World generator version 3 is unchanged. These runtime checks use an accelerated
+emulator; real Amiga hardware performance and other RTG drivers remain unverified.
+
 # Validation - World and navigation development build
 
 Verified on 13 October 2026. This records development-model checks, not production

@@ -43,8 +43,6 @@ void setup_system(Game *g, Sector sector) {
         }
     }
     update_world(g);
-    for (i = 0; i < GOODS; i++)
-        g->stock[i] = 10 + hash32(g->system.seed + (unsigned)i) % 80;
     memset(g->npc, 0, sizeof(g->npc));
     for (i = 0; i < MAX_MISSIONS; i++)
         if (g->contracts[i].state == ACTIVE)
@@ -652,7 +650,7 @@ void game_action(Game *g, int k) {
         break;
     case '-':
         if (g->page == MARKET)
-            say(g, trade(g, g->selection, 0) ? "SOLD 1 TONNE" : "NO CARGO TO SELL");
+            say(g, trade(g, g->selection, 0) ? "SOLD 1 TONNE" : "SALE REFUSED");
         break;
     case 'f':
         if (g->docked >= 0 && g->credits >= 100) {

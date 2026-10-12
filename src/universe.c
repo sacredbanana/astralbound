@@ -380,29 +380,88 @@ int cargo_used(const Game *g) {
             n += g->contracts[i].quantity;
     return n;
 }
+/* Only traded markets occupy the bounded commander ledger. Quotes lazily
+   recover towards generated supply, one tonne per simulated hour. */
+int market_index(const Game *g, Sector sector, int port) {
+    int i;
+    for (i = 0; i < g->market_count; i++) {
+        const Market *m = &g->markets[i];
+        if (m->port == port && m->sector.x == sector.x && m->sector.y == sector.y &&
+            m->sector.z == sector.z)
+            return i;
+    }
+    return -1;
+}
+static int normal_stock(const Game *g, int good) {
+    uint32_t h = hash32(g->system.seed + (uint32_t)good * 7919U +
+                       (uint32_t)(g->docked + 1) * 113U);
+    return 10 + (int)(h % 80);
+}
+int market_stock(const Game *g, int good) {
+    int i, stock, normal, recovery;
+    if (good < 0 || good >= GOODS || g->docked < 0 || g->docked >= g->nports)
+        return 0;
+    normal = normal_stock(g, good);
+    i = market_index(g, g->system.sector, g->docked);
+    if (i < 0)
+        return normal;
+    stock = g->markets[i].stock[good];
+    recovery = (int)((g->tick - g->markets[i].last_tick) / MARKET_INTERVAL);
+    if (stock < normal)
+        return stock + (recovery < normal - stock ? recovery : normal - stock);
+    return stock - (recovery < stock - normal ? recovery : stock - normal);
+}
 int price(const Game *g, int good) {
     static const int base[GOODS] = {12, 25, 90, 170, 290, 390, 600, 60};
-    uint32_t h = hash32(g->system.seed + (uint32_t)good * 7919U + (uint32_t)(g->docked + 1) * 41U);
-    return base[good] * (70 + (int)(h % 61) + (good % 4 == g->system.economy ? -25 : 15)) / 100;
+    uint32_t h;
+    int normal, supply, scarcity, p;
+    if (good < 0 || good >= GOODS || g->docked < 0 || g->docked >= g->nports)
+        return 0;
+    h = hash32(g->system.seed + (uint32_t)good * 7919U + (uint32_t)(g->docked + 1) * 41U);
+    normal = normal_stock(g, good);
+    supply = market_stock(g, good);
+    scarcity = (normal - supply) * 50 / normal;
+    if (scarcity < -25)
+        scarcity = -25;
+    p = base[good] * (70 + (int)(h % 61) +
+                     (good % 4 == g->system.economy ? -25 : 15)) / 100;
+    p = p * (100 + scarcity) / 100;
+    return p > 0 ? p : 1;
+}
+int sell_price(const Game *g, int good) {
+    return price(g, good) * 9 / 10;
 }
 int trade(Game *g, int good, int buy) {
-    int p;
-    if (g->docked < 0 || good < 0 || good >= GOODS || g->dead)
+    int p, i, j, stock;
+    Market *m;
+    if (g->docked < 0 || g->docked >= g->nports || good < 0 || good >= GOODS || g->dead)
         return 0;
-    p = price(g, good);
+    stock = market_stock(g, good);
+    p = buy ? price(g, good) : sell_price(g, good);
     if (buy) {
-        if (g->credits < p || g->stock[good] < 1 || cargo_used(g) >= ship_capacity[g->ship])
+        if (g->credits < p || stock < 1 || cargo_used(g) >= ship_capacity[g->ship])
             return 0;
-        g->credits -= p;
-        g->cargo[good]++;
-        g->stock[good]--;
-    } else {
-        if (!g->cargo[good])
+    } else if (!g->cargo[good] || stock >= 10000 || g->credits > 100000000 - p)
+        return 0;
+    i = market_index(g, g->system.sector, g->docked);
+    if (i < 0) {
+        if (g->market_count == MAX_MARKETS)
             return 0;
-        g->credits += p * 9 / 10;
-        g->cargo[good]--;
-        g->stock[good]++;
+        i = g->market_count++;
+        g->markets[i].sector = g->system.sector;
+        g->markets[i].port = g->docked;
+        g->markets[i].last_tick = g->tick;
+        for (j = 0; j < GOODS; j++)
+            g->markets[i].stock[j] = normal_stock(g, j);
     }
+    m = &g->markets[i];
+    for (j = 0; j < GOODS; j++)
+        m->stock[j] = market_stock(g, j);
+    /* Keep fractional replenishment time when trades happen within the hour. */
+    m->last_tick += ((g->tick - m->last_tick) / MARKET_INTERVAL) * MARKET_INTERVAL;
+    g->credits += buy ? -p : p;
+    g->cargo[good] += buy ? 1 : -1;
+    m->stock[good] += buy ? -1 : 1;
     return 1;
 }
 int accept_mission(Game *g, int index) {

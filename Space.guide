@@ -136,6 +136,12 @@
   M opens the market. Select a commodity with 1-8.
   + buys one tonne; - sells one tonne. Transactions require docking.
   Your hold includes space reserved by active freight contracts.
+  The screen shows separate buy and sell prices for each commodity.
+  Each port keeps its own supply. Purchases raise scarcity prices;
+  selling increases stock and lowers prices. Supply recovers towards
+  its generated level by one tonne per simulated hour, even while away.
+  Saves preserve up to 128 traded ports across jumps. A full ledger
+  refuses trades at new ports; existing markets remain usable.
 
   U opens the shipyard.
   F refuels and repairs for 100 credits.
@@ -144,7 +150,7 @@
   L launches again.
 
   Cinder, Loom and Hearth hulls have 20, 60 and 140 tonne holds.
-  The full equipment catalogue and persistent economy are unfinished.
+  The full equipment catalogue and civilian economy are unfinished.
 
 @endnode
 
@@ -156,8 +162,10 @@
   F5 saves to PROGDIR:space.sav. F9 loads the commander.
   Native modes restore the OS for file access, then resume takeover.
   The save includes its format/generator version and checksum, exploration
-  journal, local frame, accumulated fuel impulse and docking approach.
-  Generator version 3 rejects old version 2 prototype commanders.
+  journal, local frame, accumulated fuel impulse, docking approach and markets.
+  Save format 4 keeps world generator version 3. Version 3 commanders load
+  with saved supply assigned to the docked port; other ports use generated
+  supply. Old version 2 prototype commanders remain incompatible.
   A rejected or corrupt load leaves the current game unchanged.
 
   New data is written and closed before replacing the old slot.

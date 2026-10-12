@@ -14,6 +14,9 @@
 #define MAX_PORTS (MAX_PLANETS * PORTS_PER_PLANET)
 #define GENERATOR_VERSION 3
 #define MAX_EXPLORED 128
+#define MAX_MARKETS 128
+#define MARKET_INTERVAL (HZ * 3600U)
+#define SAVE_VERSION 4
 #define AU_METRES 149597870700LL
 
 typedef struct {
@@ -89,6 +92,12 @@ typedef struct {
     uint32_t first_tick, last_tick;
 } Exploration;
 typedef struct {
+    Sector sector;
+    int port;
+    uint32_t last_tick;
+    int stock[GOODS];
+} Market;
+typedef struct {
     uint32_t seed, tick;
     System system;
     Port ports[MAX_PORTS];
@@ -98,7 +107,9 @@ typedef struct {
     Vec pos, vel;
     int yaw, pitch, target, docked, gear, autopilot, assist, body;
     int throttle, hull, shield, fuel, heat, credits, ship, upgrade, kills;
-    int cargo[GOODS], stock[GOODS];
+    int cargo[GOODS];
+    Market markets[MAX_MARKETS];
+    int market_count;
     Mission board[MAX_MISSIONS], contracts[MAX_MISSIONS];
     Npc npc[MAX_NPC];
     Sector selected;
@@ -165,7 +176,10 @@ int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int acceleration, int radius);
 Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int maxspeed);
 int swept_sphere(Vec start, Vec end, Vec center, int radius);
+int market_stock(const Game *g, int good);
+int market_index(const Game *g, Sector sector, int port);
 int price(const Game *g, int good);
+int sell_price(const Game *g, int good);
 int cargo_used(const Game *g);
 int trade(Game *g, int good, int buy);
 int accept_mission(Game *g, int index);

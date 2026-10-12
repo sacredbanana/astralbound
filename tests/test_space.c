@@ -165,6 +165,154 @@ static void test_economy(void) {
     assert(!accept_mission(&g, 2));
     puts("PASS trading, reserved cargo and duplicate-contract rejection");
 }
+static void test_markets(void) {
+    Game g, h, before;
+    int normal, quote, other, i;
+    Sector home = {0, 0, 0};
+    game_init(&g, 1);
+    g.credits = 100000;
+    normal = market_stock(&g, 6);
+    quote = price(&g, 6);
+    assert(g.market_count == 0);
+    assert(trade(&g, 6, 1));
+    assert(market_stock(&g, 6) == normal - 1);
+    assert(g.credits == 100000 - quote);
+    g.docked = 1;
+    other = market_stock(&g, 6);
+    assert(trade(&g, 6, 1));
+    assert(market_stock(&g, 6) == other - 1);
+    g.docked = 0;
+    assert(market_stock(&g, 6) == normal - 1 && g.market_count == 2);
+    setup_system(&g, (Sector){1, 0, 1});
+    setup_system(&g, home);
+    g.docked = 0;
+    assert(market_stock(&g, 6) == normal - 1);
+    for (i = 0; i < 10 && market_stock(&g, 6); i++)
+        assert(trade(&g, 6, 1));
+    assert(price(&g, 6) > quote);
+    assert(save_game(&g, TEST_SAVE));
+    assert(load_game(&h, TEST_SAVE));
+    assert(h.market_count == g.market_count && market_stock(&h, 6) == market_stock(&g, 6));
+    assert(price(&h, 6) == price(&g, 6));
+    g.tick += MARKET_INTERVAL - 1;
+    assert(market_stock(&g, 6) == normal - 11);
+    g.tick++;
+    assert(market_stock(&g, 6) == normal - 10);
+    /* Trade materializes recovery for every commodity and preserves sub-hour time. */
+    assert(trade(&g, 0, 1));
+    assert(market_stock(&g, 6) == normal - 10);
+    g.tick += MARKET_INTERVAL * 100;
+    assert(market_stock(&g, 6) == normal && price(&g, 6) == quote);
+    g.markets[0].stock[6] = 0;
+    g.markets[0].last_tick = g.tick;
+    before = g;
+    assert(!trade(&g, 6, 1));
+    assert(!memcmp(&g, &before, sizeof(g)));
+    quote = sell_price(&g, 6);
+    assert(trade(&g, 6, 0));
+    assert(g.credits == before.credits + quote && market_stock(&g, 6) == 1);
+    g.credits = 0;
+    before = g;
+    assert(!trade(&g, 0, 1));
+    assert(!trade(&g, -1, 1) && !trade(&g, GOODS, 0));
+    assert(price(&g, GOODS) == 0 && market_stock(&g, -1) == 0);
+    assert(!memcmp(&g, &before, sizeof(g)));
+    g.credits = 100000000;
+    before = g;
+    assert(!trade(&g, 6, 0) && !memcmp(&g, &before, sizeof(g)));
+    g.credits = 100000;
+    g.markets[0].stock[6] = normal + 3;
+    g.tick += MARKET_INTERVAL;
+    assert(market_stock(&g, 6) == normal + 2);
+    g.markets[0].last_tick = g.tick + 1;
+    assert(!save_game(&g, TEST_SAVE));
+    g.markets[0].last_tick = g.tick;
+    g.markets[1] = g.markets[0];
+    assert(!save_game(&g, TEST_SAVE));
+    game_init(&g, 1);
+    for (i = 0; i < MAX_MARKETS; i++) {
+        g.markets[i].sector = (Sector){i + 1, 0, 0};
+        g.markets[i].port = 0;
+    }
+    g.market_count = MAX_MARKETS;
+    for (i = 1; i < MAX_EXPLORED; i++) {
+        g.explored[i].sector = (Sector){i, 0, 0};
+        g.explored[i].visited = 1;
+    }
+    g.explored_count = MAX_EXPLORED;
+    before = g;
+    assert(!trade(&g, 0, 1));
+    assert(!memcmp(&g, &before, sizeof(g)));
+    assert(save_game(&g, TEST_SAVE) && load_game(&h, TEST_SAVE));
+    assert(h.market_count == MAX_MARKETS && h.explored_count == MAX_EXPLORED);
+    for (i = 0; i < 32; i++) {
+        int good;
+        game_init(&g, (uint32_t)i);
+        g.credits = 100000;
+        for (good = 0; good < GOODS; good++) {
+            int credits = g.credits, stock = market_stock(&g, good);
+            assert(trade(&g, good, 1) && trade(&g, good, 0));
+            assert(g.credits <= credits && market_stock(&g, good) == stock);
+        }
+    }
+    remove(TEST_SAVE);
+    remove(TEST_SAVE ".bak");
+    puts("PASS independent persistent markets, scarcity, replenishment and atomic refusals");
+}
+static void put_word(unsigned char *p, uint32_t n) {
+    p[0] = (unsigned char)(n >> 24);
+    p[1] = (unsigned char)(n >> 16);
+    p[2] = (unsigned char)(n >> 8);
+    p[3] = (unsigned char)n;
+}
+static void test_legacy_market_save(void) {
+    Game g, h, before;
+    unsigned char data[16384];
+    size_t len, i;
+    uint32_t sum = 2166136261U;
+    int stock;
+    FILE *f;
+    game_init(&g, 17);
+    assert(trade(&g, 0, 1));
+    stock = market_stock(&g, 0);
+    assert(save_game(&g, TEST_SAVE));
+    f = fopen(TEST_SAVE, "rb");
+    assert(f);
+    len = fread(data, 1, sizeof(data), f);
+    fclose(f);
+    /* Version 3 ends before the market ledger; its common prefix includes stock. */
+    len -= 4 + 52 * g.market_count;
+    put_word(data + 4, GENERATOR_VERSION);
+    put_word(data + 8, (uint32_t)(len - 16));
+    for (i = 16; i < len; i++)
+        sum = (sum ^ data[i]) * 16777619U;
+    put_word(data + 12, sum);
+    f = fopen(TEST_SAVE, "wb");
+    assert(f && fwrite(data, 1, len, f) == len);
+    fclose(f);
+    assert(load_game(&h, TEST_SAVE));
+    assert(h.market_count == 1 && market_stock(&h, 0) == stock);
+    assert(h.credits == g.credits && h.cargo[0] == g.cargo[0]);
+    /* A valid checksum still cannot admit malformed ledger state. */
+    assert(save_game(&h, TEST_SAVE));
+    f = fopen(TEST_SAVE, "rb");
+    assert(f);
+    len = fread(data, 1, sizeof(data), f);
+    fclose(f);
+    put_word(data + len - 52 - 4, MAX_MARKETS + 1);
+    sum = 2166136261U;
+    for (i = 16; i < len; i++)
+        sum = (sum ^ data[i]) * 16777619U;
+    put_word(data + 12, sum);
+    f = fopen(TEST_SAVE, "wb");
+    assert(f && fwrite(data, 1, len, f) == len);
+    fclose(f);
+    before = h;
+    assert(!load_game(&h, TEST_SAVE) && !memcmp(&h, &before, sizeof(h)));
+    remove(TEST_SAVE);
+    remove(TEST_SAVE ".bak");
+    puts("PASS version 3 commander migration and checksummed malformed market rejection");
+}
 static void test_auto(void) {
     Game g;
     int i;
@@ -419,6 +567,8 @@ int main(int argc, char **argv) {
     test_world();
     test_collision();
     test_economy();
+    test_markets();
+    test_legacy_market_save();
     if (!quick)
         test_auto();
     test_ai();

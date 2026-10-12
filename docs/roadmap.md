@@ -38,7 +38,9 @@ painter sorting. Hardware frame rates and long-duration play remain QA work.
 - Escort, rescue, assassination, reconnaissance, surface-installation attack and
   multi-leg contracts with negotiable terms and reputation gates.
 - Original factions, military ranks, medals, reputation and legal status.
-- Persistent markets and stock, contraband/black markets, police and piracy.
+- [x] Independent port stock, scarcity prices, hourly supply recovery, separate buy/sell
+  quotes, and a portable ledger of 128 traded ports, with version 3 save migration.
+- Contraband/black markets, police and piracy.
 - Asteroid mining, surface mining rigs, cargo collection and fuel scooping.
 - Ship catalogue with distinct geometry, mass, acceleration, equipment and hardpoints.
 - Missiles, countermeasures, multiple weapon mounts, turrets and escape pods.
@@ -60,5 +62,6 @@ its translated body frame or the system frame. Gravity uses the nearest body and
 solar gravity in the system frame outside body influence regions. Ships collide
 with terrain and station docking walls; decorative city buildings and forests do not
 have collision geometry. Hostile targets remain simple mission encounters. Contracts,
-markets and commander saves remain bounded rather than a full persistent economy.
+markets and commander saves remain bounded; civilian production, consumption and trade
+fleets are not simulated.
 No claim is made that stock A500 frame rates or all RTG cards have been validated.
