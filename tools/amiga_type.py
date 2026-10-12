@@ -20,4 +20,5 @@ for c in sys.argv[1]:
     if shift: commands += ['SEND_KEY 96 1']
     commands += [f'SEND_KEY {code} 1','SLEEP 0.04',f'SEND_KEY {code} 0','SLEEP 0.04']
     if shift: commands += ['SEND_KEY 96 0']
-subprocess.run([sys.executable,str(client),'batch',*commands],check=True,stdout=subprocess.DEVNULL)
+options = ['--socket', os.environ['AMIBERRY_IPC_SOCKET']] if 'AMIBERRY_IPC_SOCKET' in os.environ else []
+subprocess.run([sys.executable,str(client),*options,'batch',*commands],check=True,stdout=subprocess.DEVNULL)

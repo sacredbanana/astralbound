@@ -562,7 +562,7 @@ static void test_safety(void) {
 }
 static void test_presentation(void) {
     Game g, h;
-    Controls c = {1, 1, 0, 0};
+    Controls c = {1, 1, 0, 0, 0, 0};
     int i, yaw, pitch;
     game_init(&g, 3);
     assert(combat_target(&g) == -1);
@@ -608,8 +608,8 @@ static void test_presentation(void) {
     g.turret_yaw = 512; g.turret_pitch = 0; g.tick = 5;
     g.npc[2] = (Npc){add(g.pos, vec(0, 0, -2000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
     h = g; h.camera_mode = 0;
-    game_tick(&g, (Controls){0, 0, 0, 1});
-    game_tick(&h, (Controls){0, 0, 0, 1});
+    game_tick(&g, (Controls){0, 0, 0, 1, 0, 0});
+    game_tick(&h, (Controls){0, 0, 0, 1, 0, 0});
     assert(g.npc[2].hull == 80 && h.npc[2].hull == 100);
     assert(g.pos.x == h.pos.x && g.pos.y == h.pos.y && g.pos.z == h.pos.z);
     puts("PASS independent turret aim/fire, contact range, map controls and save compatibility");

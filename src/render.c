@@ -235,11 +235,22 @@ static void raster(const Tri *t) {
                 r = frame->w - 1;
             if (r >= l) {
                 int x;
-                for (x = l; x <= r; x++, z += dz) {
-                    size_t offset = (size_t)y * frame->w + x;
-                    if (z >= 0 && (uint32_t)(z / 256) >= depth_buffer[offset]) {
-                        depth_buffer[offset] = (uint32_t)(z / 256);
-                        frame->pixels[offset] = t->color;
+                uint8_t *pixels = frame->pixels + (size_t)y * frame->w + l;
+                uint32_t *depths = depth_buffer + (size_t)y * frame->w + l;
+                int64_t end = z + dz * (r - l);
+                /* Most distant polygons fit Q8 depth in 32 bits. Keep an
+                   exact wide fallback for nearby/clipped geometry. */
+                if (z >= 0 && end >= 0 && z <= INT32_MAX && end <= INT32_MAX &&
+                    dz >= INT32_MIN && dz <= INT32_MAX) {
+                    uint32_t value = (uint32_t)z;
+                    int32_t step = (int32_t)dz;
+                    for (x = l; x <= r; x++, pixels++, depths++, value += step) {
+                        uint32_t d = value >> 8;
+                        if (d >= *depths) { *depths = d; *pixels = t->color; }
+                    }
+                } else for (x = l; x <= r; x++, pixels++, depths++, z += dz) {
+                    if (z >= 0 && (uint32_t)(z >> 8) >= *depths) {
+                        *depths = (uint32_t)(z >> 8); *pixels = t->color;
                     }
                 }
             }
@@ -1117,7 +1128,29 @@ void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
     for (y = 0; y < height; y++) {
         if (platform_pump && y % 16 == 0)
             platform_pump();
-        for (x = 0; x < stride; x++) {
+        for (x = 0; x + 1 < stride; x += 2) {
+            uint32_t lows[2] = {0, 0}, highs[2] = {0, 0};
+            int k;
+            for (k = 0; k < 2; k++) for (b = 0; b < 8; b++) {
+                unsigned value = src[y * width + (x + k) * 8 + b];
+                lows[k] |= plane_low[value] << (7 - b);
+                if (depth > 4) highs[k] |= plane_high[value] << (7 - b);
+            }
+            for (p = 0; p < depth; p++) {
+                uint32_t a = p < 4 ? lows[0] : highs[0], c = p < 4 ? lows[1] : highs[1];
+                unsigned shift = (unsigned)(p & 3) * 8;
+                uint16_t word = (uint16_t)(((a >> shift) & 255) << 8 | ((c >> shift) & 255));
+#if defined(__mc68000__)
+                /* Chip RAM is word addressed. memcpy also permits odd buffers
+                   in the portable API without undefined aligned accesses. */
+                memcpy(dst + p * plane + y * stride + x, &word, 2);
+#else
+                dst[p * plane + y * stride + x] = (uint8_t)(word >> 8);
+                dst[p * plane + y * stride + x + 1] = (uint8_t)word;
+#endif
+            }
+        }
+        for (; x < stride; x++) {
             uint32_t low = 0, high = 0;
             const uint8_t *group = src + y * width + x * 8;
             for (b = 0; b < 8; b++) {

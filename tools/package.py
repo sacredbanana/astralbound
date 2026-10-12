@@ -8,19 +8,23 @@ import shutil
 import subprocess
 import tempfile
 root = Path(__file__).resolve().parents[1]
-files = [root/'dist/amiga/Space.000', root/'dist/amiga/Space.020',
+files = [root/'dist/amiga'/('Space.'+cpu) for cpu in ('000','020','030','040','060')]
+files += [
          root/'Space.guide', root/'LICENSE', root/'README.md', root/'THIRD_PARTY.txt']
 files += sorted((root/'docs').glob('*.md'))
+files += sorted(p for p in (root/'release').iterdir() if p.name not in ('Disk.info','boot.s','startup-sequence'))
+def archive_name(path):
+    if path == root/'release/Space.info': return 'Space.info'
+    name = path.name if path.parent in (root/'dist/amiga',root/'release') else str(path.relative_to(root))
+    return 'Space/'+name
 output = root/'dist/Space-0.1-amiga.zip'
 with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
     for path in files:
-        name = path.name if path.parent == root/'dist/amiga' else str(path.relative_to(root))
-        archive.write(path, 'Space/'+name)
+        archive.write(path, archive_name(path))
 with zipfile.ZipFile(output) as archive:
     assert archive.testzip() is None
     for path in files:
-        name = path.name if path.parent == root/'dist/amiga' else str(path.relative_to(root))
-        assert archive.read('Space/'+name) == path.read_bytes()
+        assert archive.read(archive_name(path)) == path.read_bytes()
 print(f'{output}\nSHA256 {hashlib.sha256(output.read_bytes()).hexdigest()}')
 
 lha = shutil.which('lha')
@@ -28,17 +32,15 @@ if lha:
     with tempfile.TemporaryDirectory(prefix='space-package-') as temp:
         stage=Path(temp)
         for path in files:
-            name = path.name if path.parent == root/'dist/amiga' else str(path.relative_to(root))
-            dest=stage/'Space'/name
+            dest=stage/archive_name(path)
             dest.parent.mkdir(parents=True,exist_ok=True)
             shutil.copy2(path,dest)
         archive=root/'dist/Space-0.1-amiga.lha'
         if archive.exists(): archive.unlink()
-        subprocess.run([lha,'a',str(archive),'Space'],cwd=stage,check=True,stdout=subprocess.DEVNULL)
+        subprocess.run([lha,'a',str(archive),'Space','Space.info'],cwd=stage,check=True,stdout=subprocess.DEVNULL)
         extracted=stage/'verify'
         extracted.mkdir()
         subprocess.run([lha,'x',str(archive)],cwd=extracted,check=True,stdout=subprocess.DEVNULL)
         for path in files:
-            name = path.name if path.parent == root/'dist/amiga' else str(path.relative_to(root))
-            assert (extracted/'Space'/name).read_bytes()==path.read_bytes()
+            assert (extracted/archive_name(path)).read_bytes()==path.read_bytes()
         print(f'{archive}\nSHA256 {hashlib.sha256(archive.read_bytes()).hexdigest()}')

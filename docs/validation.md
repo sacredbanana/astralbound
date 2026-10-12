@@ -1,3 +1,92 @@
+# Presentation and hardware completion work - 13 October 2026
+
+The remaining implementation items in this section are now present. Physical
+hardware and peripheral validation remain open, as recorded in the roadmap.
+
+- Original integer PCM synthesis provides an eight-second musical motif plus
+  engine, laser, damage, explosion, docking/launch and jump effects. Audio follows
+  wall time. Native modes allocate Paula channels before takeover; RTG queues
+  separate left/right audio.device writes; the host uses an SDL callback. Saves
+  release/reallocate native audio ownership, pause mutes it, allocation failure
+  runs silently, and exit stops DMA before freeing samples.
+- Native proportional input uses owned POT resources with startup/manual centre
+  calibration and a dead zone. Fractional turn rates accumulate over fixed ticks.
+  CD32 uses lowlevel.library V40+ with seven mapped buttons and edge-triggered
+  actions; SDL controllers use the same normalized mappings. These paths have
+  native builds and deterministic calibration, rate, button and menu logic
+  tests. Physical joystick/CD32 and Poseidon devices have not been exercised.
+- The depth rasterizer has a bounded 32-bit pixel loop and a wide fallback;
+  portable C2P writes pairs of planar bytes (word stores on m68k). Native blitter
+  work clears both display buffers at startup/resume. It is not a blitter C2P
+  implementation. Existing depth, clipping and guarded planar roundtrip tests pass.
+- The 68000/020/030/040/060 software-integer games build with warnings as errors.
+  Native C2P/orbit/surface benchmark programs and a 120-frame game profile mode
+  are available. Native profiling uses CIA TOD display ticks; EClock requires
+  timer interrupts, so it is reserved for RTG/OS-managed timing.
+- RTG16 opens a high-colour screen and uses WriteLUTPixelArray through the CGX/P96
+  driver. Screen buffers and driver conversion determine available acceleration;
+  no card registers are accessed. Scene shading retains the indexed palette.
+- The release has original two-plane Workbench icons (icon.library wrote/reloaded
+  them), CPU tooltypes, launch scripts, an Installer script and ZIP/LHA packages.
+  Installer 44.10 compiled the script; the same copy statements were run with an
+  unattended test destination. All 23 selected files matched their sources, the
+  drawer icon was created and an existing commander sentinel survived. Interactive
+  destination selection/confirmation still needs a manual run; host UI automation
+  could not click the main emulator window (`noWindowsAvailable` / focus rejection).
+  Evidence: `build/evidence/hardware-installer-check.json`.
+- The OFS boot disk includes only Space.000, its guide/icons/license and an original
+  resident-DOS boot entry/startup sequence. The filesystem and boot checksum pass;
+  every packaged file was read back. The final disk is shipped without a commander.
+
+## Current runtime and regression evidence
+
+Host core, renderer and new presentation tests pass, including ASan/UBSan. The
+full AU-scale navigation scenario still reaches its moving destination in
+8,492,040 ticks with 67 percent fuel and 4 m error. Music tests cover event
+priority, repeated observations, pause, effect termination, loop repetition and
+identical PCM across different callback chunk sizes. Controller tests cover
+noncentral calibration, full travel, dead zone, partial-rate accumulation,
+digital precedence, button edges, braking and menu isolation.
+
+AmiKit ran the new native presentation tests and the native benchmark.
+The new test executable declares its stack requirement. In a bare boot CLI,
+a direct stack-swapped 020 test run passed assertions but faulted at exit.
+`Space-RunTests` avoids that path by starting its children with 256 KiB stacks;
+Workbench icons now request the same size, and CLI documentation sets it
+explicitly. The launcher passed the final presentation and core quick suites in
+the separate NTSC emulator (JIT off); its logs were extracted from the test ADF. The direct bare-CLI stack-swap exit remains toolchain QA. PAL AGA
+320 x 200, saving/resuming and return to Workbench were inspected. Native audio
+state shows channels 0/1/3 active and a populated emulator sound buffer; Escape
+restores DMA 03F0 and turns all audio channels off. RTG16 displays the starting
+scene and returns to Workbench. Both RTG stereo channels are queued separately.
+These checks establish emulated DMA/output behavior, not a listening test on
+physical Paula hardware. Screenshots are `build/evidence/hardware-aga-*.png` and
+`hardware-rtg16.png`; native test output is `hardware-presentation-tests.txt`.
+
+A separate NTSC 68020/AGA emulator, with 2 MiB Chip and 8 MiB Fast, boots the
+68000 binary from the ECS ADF. Launch, F5 save, F9 restore and Escape to the boot
+CLI were inspected. Native save now sends ACTION_FLUSH before takeover so DOS
+can commit cached disk writes. The resulting commander was extracted from the
+OFS disk and its portable checksum checked. Escape disables all audio DMA.
+Screenshots are `hardware-adf-ntsc-{launch,save,load,exit}.png`. This validates ECS
+output under AGA emulation; the attempted 68000/Generic ROM configuration did
+not reach the game, so an emulated stock 68000 boot is not claimed.
+
+The accelerated emulator reports C2P to Chip RAM at 1406/521 microseconds for
+320 x 200 depth 5/8 and 709/809 microseconds for 320 x 256 depth 5/8. Orbit render
+is 3427 microseconds (hash 3e03e20f); surface render is 39352 microseconds (hash
+ae1ab045). These are one-run figures with warm-up/JIT effects, not a comparative
+CPU ranking. Evidence: `hardware-benchmark-020.txt`.
+The docked game profile measured AGA 320 x 200 at 3666 microseconds render and
+20500 microseconds output+sync (CIA tick resolution); RTG16 640 x 480 measured
+30756 and 5417 microseconds with EClock. They are different workloads/backends.
+The current host orbit frame matches the pre-optimization renderer hash
+3e03e20f; a single host run measured 0.184 ms versus 0.197 ms for the baseline,
+which is not sufficient evidence for a universal speedup.
+
+No physical PAL/NTSC machine, real CD32/analogue controller, other graphics card,
+stock A500 frame rate or long-duration audio/display stress result is claimed.
+
 # Validation - Mouse/joystick controls and 4096x compression
 
 Verified on 13 October 2026:

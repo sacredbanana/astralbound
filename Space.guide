@@ -240,7 +240,7 @@
 
   Mining, passengers, crew, factions, military careers, richer missions,
   police, missiles, countermeasures and sound/music remain to be built.
-  Analogue Amiga joystick and RTG high-colour are unfinished.
+  Analogue/CD32 input and RTG high-colour are implemented; physical QA remains.
   Native NTSC output still needs emulator and real-machine QA.
   Real-hardware frame rates have not been established.
 
@@ -262,5 +262,31 @@
   @{"Flight details" link flight}
   @{"Navigation    " link navigation}
   @{"Contents      " link main}
+
+  @{b}Sound and expanded controllers@{ub}
+  Original PCM music and engine, laser, damage, explosion, docking and jump
+  effects use Paula DMA in native modes and audio.device stereo in RTG.
+  --nosound disables audio. Saves restart native music; pause mutes it.
+  No external sound assets or ROMs are bundled.
+
+  CD32 (lowlevel.library V40+): red fire, blue brake, yellow radar contact,
+  green autopilot, forward/reverse thrust and Play pause.
+  --analog selects a physical POT-counter joystick in port 2. Keep it
+  centred at startup; press C to recalibrate. Physical devices need QA.
+
+  @{b}Release and timing@{ub}
+  CPU builds: Space.000/.020/.030/.040/.060, all without an FPU requirement.
+  --rtg16 opens high-colour output through the CGX/P96 driver. The renderer
+  still uses its original indexed scene palette. --rtg retains 8-bit output.
+  --profile exits after 120 frames and reports render/output timings.
+  Space-benchmark.000/.020 measures scene rendering and C2P into Chip RAM.
+
+  Open Install with SYS:Utilities/Installer V42.12+ and choose a drawer.
+  Existing space.sav is preserved. CPU icons accept MODE=ECS/AGA/RTG/RTG16
+  and LOWRES, NOSOUND, ANALOG tooltypes. Play-AGA/Play-RTG/Play-RTG16 scripts
+  use Space.020; Play-ECS-Lowres uses Space.000.
+  The original boot ADF starts ECS 320 x 200 with a user-supplied OS3 ROM.
+  Tested with 2 MiB Chip and 8 MiB Fast; unexpanded A500s are not validated.
+  Escape returns to the boot CLI. A writable ADF can hold a commander save.
 
 @endnode

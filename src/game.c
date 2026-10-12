@@ -232,10 +232,23 @@ void game_tick(Game *g, Controls c) {
         g->heat--;
     if (g->shield < 100 && g->tick % HZ == 0)
         g->shield++;
+    /* Preserve sub-angle stick rates over fixed physics ticks. Digital keys win. */
+    {
+        int ay = clamp(c.axis_yaw, -256, 256), ap = clamp(c.axis_pitch, -256, 256);
+        int dy, dp;
+        if (!ay || c.yaw) g->yaw_fraction = 0;
+        if (!ap || c.pitch) g->pitch_fraction = 0;
+        g->yaw_fraction += c.yaw ? 0 : ay * 3;
+        g->pitch_fraction += c.pitch ? 0 : ap * 3;
+        dy = c.yaw ? c.yaw * 3 : g->yaw_fraction / 256;
+        dp = c.pitch ? c.pitch * 3 : g->pitch_fraction / 256;
+        g->yaw_fraction %= 256; g->pitch_fraction %= 256;
+        c.axis_yaw = dy; c.axis_pitch = dp;
+    }
     if (g->camera_mode >= 3 && g->page == FLIGHT) {
-        g->turret_yaw = (g->turret_yaw + c.yaw * 3) & 1023;
-        g->turret_pitch = clamp(g->turret_pitch + c.pitch * 3, -250, 250);
-        c.yaw = c.pitch = 0;
+        g->turret_yaw = (g->turret_yaw + c.axis_yaw) & 1023;
+        g->turret_pitch = clamp(g->turret_pitch + c.axis_pitch, -250, 250);
+        c.yaw = c.pitch = c.axis_yaw = c.axis_pitch = 0;
     }
     if (g->docked != -1) {
         if (g->docked >= 0) {
@@ -346,8 +359,8 @@ void game_tick(Game *g, Controls c) {
         if (g->target >= 0 && length(sub(g->ports[g->target].pos, g->pos)) < 500 * FP)
             g->gear = 1;
     } else {
-        g->yaw = (g->yaw + c.yaw * 3) & 1023;
-        g->pitch = clamp(g->pitch + c.pitch * 3, -250, 250);
+        g->yaw = (g->yaw + c.axis_yaw) & 1023;
+        g->pitch = clamp(g->pitch + c.axis_pitch, -250, 250);
         if (c.thrust)
             g->throttle = clamp(g->throttle + c.thrust * 3, 0, 4000);
         if (g->assist) {

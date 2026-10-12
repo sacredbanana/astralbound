@@ -3,6 +3,20 @@
 #include "space.h"
 #include "flight_input.h"
 #include "native_video.h"
+#include "controller.h"
+#include <proto/lowlevel.h>
+#include <libraries/lowlevel.h>
+#ifndef JP_TYPE_ANALOGUE
+#define JP_TYPE_ANALOGUE (14UL << 28) /* Poseidon lowlevel extension */
+#endif
+#include <proto/potgo.h>
+#include <resources/potgo.h>
+#define System AmigaDOSSystem
+#include <proto/dos.h>
+#undef System
+#include <proto/icon.h>
+#include <dos/dosextens.h>
+#include <workbench/startup.h>
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <devices/timer.h>
@@ -24,6 +38,16 @@ struct GfxBase *GfxBase;
 struct IntuitionBase *IntuitionBase;
 struct Library *CyberGfxBase;
 struct Device *TimerBase;
+struct Library *LowLevelBase, *IconBase;
+struct Library *PotgoBase;
+static UWORD pot_bits;
+static Controller pad;
+static int analog, analog_x = 128, analog_y = 128, highcolour, rtg_depth = 8;
+static ULONG pad_state;
+static uint64_t analog_last;
+static int profiling;
+static BPTR wb_old_dir;
+static int wb_changed;
 static struct MsgPort *timer_port;
 static struct timerequest *timer_request;
 static ULONG clock_rate = 50;
@@ -71,6 +95,29 @@ static uint64_t clock_now(void) {
               lo = *(volatile UBYTE *)0xbfe801;
         return (hi << 16) | (mid << 8) | lo;
     }
+}
+#include "amiga_audio.h"
+static void controller_poll(void) {
+    if (analog) {
+        uint64_t now = clock_now();
+        UWORD data;
+        if (now - analog_last < clock_rate / 50) return;
+        analog_last = now;
+        data = hw->pot1dat;
+        analog_x = data & 255; analog_y = data >> 8;
+        WritePotgo(1, 0xf001);
+    } else if (LowLevelBase) pad_state = ReadJoyPort(1);
+}
+static unsigned controller_buttons(ULONG state) {
+    unsigned b = 0;
+    if (state & JPF_BUTTON_RED) b |= PAD_FIRE;
+    if (state & JPF_BUTTON_BLUE) b |= PAD_BRAKE;
+    if (state & JPF_BUTTON_YELLOW) b |= PAD_TARGET;
+    if (state & JPF_BUTTON_GREEN) b |= PAD_AUTO;
+    if (state & JPF_BUTTON_FORWARD) b |= PAD_THRUST;
+    if (state & JPF_BUTTON_REVERSE) b |= PAD_REVERSE;
+    if (state & JPF_BUTTON_PLAY) b |= PAD_PAUSE;
+    return b;
 }
 static int beam(void) {
     return (int)((*(volatile ULONG *)0xdff004 >> 8) & 511);
@@ -133,6 +180,21 @@ static void build_copper(int b) {
     *p++ = 0xffff;
     *p = 0xfffe;
 }
+static void native_clear_planes(void) {
+    int b, p;
+    /* OwnBlitter already held, interrupts disabled: poll hardware directly. */
+    hw->dmacon = 0x8240;
+    for (b = 0; b < 2; b++) for (p = 0; p < depth; p++) {
+        while (hw->dmaconr & 0x4000) {}
+        hw->bltcon0 = 0x0100; hw->bltcon1 = 0;
+        hw->bltdmod = 0;
+        hw->bltdpt = planes[b] + p * 40 * f.h;
+        hw->bltsize = (UWORD)((f.h << 6) | 20);
+        /* The first status read may precede the busy flag on old Agnus. */
+        (void)hw->dmaconr;
+        while (hw->dmaconr & 0x4000) {}
+    }
+}
 static void takeover(void) {
     old_view = GfxBase->ActiView;
     LoadView(0);
@@ -148,10 +210,12 @@ static void takeover(void) {
     hw->intena = 0x7fff;
     hw->intreq = 0x7fff;
     hw->dmacon = 0x7fff;
+    native_clear_planes();
     vblank();
     hw->cop1lc = (ULONG)copper[0];
     hw->copjmp1 = 0;
-    hw->dmacon = 0x8380;
+    hw->dmacon = 0x83c0; /* display + copper + blitter */
+    audio_native_start();
     taken = 1;
     mouse_last = hw->joy0dat;
     mouse_stick(&mouse, 0, 0, 0);
@@ -159,6 +223,7 @@ static void takeover(void) {
 static void restore(void) {
     if (!taken)
         return;
+    audio_native_stop();
     vblank();
     hw->dmacon = 0x7fff;
     hw->intena = 0x7fff;
@@ -184,6 +249,7 @@ static void restore(void) {
     memset(pressed, 0, sizeof(pressed));
 }
 static void keyboard(void) {
+    sound_pump();
     native_mouse();
     if (*cia_icr & 8) {
         UBYTE raw = *cia_sdr, key;
@@ -256,13 +322,14 @@ static int open_rtg(void) {
         puts("RTG requires CyberGraphX V41 or Picasso96 CGX compatibility.");
         return 0;
     }
+    rtg_depth = highcolour ? 16 : 8;
     id = BestCModeIDTags(CYBRBIDTG_NominalWidth, 640, CYBRBIDTG_NominalHeight, 480, CYBRBIDTG_Depth,
-                         8, TAG_DONE);
+                         rtg_depth, TAG_DONE);
     if (id == (ULONG)INVALID_ID || !IsCyberModeID(id)) {
         puts("No compatible RTG mode.");
         return 0;
     }
-    screen = OpenScreenTags(0, SA_DisplayID, id, SA_Width, 640, SA_Height, 480, SA_Depth, 8,
+    screen = OpenScreenTags(0, SA_DisplayID, id, SA_Width, 640, SA_Height, 480, SA_Depth, rtg_depth,
                             SA_Type, CUSTOMSCREEN, SA_Quiet, TRUE, SA_ShowTitle, FALSE, TAG_DONE);
     if (!screen)
         return 0;
@@ -283,7 +350,7 @@ static int open_rtg(void) {
         palette[3 + i * 3] = (c & 255) * 0x01010101UL;
     }
     palette[769] = 0;
-    LoadRGB32(&screen->ViewPort, palette);
+    if (!highcolour) LoadRGB32(&screen->ViewPort, palette);
     safe_port = CreateMsgPort();
     if (!safe_port)
         return 0;
@@ -298,6 +365,14 @@ static int open_rtg(void) {
 static void close_all(void) {
     int i;
     restore();
+    sound_close();
+    if (pot_bits) FreePotBits(pot_bits);
+    if (LowLevelBase) {
+        SetJoyPortAttrs(1, SJA_Reinitialize, TRUE, TAG_DONE);
+        CloseLibrary(LowLevelBase);
+    }
+    if (wb_changed) CurrentDir(wb_old_dir);
+    if (IconBase) CloseLibrary(IconBase);
     if (rtg) {
         if (displayed && buffers[0]) {
             while (!ChangeScreenBuffer(screen, buffers[0]))
@@ -340,15 +415,38 @@ static void close_all(void) {
 int main(int argc, char **argv) {
     int i, j, back = 1, quit = 0, lowres = 0;
     uint64_t accumulator = 0, last_time;
+    uint64_t render_ticks = 0, output_ticks = 0, tick_start = 0;
+    unsigned frames = 0;
+    if (argc == 0) {
+        struct WBStartup *wb = (struct WBStartup *)argv;
+        struct DiskObject *icon;
+        wb_old_dir = CurrentDir(wb->sm_ArgList[0].wa_Lock); wb_changed = 1;
+        IconBase = OpenLibrary((CONST_STRPTR)"icon.library", 39);
+        icon = IconBase ? GetDiskObject(wb->sm_ArgList[0].wa_Name) : NULL;
+        if (icon) {
+            STRPTR mode = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"MODE");
+            aga = mode && !strcmp((char *)mode, "AGA");
+            rtg = mode && (!strcmp((char *)mode, "RTG") || !strcmp((char *)mode, "RTG16"));
+            highcolour = mode && !strcmp((char *)mode, "RTG16");
+            lowres = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"LOWRES") != NULL;
+            audio_muted = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"NOSOUND") != NULL;
+            analog = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"ANALOG") != NULL;
+            FreeDiskObject(icon);
+        }
+    }
     for (i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--aga"))
+        if (!strcmp(argv[i], "--nosound")) audio_muted = 1;
+        else if (!strcmp(argv[i], "--analog")) analog = 1;
+        else if (!strcmp(argv[i], "--profile")) profiling = 1;
+        else if (!strcmp(argv[i], "--rtg16")) rtg = highcolour = 1;
+        else if (!strcmp(argv[i], "--aga"))
             aga = 1;
         else if (!strcmp(argv[i], "--rtg"))
             rtg = 1;
         else if (!strcmp(argv[i], "--lowres"))
             lowres = 1;
         else if (strcmp(argv[i], "--ecs")) {
-            puts("Space --ecs | --aga | --rtg [--lowres (native only)]");
+            puts("Space --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--profile]");
             return 1;
         }
     }
@@ -388,6 +486,25 @@ int main(int argc, char **argv) {
         return 1;
     }
     game_init(&g, 0x53504143);
+    if (analog) {
+        PotgoBase = OpenResource((CONST_STRPTR)POTGONAME);
+        if (PotgoBase) pot_bits = AllocPotBits(0x5001);
+        if ((pot_bits & 0x5001) != 0x5001) {
+            puts("Analogue port unavailable: cannot own POT counters."); close_all(); return 1;
+        }
+        WritePotgo(1, 0xf001);
+        WaitTOF(); WaitTOF();
+        analog_x = hw->pot1dat & 255; analog_y = hw->pot1dat >> 8;
+        controller_calibrate(&pad, analog_x, analog_y);
+    } else {
+        LowLevelBase = OpenLibrary((CONST_STRPTR)"lowlevel.library", 40);
+        if (LowLevelBase) {
+            pad_state = ReadJoyPort(1); /* acquire resources in task context */
+            if ((pad_state & JP_TYPE_MASK) == JP_TYPE_NOTAVAIL) {
+                CloseLibrary(LowLevelBase); LowLevelBase = NULL;
+            }
+        }
+    }
     if (rtg) {
         timer_port = CreateMsgPort();
         if (timer_port)
@@ -402,8 +519,13 @@ int main(int argc, char **argv) {
         TimerBase = timer_request->tr_node.io_Device;
         {
             struct EClockVal ec;
-            clock_rate = ReadEClock(&ec);
+            if (rtg) clock_rate = ReadEClock(&ec);
         }
+    }
+    if (!sound_open()) {
+        sound_close(); puts("Audio unavailable; continuing silently.");
+    }
+    if (rtg) {
         if (!open_rtg()) {
             puts("Unable to open RTG screen.");
             close_all();
@@ -411,7 +533,7 @@ int main(int argc, char **argv) {
         }
     } else {
         for (i = 0; i < 2; i++) {
-            planes[i] = AllocMem(40 * f.h * depth, MEMF_CHIP | MEMF_CLEAR);
+            planes[i] = AllocMem(40 * f.h * depth, MEMF_CHIP);
             copper[i] = AllocMem(4096, MEMF_CHIP | MEMF_CLEAR);
             if (!planes[i] || !copper[i]) {
                 close_all();
@@ -467,6 +589,7 @@ int main(int argc, char **argv) {
             }
         } else
             keyboard();
+        controller_poll();
         for (i = 0; i < 128; i++) {
             if (pressed[i]) {
                 if (i == 0x45)
@@ -475,23 +598,52 @@ int main(int argc, char **argv) {
                     request = 1;
                 else if (i == 0x58)
                     request = 2;
-                else
-                    game_action(&g, raw_action(i));
+                else if (i == 0x33 && analog) {
+                    controller_calibrate(&pad, analog_x, analog_y);
+                    snprintf(g.message, sizeof(g.message), "ANALOGUE CENTRE SET");
+                } else game_action(&g, raw_action(i));
             }
             pressed[i] = 0;
         }
         if (request) {
             restore();
-            if (request == 1)
-                snprintf(g.message, sizeof(g.message), "%s",
-                         save_game(&g, "PROGDIR:space.sav") ? "SAVED"
-                                                            : "SAVE FAILED - OLD SLOT PRESERVED");
+            if (!rtg) sound_close();
+            if (request == 1) {
+                int saved = save_game(&g, "PROGDIR:space.sav");
+                int flushed = 0;
+                LONG storage_error = 0;
+                if (saved) {
+                    BPTR lock = GetProgramDir();
+                    int borrowed = lock != 0;
+                    if (!lock) lock = Lock((CONST_STRPTR)"", SHARED_LOCK);
+                    if (lock) {
+                        struct FileLock *directory = (struct FileLock *)BADDR(lock);
+                        LONG result;
+                        SetIoErr(0);
+                        result = DoPkt0(directory->fl_Task, ACTION_FLUSH);
+                        storage_error = IoErr();
+                        /* Legacy handlers may return zero with no packet error. */
+                        flushed = result != 0 || storage_error == 0;
+                        if (!borrowed) UnLock(lock);
+                    }
+
+                }
+                snprintf(g.message, sizeof(g.message), "%s", !saved ? "SAVE FAILED - OLD SLOT PRESERVED" :
+                         flushed ? "SAVED" : "SAVED - FILESYSTEM FLUSH FAILED");
+                if (saved && !flushed && !rtg) {
+                    printf("Filesystem flush failed (%ld); leaving the OS active.\n", (long)storage_error);
+                    quit = 1; break;
+                }
+            }
             else if (!load_game(&g, "PROGDIR:space.sav"))
                 snprintf(g.message, sizeof(g.message), "LOAD FAILED");
-            if (!rtg)
+            if (!rtg) {
+                if (!sound_open()) sound_close();
                 takeover();
+            }
             last_time = clock_now();
             accumulator = 0;
+            audio_init(&sound, &g);
         }
         if (g.page != FLIGHT || g.paused)
             mouse_stick(&mouse, 0, 0, 0);
@@ -501,9 +653,23 @@ int main(int argc, char **argv) {
             c.yaw = held[0x4e] - held[0x4f];
             c.thrust = held[0x11] - held[0x21];
             c.fire = held[0x63];
-            flight_input(&c, &mouse, joystick_yaw(joy), joystick_pitch(joy),
+            flight_input(&c, &mouse, analog ? 0 : joystick_yaw(joy), analog ? 0 : joystick_pitch(joy),
                          mouse_left || !(*(volatile UBYTE *)0xbfe001 & 0x80));
         }
+        if (input_active) {
+            ULONG type = pad_state & JP_TYPE_MASK;
+            int usb_analog = type == JP_TYPE_ANALOGUE;
+            unsigned buttons = !analog && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK || usb_analog)
+                               ? controller_buttons(pad_state) : 0;
+            if (usb_analog && !pad.calibrated) controller_calibrate(&pad, pad_state & 255, (pad_state >> 8) & 255);
+            if (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK) {
+                c.yaw = flight_axis(c.yaw + !!(pad_state & JPF_JOY_RIGHT) - !!(pad_state & JPF_JOY_LEFT), 0);
+                c.pitch = flight_axis(c.pitch + !!(pad_state & JPF_JOY_UP) - !!(pad_state & JPF_JOY_DOWN), 0);
+            }
+            controller_apply(&pad, &g, &c, buttons,
+                             analog ? analog_x : (int)(pad_state & 255),
+                             analog ? analog_y : (int)((pad_state >> 8) & 255), analog || usb_analog);
+        } else pad.held = 0;
         {
             uint64_t now = clock_now(),
                      elapsed = rtg ? now - last_time : (now - last_time) & 0xffffffU;
@@ -517,12 +683,17 @@ int main(int argc, char **argv) {
                 accumulator -= clock_rate;
             }
         }
+        sound_update();
+        if (profiling) tick_start = clock_now();
         render_game(&g, &f);
+        if (profiling) { uint64_t now = clock_now(); render_ticks += rtg ? now - tick_start : (now - tick_start) & 0xffffffU; tick_start = now; }
         if (rtg) {
             struct RastPort rp = screen->RastPort;
             rp.BitMap = buffers[back]->sb_BitMap;
             rp.Layer = 0;
-            WritePixelArray(f.pixels, 0, 0, f.w, &rp, 0, 0, f.w, f.h, RECTFMT_LUT8);
+            if (highcolour) WriteLUTPixelArray(f.pixels, 0, 0, f.w, &rp, f.palette,
+                                               0, 0, f.w, f.h, CTABFMT_XRGB8);
+            else WritePixelArray(f.pixels, 0, 0, f.w, &rp, 0, 0, f.w, f.h, RECTFMT_LUT8);
             while (!ChangeScreenBuffer(screen, buffers[back]))
                 WaitTOF();
             wait_safe();
@@ -541,6 +712,19 @@ int main(int argc, char **argv) {
             hw->copjmp1 = 0;
             back = 1 - back;
         }
+        if (profiling) {
+            uint64_t now = clock_now();
+            output_ticks += rtg ? now - tick_start : (now - tick_start) & 0xffffffU;
+            if (++frames >= 120) quit = 1;
+        }
+    }
+    if (profiling && frames) {
+        struct EClockVal ec; ULONG rate;
+        restore(); rate = rtg ? ReadEClock(&ec) : clock_rate;
+        printf("%lu frames: render %lu us/frame, output+sync %lu us/frame, %dx%d %s\n",
+               (unsigned long)frames, (unsigned long)(render_ticks * 1000000 / rate / frames),
+               (unsigned long)(output_ticks * 1000000 / rate / frames), f.w, f.h,
+               rtg ? (highcolour ? "RTG16" : "RTG8") : (aga ? "AGA" : "ECS"));
     }
     close_all();
     return 0;

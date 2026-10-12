@@ -1,11 +1,18 @@
 /* SPDX-License-Identifier: Unlicense; SDL is used only by the host harness. */
 #include "space.h"
 #include "flight_input.h"
+#include "audio.h"
+#include "controller.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 static Game g;
+static SpaceAudio sound;
+static SDL_AudioDeviceID audio_device;
+static void audio_callback(void *userdata, Uint8 *out, int size) {
+    audio_mix((SpaceAudio *)userdata, (int8_t *)out, (unsigned)size);
+}
 static void ppm(Frame *f, const char *path) {
     FILE *o = fopen(path, "wb");
     int i;
@@ -26,14 +33,18 @@ int main(int argc, char **argv) {
     SDL_Renderer *renderer;
     SDL_Texture *texture;
     SDL_Joystick *joystick = NULL;
+    SDL_GameController *gamepad = NULL;
+    Controller pad = {0};
+    controller_calibrate(&pad, 128, 128);
     MouseStick mouse = {0};
     int mouse_right = 0;
     uint32_t *rgb;
     Uint64 last, now, freq;
     uint64_t accumulator = 0;
-    int quit = 0, i, compact = 0, radar_preview = 0;
+    int quit = 0, i, compact = 0, radar_preview = 0, muted = 0;
     game_init(&g, 0x53504143);
     for (i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--nosound")) muted = 1;
         if (!strcmp(argv[i], "--lowres") || !strcmp(argv[i], "--ntsc"))
             compact = 1;
         if (!strcmp(argv[i], "--rtg")) {
@@ -95,7 +106,7 @@ int main(int argc, char **argv) {
         render_shutdown();
         return 0;
     }
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_JOYSTICK) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "%s\n", SDL_GetError());
         return 1;
     }
@@ -111,7 +122,18 @@ int main(int argc, char **argv) {
                                 f.w, f.h);
     if (!texture)
         return 1;
-    if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
+    if (SDL_NumJoysticks() > 0) {
+        if (SDL_IsGameController(0)) gamepad = SDL_GameControllerOpen(0);
+        joystick = gamepad ? SDL_GameControllerGetJoystick(gamepad) : SDL_JoystickOpen(0);
+    }
+    audio_init(&sound, &g);
+    if (!muted) {
+        SDL_AudioSpec spec = {0};
+        spec.freq = AUDIO_RATE; spec.format = AUDIO_S8; spec.channels = 1;
+        spec.samples = 512; spec.callback = audio_callback; spec.userdata = &sound;
+        audio_device = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
+        if (audio_device) SDL_PauseAudioDevice(audio_device, 0);
+    }
     freq = SDL_GetPerformanceFrequency();
     last = SDL_GetPerformanceCounter();
     while (!quit) {
@@ -119,11 +141,14 @@ int main(int argc, char **argv) {
         Controls c = {0};
         const Uint8 *keys;
         while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_JOYDEVICEADDED && !joystick)
-                joystick = SDL_JoystickOpen(e.jdevice.which);
+            if (e.type == SDL_JOYDEVICEADDED && !joystick) {
+                if (SDL_IsGameController(e.jdevice.which)) gamepad = SDL_GameControllerOpen(e.jdevice.which);
+                joystick = gamepad ? SDL_GameControllerGetJoystick(gamepad) : SDL_JoystickOpen(e.jdevice.which);
+            }
             if (e.type == SDL_JOYDEVICEREMOVED && joystick &&
                 SDL_JoystickInstanceID(joystick) == e.jdevice.which) {
-                SDL_JoystickClose(joystick); joystick = NULL;
+                if (gamepad) SDL_GameControllerClose(gamepad); else SDL_JoystickClose(joystick);
+                joystick = NULL; gamepad = NULL; pad.held = 0;
             }
             if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT &&
                 g.page == FLIGHT) {
@@ -176,7 +201,7 @@ int main(int argc, char **argv) {
             c.yaw = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
             c.thrust = keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S];
             int yaw = 0, pitch = 0, fire = 0;
-            if (joystick) {
+            if (joystick && !gamepad) {
                 Uint8 hat = SDL_JoystickNumHats(joystick) ? SDL_JoystickGetHat(joystick, 0) : 0;
                 if (SDL_JoystickNumAxes(joystick) > 0)
                     yaw = flight_axis(SDL_JoystickGetAxis(joystick, 0), 8000);
@@ -192,6 +217,19 @@ int main(int argc, char **argv) {
             flight_input(&c, &mouse, yaw, pitch,
                          fire || (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON_LMASK));
         }
+        if (gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
+            unsigned buttons = 0;
+            if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_A)) buttons |= PAD_FIRE;
+            if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_B)) buttons |= PAD_BRAKE;
+            if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_X)) buttons |= PAD_TARGET;
+            if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_Y)) buttons |= PAD_AUTO;
+            if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) buttons |= PAD_THRUST;
+            if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) buttons |= PAD_REVERSE;
+            if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_START)) buttons |= PAD_PAUSE;
+            controller_apply(&pad, &g, &c, buttons,
+                             ((int)SDL_GameControllerGetAxis(gamepad, SDL_CONTROLLER_AXIS_LEFTX) + 32768) / 256,
+                             ((int)SDL_GameControllerGetAxis(gamepad, SDL_CONTROLLER_AXIS_LEFTY) + 32768) / 256, 1);
+        } else pad.held = 0;
         now = SDL_GetPerformanceCounter();
         accumulator += (now - last) * HZ;
         last = now;
@@ -201,6 +239,9 @@ int main(int argc, char **argv) {
             game_frame(&g, c, 1);
             accumulator -= freq;
         }
+        if (audio_device) SDL_LockAudioDevice(audio_device);
+        audio_observe(&sound, &g);
+        if (audio_device) SDL_UnlockAudioDevice(audio_device);
         render_game(&g, &f);
         for (i = 0; i < f.w * f.h; i++)
             rgb[i] = 0xff000000U | f.palette[f.pixels[i]];
@@ -208,10 +249,11 @@ int main(int argc, char **argv) {
         SDL_RenderCopy(renderer, texture, 0, 0);
         SDL_RenderPresent(renderer);
     }
+    if (audio_device) SDL_CloseAudioDevice(audio_device);
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
-    if (joystick) SDL_JoystickClose(joystick);
+    if (gamepad) SDL_GameControllerClose(gamepad); else if (joystick) SDL_JoystickClose(joystick);
     SDL_Quit();
     free(rgb);
     free(f.pixels);

@@ -313,6 +313,7 @@ int load_game(Game *g, const char *path) {
     copy.turret_yaw = copy.yaw;
     copy.turret_pitch = copy.pitch;
     copy.combat_target = -1;
+    copy.yaw_fraction = copy.pitch_fraction = 0;
     copy.effective_warp = 1;
     *g = copy;
     snprintf(g->message, sizeof(g->message), "COMMANDER RESTORED");

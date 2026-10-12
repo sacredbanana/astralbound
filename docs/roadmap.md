@@ -51,15 +51,25 @@ painter sorting. Hardware frame rates and long-duration play remain QA work.
   heading radar, live system/local orbital maps and system/body data. Turret
   aim, contact selection and map display reset on load; moon/station separation
   uses local scale.
-- Original procedural sound effects and music; the current build is silent.
+- [x] Original integer-synthesized looping music, engine, laser, damage, explosion,
+  docking/launch and jump sounds. Paula DMA in native modes; queued audio.device
+  stereo under RTG and SDL audio on the host. `--nosound` is available.
 - [x] Mouse virtual-stick flight, digital Amiga joystick port 2, and host joystick/gamepad input.
-- Analogue Amiga joystick and extended CD32/gamepad button mappings.
+- [x] Calibrated proportional Amiga POT-counter joystick input (`--analog`, C to
+  centre), CD32 seven-button mapping through lowlevel.library and SDL controller
+  mappings. Physical controllers remain hardware QA.
 - [x] PAL/NTSC native layout selection and a centred PAL `--lowres` 320 x 200 option,
-  height-aware bitplanes/C2P and compact menus. NTSC runtime QA, real hardware and performance
-  measurements remain QA work (see validation notes).
-- Tuned 68000/020 rasterization, native blitter work, measured C2P and CPU variants.
-- RTG high-colour output and card-specific acceleration where the driver exposes it.
-- A release installer, Workbench icons, ADF/bootable distribution and hardware QA.
+  height-aware bitplanes/C2P and compact menus. NTSC ADF boot is emulator checked; real hardware remains QA work (see validation notes).
+- [x] A bounded 32-bit raster depth loop with a wide fallback, paired C2P stores,
+  native blitter plane clearing and 68000/020/030/040/060 CPU builds. Native C2P/
+  scene benchmarks and `--profile` report timings for the tested configuration.
+- [x] RTG high-colour output (`--rtg16`) through CGX/P96 driver colour lookup
+  conversion and screen buffers. Acceleration follows the installed driver; no
+  direct card-register assumptions or new true-colour scene shading.
+- [x] Release Installer script, original Workbench icons, ZIP/LHA drawer packages
+  and a self-booting ECS ADF with an original boot entry (no bundled ROM or OS files).
+- [ ] Physical PAL/NTSC ECS/AGA machines, analogue/CD32 devices, 68000 performance,
+  other RTG cards and long-duration audio/display lifecycle QA.
 
 ## Prototype boundaries
 

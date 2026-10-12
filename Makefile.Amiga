@@ -1,7 +1,7 @@
 AMIGA_CC ?= m68k-amigaos-gcc
 # Pull in libnix stack swapping so the executables honour their 128 KiB __stack.
 AMIGA_LDFLAGS = -Wl,-u,___stkinit
-CORE = src/math.c src/terrain.c src/universe.c src/game.c src/save.c src/render.c
+CORE = src/audio.c src/math.c src/terrain.c src/universe.c src/game.c src/save.c src/render.c
 SOURCES = $(CORE) src/platform/amiga.c
 CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -msoft-float -D__AMIGAOS3__ -MMD -MP
 ifeq ($(DEBUG),1)
@@ -10,9 +10,12 @@ endif
 OBJECTS_020 = $(patsubst %.c,build/amiga/020/%.o,$(SOURCES))
 OBJECTS_000 = $(patsubst %.c,build/amiga/000/%.o,$(SOURCES))
 TEST_OBJECTS = $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_space.o
-.PHONY: all clean tests
+.PHONY: all clean tests variants release-tools benchmarks
 all: dist/amiga/Space.020 dist/amiga/Space.000
-tests: dist/amiga/Space-tests.020
+tests: dist/amiga/Space-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-RunTests
+variants: dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060
+benchmarks: dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020
+release-tools: dist/amiga/Space-Icons
 build/amiga/020/%.o: %.c
 	mkdir -p $(dir $@)
 	$(AMIGA_CC) $(CFLAGS) -m68020 -c $< -o $@
@@ -30,5 +33,53 @@ dist/amiga/Space-tests.020: $(TEST_OBJECTS)
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
 clean:
 	rm -rf build/amiga
-	rm -f dist/amiga/Space.020 dist/amiga/Space.000 dist/amiga/Space-tests.020
+	rm -f dist/amiga/Space.000 dist/amiga/Space.020 dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060 dist/amiga/Space-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020 dist/amiga/Space-Icons dist/amiga/Space-RunTests
 -include $(OBJECTS_020:.o=.d) $(OBJECTS_000:.o=.d) build/amiga/020/tests/test_space.d
+
+dist/amiga/Space-presentation-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_presentation.o
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+
+OBJECTS_030 = $(patsubst %.c,build/amiga/030/%.o,$(SOURCES))
+build/amiga/030/%.o: %.c
+	mkdir -p $(dir $@)
+	$(AMIGA_CC) $(CFLAGS) -m68030 -c $< -o $@
+dist/amiga/Space.030: $(OBJECTS_030)
+	mkdir -p dist/amiga
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68030 -msoft-float $^ -lamiga -o $@
+-include $(OBJECTS_030:.o=.d)
+
+OBJECTS_040 = $(patsubst %.c,build/amiga/040/%.o,$(SOURCES))
+build/amiga/040/%.o: %.c
+	mkdir -p $(dir $@)
+	$(AMIGA_CC) $(CFLAGS) -m68040 -c $< -o $@
+dist/amiga/Space.040: $(OBJECTS_040)
+	mkdir -p dist/amiga
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68040 -msoft-float $^ -lamiga -o $@
+-include $(OBJECTS_040:.o=.d)
+
+OBJECTS_060 = $(patsubst %.c,build/amiga/060/%.o,$(SOURCES))
+build/amiga/060/%.o: %.c
+	mkdir -p $(dir $@)
+	$(AMIGA_CC) $(CFLAGS) -m68060 -c $< -o $@
+dist/amiga/Space.060: $(OBJECTS_060)
+	mkdir -p dist/amiga
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68060 -msoft-float $^ -lamiga -o $@
+-include $(OBJECTS_060:.o=.d)
+
+dist/amiga/Space-benchmark.000: $(patsubst %.c,build/amiga/000/%.o,$(CORE)) build/amiga/000/tools/native_benchmark.o
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68000 -msoft-float $^ -lamiga -o $@
+
+dist/amiga/Space-benchmark.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tools/native_benchmark.o
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+
+dist/amiga/Space-Icons: build/amiga/000/tools/icons.o
+	mkdir -p dist/amiga
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68000 $^ -lamiga -o $@
+-include build/amiga/020/tests/test_presentation.d build/amiga/000/tools/icons.d
+-include build/amiga/020/tools/native_benchmark.d build/amiga/000/tools/native_benchmark.d
+
+# The runner gives child tests a 256 KiB CLI stack before loading them.
+dist/amiga/Space-RunTests: build/amiga/000/tools/run_tests.o
+	mkdir -p dist/amiga
+	$(AMIGA_CC) -noixemul -m68000 $^ -lamiga -o $@
+-include build/amiga/000/tools/run_tests.d

@@ -118,11 +118,13 @@ typedef struct {
     int laser, dead, paused, camera_mode;
     /* Presentation state is transient; version 3/4 commander payloads stay compatible. */
     int turret_yaw, turret_pitch, combat_target, system_display, map_local;
+    int yaw_fraction, pitch_fraction;
     uint32_t shots, fuel_burn;
     char message[80];
 } Game;
 typedef struct {
     int pitch, yaw, thrust, fire;
+    int axis_yaw, axis_pitch; /* calibrated analogue, -256..256 */
 } Controls;
 typedef struct {
     int w, h, enhanced;
