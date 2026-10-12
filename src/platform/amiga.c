@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
    Native PAL/NTSC ECS/AGA takeover; RTG stays under the graphics driver. */
 #include "space.h"
+#include "flight_input.h"
 #include "native_video.h"
 #include <exec/types.h>
 #include <exec/memory.h>
@@ -33,6 +34,19 @@ static volatile UBYTE *cia_sdr = (volatile UBYTE *)0xbfec01;
 static volatile UBYTE *cia_cra = (volatile UBYTE *)0xbfee01;
 static UBYTE held[128], pressed[128], ecs_map[256];
 static Game g;
+static MouseStick mouse;
+static UWORD mouse_last;
+static int mouse_right, mouse_left, input_active = 1;
+static void native_mouse(void) {
+    UWORD now = hw->joy0dat;
+    int dx = ((int)(now & 255) - (int)(mouse_last & 255) + 128) & 255;
+    int dy = ((int)(now >> 8) - (int)(mouse_last >> 8) + 128) & 255;
+    mouse_last = now;
+    mouse_right = !(hw->potinp & 0x0400);
+    mouse_left = !(*(volatile UBYTE *)0xbfe001 & 0x40);
+    mouse_stick(&mouse, dx - 128, dy - 128,
+                mouse_right && g.page == FLIGHT && !g.paused);
+}
 static Frame f;
 static UBYTE *planes[2], *mapped;
 static UWORD *copper[2];
@@ -139,6 +153,8 @@ static void takeover(void) {
     hw->copjmp1 = 0;
     hw->dmacon = 0x8380;
     taken = 1;
+    mouse_last = hw->joy0dat;
+    mouse_stick(&mouse, 0, 0, 0);
 }
 static void restore(void) {
     if (!taken)
@@ -168,6 +184,7 @@ static void restore(void) {
     memset(pressed, 0, sizeof(pressed));
 }
 static void keyboard(void) {
+    native_mouse();
     if (*cia_icr & 8) {
         UBYTE raw = *cia_sdr, key;
         int line;
@@ -250,7 +267,12 @@ static int open_rtg(void) {
     if (!screen)
         return 0;
     window = OpenWindowTags(0, WA_CustomScreen, (ULONG)screen, WA_Borderless, TRUE, WA_Backdrop,
-                            TRUE, WA_Activate, TRUE, WA_IDCMP, IDCMP_RAWKEY, TAG_DONE);
+                            TRUE, WA_Activate, TRUE, WA_ReportMouse, TRUE, WA_MouseQueue, 32,
+                            WA_Flags, WFLG_BORDERLESS | WFLG_BACKDROP | WFLG_ACTIVATE |
+                                      WFLG_REPORTMOUSE | WFLG_RMBTRAP,
+                            WA_IDCMP, IDCMP_RAWKEY | IDCMP_MOUSEMOVE | IDCMP_MOUSEBUTTONS |
+                                      IDCMP_DELTAMOVE | IDCMP_ACTIVEWINDOW | IDCMP_INACTIVEWINDOW,
+                            TAG_DONE);
     if (!window)
         return 0;
     palette[0] = 256UL << 16;
@@ -422,9 +444,25 @@ int main(int argc, char **argv) {
             struct IntuiMessage *m;
             while ((m = (struct IntuiMessage *)GetMsg(window->UserPort))) {
                 UWORD code = m->Code;
-                if (!(code & 128) && !held[code & 127])
-                    pressed[code & 127] = 1;
-                held[code & 127] = (code & 128) ? 0 : 1;
+                if (m->Class == IDCMP_RAWKEY) {
+                    if (!(code & 128) && !held[code & 127])
+                        pressed[code & 127] = 1;
+                    held[code & 127] = (code & 128) ? 0 : 1;
+                } else if (m->Class == IDCMP_MOUSEBUTTONS) {
+                    if (code == MENUDOWN) mouse_right = 1;
+                    if (code == MENUUP) mouse_right = 0;
+                    if (code == SELECTDOWN) mouse_left = 1;
+                    if (code == SELECTUP) mouse_left = 0;
+                    if (!mouse_right) mouse_stick(&mouse, 0, 0, 0);
+                } else if (m->Class == IDCMP_MOUSEMOVE) {
+                    mouse_stick(&mouse, m->MouseX, m->MouseY,
+                                mouse_right && g.page == FLIGHT && !g.paused);
+                } else if (m->Class == IDCMP_INACTIVEWINDOW) {
+                    input_active = mouse_right = mouse_left = 0;
+                    memset(held, 0, sizeof(held));
+                    memset(pressed, 0, sizeof(pressed));
+                    mouse_stick(&mouse, 0, 0, 0);
+                } else if (m->Class == IDCMP_ACTIVEWINDOW) input_active = 1;
                 ReplyMsg((struct Message *)m);
             }
         } else
@@ -455,11 +493,16 @@ int main(int argc, char **argv) {
             last_time = clock_now();
             accumulator = 0;
         }
-        if (g.page == FLIGHT) {
+        if (g.page != FLIGHT || g.paused)
+            mouse_stick(&mouse, 0, 0, 0);
+        if (g.page == FLIGHT && input_active) {
+            UWORD joy = hw->joy1dat;
             c.pitch = held[0x4c] - held[0x4d];
             c.yaw = held[0x4e] - held[0x4f];
             c.thrust = held[0x11] - held[0x21];
             c.fire = held[0x63];
+            flight_input(&c, &mouse, joystick_yaw(joy), joystick_pitch(joy),
+                         mouse_left || !(*(volatile UBYTE *)0xbfe001 & 0x80));
         }
         {
             uint64_t now = clock_now(),

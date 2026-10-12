@@ -89,7 +89,7 @@ int combat_target(const Game *g) {
                    length(sub(g->npc[i].pos, g->pos)) <= 10000LL * FP ? i : -1;
 }
 int safe_warp(const Game *g) {
-    int i, w = g->warp;
+    int i, w = clamp(g->warp, 1, MAX_WARP);
     int64_t alt = altitude_at(g, g->pos), speed = length(g->vel) / FP;
     if (g->docked != -1 || g->dead || g->laser)
         return 1;
@@ -667,7 +667,7 @@ void game_action(Game *g, int k) {
         g->paused = !g->paused;
         break;
     case ']':
-        g->warp = g->warp >= 256 ? 256 : g->warp * 4;
+        g->warp = g->warp >= MAX_WARP ? MAX_WARP : g->warp * 4;
         break;
     case '[':
         g->warp = g->warp <= 1 ? 1 : g->warp / 4;

@@ -1,3 +1,26 @@
+# Validation - Mouse/joystick controls and 4096x compression
+
+Verified on 13 October 2026:
+
+- Host core and renderer tests, ASan/UBSan, and the extended interplanetary route
+  pass. All 58 generated port arrivals now request 4096x. A compressed frame
+  matches the position and velocity produced by the same number of normal ticks.
+- Input regressions cover all 16 digital joystick switch combinations, mouse
+  dead zone, recentering, combined input limits, warp selection and save roundtrip.
+- Both 68000 and 68020 games and the native test executable cross-build with
+  warnings treated as errors. The AmigaGuide validates without warnings/errors.
+- AmiKit/Amiberry ECS screenshots show right-drag changing dorsal turret aim;
+  release recenters the virtual stick. Escape restores Workbench. Evidence is
+  in `build/evidence/input-ecs-*.png`.
+- RTG uses Intuition delta mouse events and clears input on lost window focus.
+  RTG mouse runtime validation remains pending: emulator focus automation rejected
+  attempts to focus the shell after the ECS check. Physical joystick and real
+  hardware input remain unverified. Digital direction decoding is regression tested.
+
+4096x is a requested simulation rate, still limited by autopilot hazard checks
+and CPU throughput. Every physics step remains 1/32 second. Extended Amiga analogue
+joystick and CD32 button support remain future work.
+
 # Validation - Persistent port market development build
 
 Verified on 13 October 2026:

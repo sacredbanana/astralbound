@@ -5,6 +5,7 @@
 #include <stddef.h>
 #define FP 256
 #define HZ 32
+#define MAX_WARP 4096
 #define ANGLE 1024
 #define MAX_NPC 12
 #define MAX_MISSIONS 8

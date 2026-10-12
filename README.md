@@ -85,8 +85,19 @@ selected destination list. Up/Down changes its target; return to flight with **V
 and engage **P**. Body waypoints stop above the atmosphere, including at gas giants.
 Orbital stations rotate and move: autopilot matches port velocity, waits for clearance,
 and enters through the marked corridor. **D** requests clearance for manual docking.
-Request time compression with **]**; the safety controller reduces the effective rate near
+Request time compression with **]**, up to **4,096x** (1, 4, 16, 64, 256, 1,024, 4,096);
+**[** lowers the requested rate; the safety controller reduces the effective rate near
 terrain, a port, a braking limit or another ship. It never enlarges a physics tick.
+
+For manual flight, hold the **right mouse button** and drag to steer. Drag right/left
+for yaw and up/down for pitch; the mouse acts as a virtual stick with a small dead
+zone. Release the right button to recenter. **Left mouse button** fires. On Amiga,
+use the mouse port and a standard digital joystick in **joystick port 2**; directions
+steer and its fire button shoots. The host preview uses the first attached joystick
+or gamepad: axes 0/1 or its direction pad steer, button 0 fires. Keyboard arrows,
+Ctrl and W/S remain available; W/S controls speed/thrust with either device.
+Steering also aims the turret in turret views. Autopilot retains steering until P
+turns it off; time compression remains limited to autopilot flight.
 
 At a port, **B** opens contracts, **M** opens the market and **U** opens the
 shipyard. **J** lists contracts and destinations. **G** opens the galaxy map;

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "space.h"
+#include "flight_input.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -320,7 +321,7 @@ static void test_auto(void) {
     game_init(&g, 123);
     game_action(&g, 'l');
     game_action(&g, 'p');
-    g.warp = 256;
+    g.warp = MAX_WARP;
     for (i = 0; i < 500000 && g.docked < 0 && !g.dead; i++)
         game_frame(&g, c, 1);
     printf("autopilot ticks=%lu dock=%d hull=%d altitude=%ld speed=%ld\n", (unsigned long)g.tick,
@@ -330,14 +331,14 @@ static void test_auto(void) {
     game_action(&g, 'l');
     g.target = 0;
     g.autopilot = 1;
-    g.warp = 256;
+    g.warp = MAX_WARP;
     for (i = 0; i < 500000 && g.docked < 0 && !g.dead; i++)
         game_frame(&g, c, 1);
     printf("return tick%lu hull%d alt%ld speed%ld dst%ld fuel%d msg%s\n", (unsigned long)g.tick,
            g.hull, (long)altitude_at(&g, g.pos), (long)(length(g.vel) / FP),
            (long)(length(sub(g.pos, g.ports[0].pos)) / FP), g.fuel, g.message);
     assert(!g.dead && g.docked == 0);
-    puts("PASS 256x request: launch, orbital arrival and surface return");
+    puts("PASS 4096x request: launch, orbital arrival and surface return");
 }
 static void test_ai(void) {
     Vec p = vec(0, 0, 3000 * FP), v = vec(0, 0, -500 * FP);
@@ -443,7 +444,7 @@ static void test_routes(void) {
             g.autopilot = 1;
             g.dock_stage = 0;
             g.clearance = -1;
-            g.warp = 256;
+            g.warp = MAX_WARP;
             g.fuel = g.hull = 100;
             g.dead = 0;
             for (i = 0; i < 20000 && !g.dead && g.docked < 0; i++) {
@@ -475,7 +476,7 @@ static void test_routes(void) {
             g.autopilot = 1;
             g.fuel = g.hull = 100;
             g.dead = 0;
-            g.warp = 256;
+            g.warp = MAX_WARP;
             for (i = 0; i < 5000 && !g.dead && g.autopilot; i++)
                 game_frame(&g, c, 1);
             assert(!g.dead && !g.autopilot);
@@ -484,7 +485,7 @@ static void test_routes(void) {
         }
     }
     assert(types == (1U << BODY_TYPES) - 1);
-    printf("PASS %d generated port arrivals and all six body types at 256x\n", routes);
+    printf("PASS %d generated port arrivals and all six body types at 4096x\n", routes);
 }
 static void test_missions(void) {
     Game g;
@@ -501,7 +502,7 @@ static void test_missions(void) {
             assert(jump(&g, g.contracts[slot].destination));
             g.target = g.contracts[slot].port;
             g.autopilot = 1;
-            g.warp = 256;
+            g.warp = MAX_WARP;
             for (i = 0; i < 200000 && g.contracts[slot].state == ACTIVE && !g.dead; i++)
                 game_frame(&g, c, 1);
         } else {
@@ -530,25 +531,25 @@ static void test_missions(void) {
 static void test_safety(void) {
     Game g, h;
     Controls c = {0};
-    int i;
     game_init(&g, 3);
     game_action(&g, 'l');
-    g.pos = add(g.ports[1].pos, scale(g.ports[1].normal, 3000 * FP, 16384));
-    g.vel = port_relative_velocity(&g, 1);
+    g.pos = add(scale(g.system.planets[0].center, FP, 1),
+                vec(0, (g.system.planets[0].radius + 300000LL) * FP, 0));
+    g.vel = vec(0, 0, 0);
     g.autopilot = 1;
     g.target = 3;
     h = g;
     g.warp = 1;
-    h.warp = 256;
-    for (i = 0; i < 300; i++)
+    h.warp = MAX_WARP;
+    game_frame(&h, c, 1);
+    assert(h.tick > g.tick + 1);
+    while (g.tick < h.tick)
         game_frame(&g, c, 1);
-    while (h.tick < g.tick)
-        game_tick(&h, c);
     assert(g.pos.x == h.pos.x && g.pos.y == h.pos.y && g.pos.z == h.pos.z);
     assert(g.vel.x == h.vel.x && g.vel.y == h.vel.y && g.vel.z == h.vel.z);
     h.pos = add(scale(h.system.planets[0].center, FP, 1),
                 vec(0, (int64_t)(h.system.planets[0].radius + 500) * FP, 0));
-    h.warp = 256;
+    h.warp = MAX_WARP;
     assert(safe_warp(&h) == 1);
     h.npc[0].active = 1;
     h.npc[0].pos = add(h.pos, vec(0, 0, 1000 * FP));
@@ -613,6 +614,38 @@ static void test_presentation(void) {
     assert(g.pos.x == h.pos.x && g.pos.y == h.pos.y && g.pos.z == h.pos.z);
     puts("PASS independent turret aim/fire, contact range, map controls and save compatibility");
 }
+static void test_flight_input(void) {
+    MouseStick m = {0};
+    Controls c = {0};
+    Game g, h;
+    int i;
+    /* Every switch combination, including diagonals, uses XOR quadrature. */
+    for (i = 0; i < 16; i++) {
+        int right = i & 1, left = (i >> 1) & 1;
+        int down = (i >> 2) & 1, up = (i >> 3) & 1;
+        unsigned joy = (unsigned)((right << 1) | (left << 9) |
+                                  (down ^ right) | ((up ^ left) << 8));
+        assert(joystick_yaw(joy) == right - left);
+        assert(joystick_pitch(joy) == up - down);
+    }
+    mouse_stick(&m, 8, -8, 1);
+    flight_input(&c, &m, 0, 0, 0);
+    assert(!c.pitch && !c.yaw);
+    mouse_stick(&m, 100, -100, 1);
+    flight_input(&c, &m, 1, 1, 1);
+    assert(c.pitch == 1 && c.yaw == 1 && c.fire);
+    mouse_stick(&m, 0, 0, 0);
+    assert(!m.x && !m.y);
+    game_init(&g, 3);
+    for (i = 0; i < 10; i++) game_action(&g, ']');
+    assert(g.warp == MAX_WARP);
+    assert(save_game(&g, TEST_SAVE));
+    assert(load_game(&h, TEST_SAVE) && h.warp == MAX_WARP);
+    remove(TEST_SAVE);
+    for (i = 0; i < 6; i++) game_action(&g, '[');
+    assert(g.warp == 1);
+    puts("PASS mouse deadzone/recenter, joystick quadrature, 4096x controls/save");
+}
 int main(int argc, char **argv) {
     quick = argc > 1 && !strcmp(argv[1], "--quick");
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -633,6 +666,7 @@ int main(int argc, char **argv) {
     if (!quick)
         test_missions();
     test_safety();
+    test_flight_input();
     puts(quick ? "All Space quick smoke tests passed." : "All Space tests passed.");
     return 0;
 }

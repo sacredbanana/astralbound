@@ -14,7 +14,7 @@ int main(void) {
                 vec(0, (int64_t)(g.system.planets[0].radius + 300000) * FP, 0));
     g.vel = vec(0, 0, 0);
     g.autopilot = 1;
-    g.warp = 256;
+    g.warp = MAX_WARP;
     assert(length(sub(g.pos, navigation_position(&g))) / FP > AU_METRES / 3);
     for (i = 0; i < 150000 && g.autopilot && !g.dead; i++) {
         game_frame(&g, c, 1);

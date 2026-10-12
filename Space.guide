@@ -48,6 +48,9 @@
 
   L         Launch from a port or open ground.
   Arrows    Pitch and yaw.
+  RMouse    Hold and drag as a virtual stick; release to recenter.
+  LMouse    Fire laser or turret.
+  Joystick  Port 2 directions steer; fire button shoots.
   W / S     Increase or decrease set speed.
   E         Toggle flight assist / direct thrust.
   Ctrl      Fire forward laser, or the aimed turret in turret views.
@@ -63,7 +66,12 @@
   H         Show on-screen help.
   Escape    Exit and restore Workbench.
 
-  In turret views arrows aim independently of the hull. W/S still controls
+  Mouse: drag right/left for yaw, up/down for pitch, with a small dead zone.
+  Use the mouse port and a digital joystick in port 2. On the host preview,
+  axes 0/1 or a direction pad steer, button 0 fires. W/S controls thrust.
+  Autopilot retains steering until you disengage it with P.
+
+  In turret views arrows, mouse and joystick aim independently of the hull. W/S still controls
   ship thrust; Ctrl fires along turret aim. Pitch stops short of the poles.
   Radar follows hull heading, forward at top; stems show vertical distance.
   Red contacts are hostile, green friendly, gold selected. Selected contacts
@@ -85,6 +93,9 @@
 @toc main
 @prev flight
 @next contracts
+
+  [ / ] decrease/increase time: 1, 4, 16, 64, 256, 1024, 4096x.
+  High rates require autopilot and clear space; hazards reduce the rate.
 
   Y opens the system destination list. T selects inhabited ports;
   Q selects body waypoints. Up/Down changes the selected list's target.
@@ -229,7 +240,7 @@
 
   Mining, passengers, crew, factions, military careers, richer missions,
   police, missiles, countermeasures and sound/music remain to be built.
-  Joystick/mouse flight and RTG high-colour are unfinished.
+  Analogue Amiga joystick and RTG high-colour are unfinished.
   Native NTSC output still needs emulator and real-machine QA.
   Real-hardware frame rates have not been established.
 

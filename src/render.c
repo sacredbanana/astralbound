@@ -933,10 +933,10 @@ static void menus(void) {
             const char *help[] = {
                 "ARROWS STEER / W S CHANGE SET SPEED",  "CTRL FIRE / E TOGGLE FLIGHT ASSIST",
                 "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
-                "[ ] TIME RATE / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
+                "[ ] TIME TO 4096X / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
                 "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
                 "F5 SAVE / F9 LOAD / ESC EXIT",         "R CONTACT / Z ORBITS / I BODY DATA",
-                "TURRET ARROWS AIM / CTRL FIRE",     "JUMP: ABOVE 12 KM / NO NEARBY TRAFFIC"};
+                "RMOUSE/JOY STEER / LMOUSE FIRE",     "JUMP: ABOVE 12 KM / NO NEARBY TRAFFIC"};
             for (i = 0; i < 12; i++)
                 text(12, 30 + i * 12, i < 9 ? 15 : 7, help[i]);
         }

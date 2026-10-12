@@ -52,7 +52,8 @@ painter sorting. Hardware frame rates and long-duration play remain QA work.
   aim, contact selection and map display reset on load; moon/station separation
   uses local scale.
 - Original procedural sound effects and music; the current build is silent.
-- Mouse and joystick flight; the current native input path is keyboard only.
+- [x] Mouse virtual-stick flight, digital Amiga joystick port 2, and host joystick/gamepad input.
+- Analogue Amiga joystick and extended CD32/gamepad button mappings.
 - [x] PAL/NTSC native layout selection and a centred PAL `--lowres` 320 x 200 option,
   height-aware bitplanes/C2P and compact menus. NTSC runtime QA, real hardware and performance
   measurements remain QA work (see validation notes).

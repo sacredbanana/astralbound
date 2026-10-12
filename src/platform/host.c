@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense; SDL is used only by the host harness. */
 #include "space.h"
+#include "flight_input.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +25,9 @@ int main(int argc, char **argv) {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *texture;
+    SDL_Joystick *joystick = NULL;
+    MouseStick mouse = {0};
+    int mouse_right = 0;
     uint32_t *rgb;
     Uint64 last, now, freq;
     uint64_t accumulator = 0;
@@ -91,7 +95,7 @@ int main(int argc, char **argv) {
         render_shutdown();
         return 0;
     }
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_JOYSTICK) != 0) {
         fprintf(stderr, "%s\n", SDL_GetError());
         return 1;
     }
@@ -107,6 +111,7 @@ int main(int argc, char **argv) {
                                 f.w, f.h);
     if (!texture)
         return 1;
+    if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
     freq = SDL_GetPerformanceFrequency();
     last = SDL_GetPerformanceCounter();
     while (!quit) {
@@ -114,6 +119,26 @@ int main(int argc, char **argv) {
         Controls c = {0};
         const Uint8 *keys;
         while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_JOYDEVICEADDED && !joystick)
+                joystick = SDL_JoystickOpen(e.jdevice.which);
+            if (e.type == SDL_JOYDEVICEREMOVED && joystick &&
+                SDL_JoystickInstanceID(joystick) == e.jdevice.which) {
+                SDL_JoystickClose(joystick); joystick = NULL;
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT &&
+                g.page == FLIGHT) {
+                mouse_right = 1;
+                SDL_SetRelativeMouseMode(SDL_TRUE);
+            }
+            if ((e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_RIGHT) ||
+                (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST)) {
+                mouse_right = 0;
+                SDL_SetRelativeMouseMode(SDL_FALSE);
+                mouse_stick(&mouse, 0, 0, 0);
+            }
+            if (e.type == SDL_MOUSEMOTION)
+                mouse_stick(&mouse, e.motion.xrel, e.motion.yrel,
+                            mouse_right && g.page == FLIGHT && !g.paused);
             if (e.type == SDL_QUIT)
                 quit = 1;
             if (e.type == SDL_KEYDOWN && !e.key.repeat) {
@@ -141,11 +166,31 @@ int main(int argc, char **argv) {
             }
         }
         keys = SDL_GetKeyboardState(0);
-        if (g.page == FLIGHT) {
+        if (g.page != FLIGHT || g.paused) {
+            mouse_right = 0;
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+            mouse_stick(&mouse, 0, 0, 0);
+        }
+        if (g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             c.pitch = keys[SDL_SCANCODE_UP] - keys[SDL_SCANCODE_DOWN];
             c.yaw = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
             c.thrust = keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S];
+            int yaw = 0, pitch = 0, fire = 0;
+            if (joystick) {
+                Uint8 hat = SDL_JoystickNumHats(joystick) ? SDL_JoystickGetHat(joystick, 0) : 0;
+                if (SDL_JoystickNumAxes(joystick) > 0)
+                    yaw = flight_axis(SDL_JoystickGetAxis(joystick, 0), 8000);
+                if (SDL_JoystickNumAxes(joystick) > 1)
+                    pitch = -flight_axis(SDL_JoystickGetAxis(joystick, 1), 8000);
+                if (hat & SDL_HAT_RIGHT) yaw = 1;
+                if (hat & SDL_HAT_LEFT) yaw = -1;
+                if (hat & SDL_HAT_UP) pitch = 1;
+                if (hat & SDL_HAT_DOWN) pitch = -1;
+                if (SDL_JoystickNumButtons(joystick)) fire = SDL_JoystickGetButton(joystick, 0);
+            }
             c.fire = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL];
+            flight_input(&c, &mouse, yaw, pitch,
+                         fire || (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON_LMASK));
         }
         now = SDL_GetPerformanceCounter();
         accumulator += (now - last) * HZ;
@@ -166,6 +211,7 @@ int main(int argc, char **argv) {
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    if (joystick) SDL_JoystickClose(joystick);
     SDL_Quit();
     free(rgb);
     free(f.pixels);

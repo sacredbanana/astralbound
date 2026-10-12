@@ -6,9 +6,9 @@ CORE = src/math.c src/terrain.c src/universe.c src/game.c src/save.c src/render.
 all: build/space
 build:
 	mkdir -p build
-build/space: $(CORE) src/platform/host.c src/space.h src/trig.h src/native_video.h | build
+build/space: $(CORE) src/platform/host.c src/flight_input.h src/space.h src/trig.h src/native_video.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $$(sdl2-config --cflags) $(CORE) src/platform/host.c $$(sdl2-config --libs) -o $@
-build/tests: $(CORE) tests/test_space.c src/space.h src/trig.h | build
+build/tests: $(CORE) tests/test_space.c src/flight_input.h src/space.h src/trig.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_space.c -o $@
 build/renderer-tests: $(CORE) tests/test_renderer.c src/space.h src/trig.h src/native_video.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(filter-out src/render.c,$(CORE)) tests/test_renderer.c -o $@

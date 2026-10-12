@@ -181,7 +181,8 @@ static int valid(const Game *g) {
         g->selection < 0 || g->selection >= MAX_MISSIONS || g->upgrade < 0 || g->upgrade > 3 ||
         g->throttle < 0 || g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 4)
         return 0;
-    if (g->warp != 1 && g->warp != 4 && g->warp != 16 && g->warp != 64 && g->warp != 256)
+    if (g->warp != 1 && g->warp != 4 && g->warp != 16 && g->warp != 64 &&
+        g->warp != 256 && g->warp != 1024 && g->warp != MAX_WARP)
         return 0;
     for (i = 0; i < GOODS; i++)
         if (g->cargo[i] < 0 || g->cargo[i] > 140)
