@@ -50,16 +50,25 @@
   Arrows    Pitch and yaw.
   W / S     Increase or decrease set speed.
   E         Toggle flight assist / direct thrust.
-  Ctrl      Fire the forward laser.
+  Ctrl      Fire forward laser, or the aimed turret in turret views.
   K         Raise/lower landing gear while flying.
   P         Toggle autopilot to the selected port.
   T         Cycle port targets.
   Q         Cycle planet/moon approach waypoints.
   D         Request manual docking clearance.
-  V         Return to flight; in flight cycle front/rear/external view.
+  V         Return to flight; cycle front/rear/external/dorsal/ventral.
+  R         Cycle contacts within the 10 km radar sphere.
+  Z / I     Open orbital map / system and body data.
   Space     Pause/resume simulation.
   H         Show on-screen help.
   Escape    Exit and restore Workbench.
+
+  In turret views arrows aim independently of the hull. W/S still controls
+  ship thrust; Ctrl fires along turret aim. Pitch stops short of the poles.
+  Radar follows hull heading, forward at top; stems show vertical distance.
+  Red contacts are hostile, green friendly, gold selected. Selected contacts
+  show a diamond, hull, range and signed closing speed. Navigation targets
+  stay independent. Turret aim and contact selection reset on loading.
 
   Start with L, then P, to fly from Haven to its orbital Relay.
   Space preserves momentum. Turning does not instantly change velocity.
@@ -79,7 +88,14 @@
 
   Y opens the system destination list. T selects inhabited ports;
   Q selects body waypoints. Up/Down changes the selected list's target.
-  V returns to flight, then P engages its autopilot.
+  Z opens live top-down orbits. C toggles system/local scale around the
+  selected body, or its parent for moons. Q/T and Up/Down select destinations.
+  Local scale resolves moons and stations. White stars, green settled bodies,
+  cyan other bodies, gold target and red ship use true-scale projected orbits.
+  Small bodies and ports can overlap at system scale.
+  I shows economy, government, body radius/gravity/atmosphere, rings, parent,
+  orbit, period, inclination, ports, survey status and navigation range.
+  Y returns to the list. V returns to flight, then P engages its autopilot.
   Body waypoints stop above the atmosphere. Gas giants cannot be landed on.
   Autopilot follows elevated waypoints around planets and central stars.
 

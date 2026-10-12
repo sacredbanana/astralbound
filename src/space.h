@@ -115,6 +115,8 @@ typedef struct {
     Sector selected;
     int selection, page, warp, effective_warp;
     int laser, dead, paused, camera_mode;
+    /* Presentation state is transient; version 3/4 commander payloads stay compatible. */
+    int turret_yaw, turret_pitch, combat_target, system_display, map_local;
     uint32_t shots, fuel_burn;
     char message[80];
 } Game;
@@ -172,6 +174,8 @@ void game_init(Game *g, uint32_t seed);
 void game_tick(Game *g, Controls c);
 void game_frame(Game *g, Controls c, int ticks);
 void game_action(Game *g, int key);
+void view_angles(const Game *g, int *yaw, int *pitch);
+int combat_target(const Game *g);
 int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int acceleration, int radius);
 Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int maxspeed);

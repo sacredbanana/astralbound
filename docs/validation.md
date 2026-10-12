@@ -181,3 +181,39 @@ NTSC selection/timing and layout have build and host regression coverage only;
 an actual NTSC emulator boot and real PAL/NTSC machines remain unverified.
 The ECS check used AGA hardware emulation, not a physical ECS chipset. Stock
 68000 frame rates and long-duration lifecycle tests remain open QA work.
+
+## Turrets, radar and system presentation (2026-10-13)
+
+The first presentation roadmap item is implemented: front/rear/external plus
+independently aimed dorsal/ventral turret views; turret-directed laser fire;
+10 km contact radar and selection with hull, range, signed closing speed and a
+screen marker; top-down system and local orbital maps; and system/body data.
+Navigation targets and combat contacts are separate. World-angle turret aim,
+contact selection and map display are transient; existing version 3/4 commander
+payloads still load. Camera mode is retained, with neutral aim after loading.
+
+- `make test` and `make sanitize` pass. Regressions cover turret control/fire,
+  an aft target missed by the forward laser, contact range/loss, map controls,
+  turret-mode saves and legacy commander migration. Renderer checks cover
+  compact panel equivalence, AU-origin cancellation, heading-relative radar
+  positions and out-of-range removal, and maps/data for all bodies in eight seeds.
+- `./build-amiga.sh -j4 all tests` builds both CPU games and `Space-tests.020`.
+  AmiKit runs the native `--quick` suite successfully, including the new turret
+  and contact checks. Output: `build/evidence/presentation-native-tests.txt`.
+- AmiKit PAL AGA `--lowres` displays the system/local maps, body data and dorsal
+  turret/radar. ECS `--lowres` also displays the orbital map. Escape restores
+  Workbench; the AGA exit has DMA flags `03F0`. Screenshots are in
+  `build/evidence/presentation-aga-{map,local,data,turret,exit}.png` and
+  `build/evidence/presentation-ecs-map.png`.
+- AmiKit RTG displays system/body data and the orbital map, then restores
+  Workbench on Escape. Evidence: `build/evidence/presentation-rtg-{data,map,exit}.png`.
+- Host deterministic previews include orbital/local maps, compact body data,
+  a selected hostile radar contact and turret view; RTG previews use 640 x 480.
+- `Space.guide` passes the AmigaGuide checker with no warnings or errors.
+
+Orbits are true-scale projected circular/inclined paths. At system scale, moons
+and ports can overlap; local scale resolves their separation. Radar represents
+active encounter ships, not a persistent civilian fleet. Turrets share the
+existing laser heat, cooldown, upgrade and 5 km range; separate hardpoint and
+weapon equipment systems remain roadmap work. These checks do not establish
+real hardware frame rates or NTSC runtime behavior.

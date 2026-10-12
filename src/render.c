@@ -613,6 +613,185 @@ static void panel(const char *title) {
     rect(4, 4, frame->w - 8, 2, 13);
     text(12, 13, 13, title);
 }
+static int selected_body(void) {
+    return game->target >= 0 ? game->ports[game->target].body : game->target_body;
+}
+/* A top-down true-scale projection. Local mode resolves moons and ports that
+   are necessarily coincident at AU scale. All arithmetic stays in metres. */
+static void map_point(Vec p, Vec origin, int64_t extent, int *x, int *y) {
+    Vec r = scale(sub(p, origin), 62, extent);
+    *x = screen_coord(frame->w / 2 + r.x);
+    *y = screen_coord(96 - r.z);
+}
+static void orbit_path(Vec origin, Vec center, int64_t radius, int inclination,
+                       int64_t extent) {
+    int a, px = 0, py = 0;
+    for (a = 0; a <= 1024; a += 16) {
+        Vec p = add(center, scale(vec(sini(a), 0, (int64_t)cosi(a) * cosi(inclination) / 16384),
+                                  radius, 16384));
+        int x, y;
+        map_point(p, origin, extent, &x, &y);
+        if (a && x >= 12 && x < frame->w - 12 && y >= 30 && y <= 162 &&
+            px >= 12 && px < frame->w - 12 && py >= 30 && py <= 162)
+            line(px, py, x, y, 3);
+        px = x;
+        py = y;
+    }
+}
+static void orbital_map(void) {
+    int i, x, y, b = selected_body(), parent = -1;
+    int64_t extent = 1;
+    Vec origin = vec(0, 0, 0);
+    char s[96];
+    if (game->map_local) {
+        parent = game->system.planets[b].parent;
+        if (parent < 0)
+            parent = b;
+        origin = game->system.planets[parent].center;
+        extent = (int64_t)game->system.planets[parent].radius * 4;
+        for (i = 0; i < game->system.count; i++)
+            if (game->system.planets[i].parent == parent && game->system.planets[i].orbit > extent)
+                extent = game->system.planets[i].orbit;
+        for (i = 0; i < game->nports; i++)
+            if (game->ports[i].body == parent) {
+                int64_t d = length(sub(scale(game->ports[i].pos, 1, FP), origin));
+                if (d > extent)
+                    extent = d;
+            }
+    } else {
+        for (i = 0; i < game->system.count; i++) {
+            const Planet *p = &game->system.planets[i];
+            int64_t d = p->orbit + (p->parent >= 0 ? game->system.planets[p->parent].orbit : 0);
+            if (d > extent)
+                extent = d;
+        }
+    }
+    extent = extent * 11 / 10;
+    panel(game->map_local ? "LOCAL ORBITS / TOP DOWN" : "SYSTEM ORBITS / TOP DOWN");
+    for (i = 0; i < game->system.count; i++) {
+        const Planet *p = &game->system.planets[i];
+        Vec center = p->parent >= 0 ? game->system.planets[p->parent].center : vec(0, 0, 0);
+        if (game->map_local && i != parent && p->parent != parent)
+            continue;
+        if (!game->map_local || i != parent)
+            orbit_path(origin, center, p->orbit, p->inclination, extent);
+        map_point(p->center, origin, extent, &x, &y);
+        rect(x - 2, y - 2, 5, 5, i == b ? 12 : p->settled ? 11 : 13);
+        if (i == b || game->map_local)
+            text(x + 5, y - 3, i == b ? 12 : 7, p->name);
+    }
+    if (!game->map_local)
+        for (i = 0; i < game->system.stars; i++) {
+            orbit_path(origin, vec(0, 0, 0), game->system.star[i].orbit, 0, extent);
+            map_point(game->system.star[i].center, origin, extent, &x, &y);
+            rect(x - 2, y - 2, 5, 5, 15);
+        }
+    for (i = 0; i < game->nports; i++) {
+        if (i != game->target && (!game->map_local || game->ports[i].body != parent))
+            continue;
+        map_point(scale(game->ports[i].pos, 1, FP), origin, extent, &x, &y);
+        if (x >= 12 && x < frame->w - 12 && y >= 30 && y <= 162) {
+            line(x - 3, y, x + 3, y, i == game->target ? 12 : 7);
+            line(x, y - 3, x, y + 3, i == game->target ? 12 : 7);
+        }
+    }
+    map_point(scale(game->pos, 1, FP), origin, extent, &x, &y);
+    if (x >= 12 && x < frame->w - 12 && y >= 30 && y <= 162) {
+        line(x - 3, y + 3, x, y - 3, 14);
+        line(x, y - 3, x + 3, y + 3, 14);
+    }
+    snprintf(s, sizeof(s), "RADIUS %ld %s / SHIP RED / TARGET GOLD",
+             (long)(extent / (game->map_local ? 1000 : AU_METRES / 100)),
+             game->map_local ? "KM" : "0.01 AU");
+    text(12, 161, 7, s);
+    text(12, 174, 7, "C SCALE / Q T SELECT / I DATA / Y LIST");
+}
+static void system_data(void) {
+    static const char *climates[] = {"VACUUM", "TEMPERATE", "THIN", "DENSE", "FROZEN", "HYDROGEN"};
+    static const char *economies[] = {"AGRICULTURE", "INDUSTRY", "TECHNOLOGY", "EXTRACTION"};
+    static const char *governments[] = {"COUNCIL", "FEDERATION", "CORPORATE", "INDEPENDENT"};
+    const Planet *p = &game->system.planets[selected_body()];
+    int j = exploration_index(game, game->system.sector), b = selected_body(), ports = 0, i;
+    char s[96];
+    panel("SYSTEM / BODY DATA");
+    snprintf(s, sizeof(s), "%s / %d STARS / %d BODIES", game->system.name,
+             game->system.stars, game->system.count);
+    text(12, 30, 15, s);
+    snprintf(s, sizeof(s), "%s / %s", economies[game->system.economy],
+             governments[game->system.government]);
+    text(12, 42, 7, s);
+    snprintf(s, sizeof(s), "%s / %s", p->name, body_names[p->type]);
+    text(12, 60, 12, s);
+    snprintf(s, sizeof(s), "RADIUS %ld KM / GRAVITY %d M/S2", (long)(p->radius / 1000), (int)p->gravity);
+    text(12, 72, 15, s);
+    snprintf(s, sizeof(s), "%s / ATMOSPHERE %ld KM", climates[p->climate], (long)(p->atmosphere / 1000));
+    text(12, 84, 15, s);
+    snprintf(s, sizeof(s), "PARENT %s / %s", p->parent >= 0 ? game->system.planets[p->parent].name : "STARS",
+             p->rings ? "RINGS" : "NO RINGS");
+    text(12, 96, 15, s);
+    snprintf(s, sizeof(s), "ORBIT %ld %s", (long)(p->orbit / (p->parent >= 0 ? 1000 : AU_METRES / 100)),
+             p->parent >= 0 ? "KM" : "0.01 AU");
+    text(12, 108, 15, s);
+    snprintf(s, sizeof(s), "PERIOD %lu H / INCLINATION %d DEG", (unsigned long)(p->period / 3600),
+             p->inclination * 360 / ANGLE);
+    text(12, 120, 15, s);
+    for (i = 0; i < game->nports; i++)
+        ports += game->ports[i].body == b;
+    snprintf(s, sizeof(s), "%d PORTS / %s", ports,
+             j >= 0 && (game->explored[j].surveyed & (1U << b)) ? "SURVEYED" : "UNSURVEYED");
+    text(12, 132, 13, s);
+    snprintf(s, sizeof(s), "NAV RANGE %ld KM", (long)(length(sub(navigation_position(game), game->pos)) / (FP * 1000)));
+    text(12, 150, 15, s);
+    text(12, 174, 7, "Q T SELECT / UP DOWN / Z ORBITS / V FLY");
+}
+/* Radar follows the hull heading even when a turret or rear camera is used.
+   Horizontal distance uses X/Z; a short stem shows signed vertical separation. */
+static void sensors(void) {
+    int i, selected = combat_target(game), cx = frame->w - 46, cy = 43;
+    char s[80];
+    rect(cx - 40, 8, 80, 61, 1);
+    text(cx - 36, 11, 7, "RADAR 10 KM");
+    line(cx - 35, cy, cx + 35, cy, 3);
+    line(cx, cy - 18, cx, cy + 18, 3);
+    rect(cx - 1, cy - 1, 3, 3, 15);
+    for (i = 0; i < MAX_NPC; i++) {
+        const Npc *n = &game->npc[i];
+        Vec r;
+        int x, y, stem, color;
+        if (!n->active || length(sub(n->pos, game->pos)) > 10000LL * FP)
+            continue;
+        r = scale(sub(n->pos, game->pos), 1, FP);
+        x = (int)((r.x * cosi(game->yaw) - r.z * sini(game->yaw)) / 16384 * 32 / 10000);
+        y = (int)((r.x * sini(game->yaw) + r.z * cosi(game->yaw)) / 16384 * 18 / 10000);
+        stem = (int)(r.y * 8 / 10000);
+        color = i == selected ? 12 : n->hostile ? 14 : 11;
+        line(cx + x, cy - y, cx + x, cy - y - stem, color);
+        rect(cx + x - 1, cy - y - stem - 1, 3, 3, color);
+    }
+    text(7, 20, 7, game->camera_mode == 0 ? "FRONT" : game->camera_mode == 1 ? "REAR" :
+         game->camera_mode == 2 ? "EXTERNAL" : game->camera_mode == 3 ? "DORSAL TURRET" : "VENTRAL TURRET");
+    if (selected >= 0) {
+        const Npc *n = &game->npc[selected];
+        Vec rel = sub(n->pos, game->pos), rv = sub(n->vel, game->vel), dir = unit(rel, 16384);
+        Vec p = camera(scale(n->pos, 1, FP));
+        int64_t closing = -(rv.x * dir.x + rv.y * dir.y + rv.z * dir.z) / (16384 * FP);
+        snprintf(s, sizeof(s), "R %s %d / HULL %d", n->hostile ? "HOSTILE" : "CONTACT", selected + 1, n->hull);
+        text(7, 32, 12, s);
+        snprintf(s, sizeof(s), "%ld M / CLOSING %ld M/S", (long)(length(rel) / FP), (long)closing);
+        text(7, 44, 12, s);
+        if (p.z > 8) {
+            int x = screen_coord(frame->w / 2 + p.x * (frame->w / 2) / p.z);
+            int y = screen_coord(view_h / 2 - p.y * (frame->w / 2) / p.z);
+            if (x > 8 && x < frame->w - 8 && y > 56 && y < view_h - 20) {
+                line(x - 6, y, x, y - 6, 12);
+                line(x, y - 6, x + 6, y, 12);
+                line(x + 6, y, x, y + 6, 12);
+                line(x, y + 6, x - 6, y, 12);
+            }
+        }
+    } else
+        text(7, 32, 7, "R SELECT RADAR CONTACT");
+}
 static void menus(void) {
     char s[110];
     int i;
@@ -645,6 +824,14 @@ static void menus(void) {
         break;
     }
     case SYSTEM_MAP: {
+        if (game->system_display == 1) {
+            orbital_map();
+            break;
+        }
+        if (game->system_display == 2) {
+            system_data();
+            break;
+        }
         int first = game->target < 0 ? 0 : game->target / 8 * 8;
         panel("SYSTEM / FLIGHT DESTINATIONS");
         if (game->target < 0) {
@@ -748,8 +935,8 @@ static void menus(void) {
                 "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
                 "[ ] TIME RATE / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
                 "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
-                "F5 SAVE / F9 LOAD / ESC EXIT",         "PATROLS: AIR 600-6000 M / ORBIT 13 KM",
-                "SURVEY: 500-6000 M BELOW 200 M/S",     "JUMP: ABOVE 12 KM / NO NEARBY TRAFFIC"};
+                "F5 SAVE / F9 LOAD / ESC EXIT",         "R CONTACT / Z ORBITS / I BODY DATA",
+                "TURRET ARROWS AIM / CTRL FIRE",     "JUMP: ABOVE 12 KM / NO NEARBY TRAFFIC"};
             for (i = 0; i < 12; i++)
                 text(12, 30 + i * 12, i < 9 ? 15 : 7, help[i]);
         }
@@ -825,12 +1012,7 @@ void render_game(const Game *g, Frame *f) {
         return;
     }
     camera_position = g->pos;
-    camera_yaw = g->yaw;
-    camera_pitch = g->pitch;
-    if (g->camera_mode == 1) {
-        camera_yaw = (g->yaw + 512) & 1023;
-        camera_pitch = -g->pitch;
-    }
+    view_angles(g, &camera_yaw, &camera_pitch);
     if (g->camera_mode == 2) {
         Vec up = unit(sub(g->pos, scale(g->system.planets[g->body].center, FP, 1)), 16384);
         camera_position = add(sub(g->pos, scale(forward(g->yaw, g->pitch), 600 * FP, 16384)),
@@ -911,15 +1093,16 @@ void render_game(const Game *g, Frame *f) {
         }
         text(7, 8, 13,
              g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name);
-        if (!g->camera_mode) {
+        if (!g->camera_mode || g->camera_mode >= 3) {
             line(f->w / 2 - 9, view_h / 2, f->w / 2 - 3, view_h / 2, 15);
             line(f->w / 2 + 3, view_h / 2, f->w / 2 + 9, view_h / 2, 15);
             line(f->w / 2, view_h / 2 - 9, f->w / 2, view_h / 2 - 3, 15);
         }
-        if (g->laser && !g->camera_mode) {
+        if (g->laser && (!g->camera_mode || g->camera_mode >= 3)) {
             line(20, view_h - 20, f->w / 2, view_h / 2, 12);
             line(f->w - 20, view_h - 20, f->w / 2, view_h / 2, 12);
         }
+        sensors();
     } else
         menus();
     hud();

@@ -23,6 +23,7 @@ void setup_system(Game *g, Sector sector) {
     g->clearance = -1;
     g->dock_stage = 0;
     g->target_body = -1;
+    g->combat_target = -1;
     g->frame_body = 0;
     for (b = 0; b < g->system.count; b++) {
         const Planet *p = &g->system.planets[b];
@@ -69,6 +70,23 @@ void game_init(Game *g, uint32_t seed) {
         g->contracts[i].state = COMPLETE;
     refresh_board(g);
     say(g, "SPACE / FLIGHT PROTOTYPE - H FOR HELP");
+}
+/* Turrets use independent world angles. Steering them never changes flight guidance. */
+void view_angles(const Game *g, int *yaw, int *pitch) {
+    *yaw = g->yaw;
+    *pitch = g->pitch;
+    if (g->camera_mode == 1) {
+        *yaw = (g->yaw + 512) & 1023;
+        *pitch = -g->pitch;
+    } else if (g->camera_mode >= 3) {
+        *yaw = g->turret_yaw;
+        *pitch = g->turret_pitch;
+    }
+}
+int combat_target(const Game *g) {
+    int i = g->combat_target;
+    return i >= 0 && i < MAX_NPC && g->npc[i].active &&
+                   length(sub(g->npc[i].pos, g->pos)) <= 10000LL * FP ? i : -1;
 }
 int safe_warp(const Game *g) {
     int i, w = g->warp;
@@ -214,6 +232,11 @@ void game_tick(Game *g, Controls c) {
         g->heat--;
     if (g->shield < 100 && g->tick % HZ == 0)
         g->shield++;
+    if (g->camera_mode >= 3 && g->page == FLIGHT) {
+        g->turret_yaw = (g->turret_yaw + c.yaw * 3) & 1023;
+        g->turret_pitch = clamp(g->turret_pitch + c.pitch * 3, -250, 250);
+        c.yaw = c.pitch = 0;
+    }
     if (g->docked != -1) {
         if (g->docked >= 0) {
             g->body = g->ports[g->docked].body;
@@ -411,15 +434,25 @@ void game_tick(Game *g, Controls c) {
                 say(g, "STELLAR IMPACT");
             }
     if (c.fire && g->heat < 90 && g->tick % 6 == 0) {
-        Vec f = forward(g->yaw, g->pitch);
+        int yaw = g->yaw, pitch = g->pitch;
+        Vec f;
+        if (g->camera_mode >= 3)
+            view_angles(g, &yaw, &pitch);
+        f = forward(yaw, pitch);
         g->laser = 3;
         g->heat += 4;
         g->shots++;
         for (i = 0; i < MAX_NPC; i++) {
             Npc *n = &g->npc[i];
             Vec rel = sub(n->pos, g->pos);
-            int64_t l = length(rel), along = (rel.x * f.x + rel.y * f.y + rel.z * f.z) / 16384;
-            if (!n->active || l > 5000 * FP || along <= 0)
+            int64_t l, along;
+            if (!n->active)
+                continue;
+            l = length(rel);
+            if (l > 5000 * FP)
+                continue;
+            along = (rel.x * f.x + rel.y * f.y + rel.z * f.z) / 16384;
+            if (along <= 0)
                 continue;
             if (length(sub(rel, scale(f, along, 16384))) < 70 * FP) {
                 n->hull -= 20 + g->upgrade * 10;
@@ -543,12 +576,38 @@ void game_action(Game *g, int k) {
         g->page = g->page == HELP ? FLIGHT : HELP;
         break;
     case 'v':
-        if (g->page == FLIGHT)
-            g->camera_mode = (g->camera_mode + 1) % 3;
+        if (g->page == FLIGHT) {
+            g->camera_mode = (g->camera_mode + 1) % 5;
+            if (g->camera_mode >= 3) {
+                g->turret_yaw = g->yaw;
+                g->turret_pitch = clamp(g->pitch + (g->camera_mode == 3 ? 128 : -128), -250, 250);
+            }
+        }
         g->page = FLIGHT;
+        break;
+    case 'r': {
+        int i, start = combat_target(g);
+        g->combat_target = -1;
+        for (i = 1; i <= MAX_NPC; i++) {
+            int n = (start + i) % MAX_NPC;
+            if (g->npc[n].active && length(sub(g->npc[n].pos, g->pos)) <= 10000LL * FP) {
+                g->combat_target = n;
+                break;
+            }
+        }
+        break;
+    }
+    case 'z':
+        g->page = SYSTEM_MAP;
+        g->system_display = 1;
+        break;
+    case 'i':
+        g->page = SYSTEM_MAP;
+        g->system_display = 2;
         break;
     case 'y':
         g->page = SYSTEM_MAP;
+        g->system_display = 0;
         break;
     case 'g':
         g->page = MAP;
@@ -568,6 +627,8 @@ void game_action(Game *g, int k) {
         g->page = LOG;
         break;
     case 'c':
+        if (g->page == SYSTEM_MAP && g->system_display == 1)
+            g->map_local = !g->map_local;
         g->selected = g->system.sector;
         break;
     case 'q':

@@ -179,7 +179,7 @@ static int valid(const Game *g) {
         g->heat > 100 || g->credits < 0 || g->credits > 100000000 || g->pitch < -250 ||
         g->pitch > 250 || g->yaw < 0 || g->yaw > 1023 || g->page < 0 || g->page > HELP ||
         g->selection < 0 || g->selection >= MAX_MISSIONS || g->upgrade < 0 || g->upgrade > 3 ||
-        g->throttle < 0 || g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 2)
+        g->throttle < 0 || g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 4)
         return 0;
     if (g->warp != 1 && g->warp != 4 && g->warp != 16 && g->warp != 64 && g->warp != 256)
         return 0;
@@ -309,6 +309,9 @@ int load_game(Game *g, const char *path) {
         return 0;
     copy.body = nearest_body(&copy, copy.pos);
     copy.paused = 0;
+    copy.turret_yaw = copy.yaw;
+    copy.turret_pitch = copy.pitch;
+    copy.combat_target = -1;
     copy.effective_warp = 1;
     *g = copy;
     snprintf(g->message, sizeof(g->message), "COMMANDER RESTORED");

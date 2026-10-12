@@ -29,8 +29,27 @@ static void compact_display(void) {
         for (y = 12; y < 181; y++)
             assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12, 296));
     }
+    /* New system panels must remain fully legible in the 200-line layout. */
+    g.page = SYSTEM_MAP;
+    for (page = 1; page <= 2; page++) {
+        g.system_display = page;
+        assert(render_init(&small));
+        render_game(&g, &small);
+        assert(render_init(&full));
+        render_game(&g, &full);
+        for (y = 12; y < 181; y++)
+            assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12, 296));
+    }
+    g.map_local = 1; g.system_display = 1;
+    render_game(&g, &full);
     g.page = FLIGHT;
-    render_game(&g, &small);
+    assert(render_init(&small));
+    g.npc[0] = (Npc){add(g.pos, vec(0, 0, 1000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
+    g.combat_target = 0;
+    for (page = 0; page < 5; page++) {
+        g.camera_mode = page;
+        render_game(&g, &small);
+    }
     for (depth = 5; depth <= 8; depth += 3) {
         int size = 40 * 200 * depth;
         for (x = 0; x < 320 * 200; x++)
@@ -50,6 +69,49 @@ static void compact_display(void) {
     free(planar);
     free(small.pixels);
     free(full.pixels);
+    render_shutdown();
+}
+
+static void orbital_and_radar(void) {
+    static Game g;
+    Frame f = {320, 200, 0, 0, {0}};
+    int seed, body, display, x, y;
+    assert(render_init(&f));
+    f.pixels = calloc(320 * 200, 1);
+    assert(f.pixels);
+    for (seed = 1; seed <= 8; seed++) {
+        game_init(&g, (unsigned)seed);
+        g.page = SYSTEM_MAP;
+        g.target = -1;
+        for (body = 0; body < g.system.count; body++) {
+            g.target_body = body;
+            for (display = 1; display <= 2; display++) {
+                g.system_display = display;
+                g.map_local = 1;
+                render_game(&g, &f);
+            }
+        }
+        g.system_display = 1;
+        g.map_local = 0;
+        render_game(&g, &f);
+    }
+    frame = &f; game = &g; view_h = 144;
+    /* AU-sized origins must cancel before projection; a local displacement
+       of half the map radius lands exactly halfway to the edge. */
+    map_point(add(g.pos, vec(500, 0, -500)), g.pos, 1000, &x, &y);
+    assert(x == 191 && y == 127);
+    g.yaw = 0;
+    g.combat_target = -1;
+    g.npc[0] = (Npc){add(g.pos, vec(0, 0, 10000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
+    sensors();
+    assert(f.pixels[25 * 320 + 274] == 14); /* forward at 10 km */
+    g.yaw = 256;
+    sensors();
+    assert(f.pixels[43 * 320 + 242] == 14); /* left after hull turns right */
+    g.npc[0].pos = add(g.pos, vec(0, 0, 10001 * FP));
+    sensors();
+    assert(f.pixels[43 * 320 + 242] != 14); /* out of range is removed */
+    free(f.pixels);
     render_shutdown();
 }
 
@@ -97,6 +159,7 @@ int main(void) {
     render_shutdown();
     assert(!render_init(&(Frame){64, 56, 0, 0, {0}}));
     compact_display();
+    orbital_and_radar();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");
     return 0;
 }

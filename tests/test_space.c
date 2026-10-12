@@ -559,6 +559,60 @@ static void test_safety(void) {
     game_tick(&h, c);
     puts("PASS compression preserves tick trajectory and hazards clamp time");
 }
+static void test_presentation(void) {
+    Game g, h;
+    Controls c = {1, 1, 0, 0};
+    int i, yaw, pitch;
+    game_init(&g, 3);
+    assert(combat_target(&g) == -1);
+    g.npc[2] = (Npc){add(g.pos, vec(0, 0, 2000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
+    g.npc[5] = (Npc){add(g.pos, vec(0, 0, 11000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
+    game_action(&g, 'r');
+    assert(combat_target(&g) == 2 && g.target == 1);
+    g.npc[2].active = 0;
+    assert(combat_target(&g) == -1);
+    game_action(&g, 'r');
+    assert(g.combat_target == -1);
+    game_action(&g, 'z');
+    assert(g.page == SYSTEM_MAP && g.system_display == 1);
+    game_action(&g, 'c');
+    assert(g.map_local);
+    game_action(&g, 'i');
+    assert(g.system_display == 2);
+    game_action(&g, 'y');
+    assert(g.system_display == 0);
+    game_action(&g, 'v');
+    for (i = 1; i <= 5; i++) {
+        game_action(&g, 'v');
+        assert(g.camera_mode == i % 5);
+    }
+    g.camera_mode = 3;
+    g.turret_yaw = 512;
+    g.turret_pitch = 0;
+    yaw = g.yaw; pitch = g.pitch;
+    game_tick(&g, c);
+    assert(g.yaw == yaw && g.pitch == pitch);
+    assert(g.turret_yaw == 515 && g.turret_pitch == 3);
+    view_angles(&g, &yaw, &pitch);
+    assert(yaw == 515 && pitch == 3);
+    assert(save_game(&g, TEST_SAVE));
+    assert(load_game(&h, TEST_SAVE) && h.camera_mode == 3);
+    assert(combat_target(&h) == -1);
+    remove(TEST_SAVE);
+    /* A shot behind the hull must hit only when the turret points backwards. */
+    game_action(&g, 'l');
+    g.pos = add(scale(g.system.planets[0].center, FP, 1),
+                vec(0, (g.system.planets[0].radius + 20000LL) * FP, 0));
+    g.vel = vec(0, 0, 0); g.yaw = 0; g.pitch = 0; g.assist = 0;
+    g.turret_yaw = 512; g.turret_pitch = 0; g.tick = 5;
+    g.npc[2] = (Npc){add(g.pos, vec(0, 0, -2000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
+    h = g; h.camera_mode = 0;
+    game_tick(&g, (Controls){0, 0, 0, 1});
+    game_tick(&h, (Controls){0, 0, 0, 1});
+    assert(g.npc[2].hull == 80 && h.npc[2].hull == 100);
+    assert(g.pos.x == h.pos.x && g.pos.y == h.pos.y && g.pos.z == h.pos.z);
+    puts("PASS independent turret aim/fire, contact range, map controls and save compatibility");
+}
 int main(int argc, char **argv) {
     quick = argc > 1 && !strcmp(argv[1], "--quick");
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -574,6 +628,7 @@ int main(int argc, char **argv) {
     test_ai();
     test_save();
     test_render();
+    test_presentation();
     test_routes();
     if (!quick)
         test_missions();

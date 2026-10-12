@@ -47,7 +47,10 @@ painter sorting. Hardware frame rates and long-duration play remain QA work.
 
 ## Presentation and hardware
 
-- Turret views, targeting/radar, a system orbital map and richer system data.
+- [x] Independent dorsal/ventral turret aim and firing, contact targeting and 10 km
+  heading radar, live system/local orbital maps and system/body data. Turret
+  aim, contact selection and map display reset on load; moon/station separation
+  uses local scale.
 - Original procedural sound effects and music; the current build is silent.
 - Mouse and joystick flight; the current native input path is keyboard only.
 - [x] PAL/NTSC native layout selection and a centred PAL `--lowres` 320 x 200 option,

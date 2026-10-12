@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     uint32_t *rgb;
     Uint64 last, now, freq;
     uint64_t accumulator = 0;
-    int quit = 0, i, compact = 0;
+    int quit = 0, i, compact = 0, radar_preview = 0;
     game_init(&g, 0x53504143);
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--lowres") || !strcmp(argv[i], "--ntsc"))
@@ -42,6 +42,12 @@ int main(int argc, char **argv) {
             g.pos = add(port->pos, scale(port->normal, 1232LL * FP, 16384));
             aim_angles(sub(port->pos, g.pos), &g.yaw, &g.pitch);
         }
+        if (!strcmp(argv[i], "--system-map")) { g.page = SYSTEM_MAP; g.system_display = 1; }
+        if (!strcmp(argv[i], "--system-data")) { g.page = SYSTEM_MAP; g.system_display = 2; }
+        if (!strcmp(argv[i], "--local-map")) { g.page = SYSTEM_MAP; g.system_display = 1; g.map_local = 1; }
+        if (!strcmp(argv[i], "--turret")) { g.camera_mode = 3; g.turret_yaw = g.yaw; g.turret_pitch = 128; }
+        if (!strcmp(argv[i], "--radar"))
+            radar_preview = 1;
         if (!strcmp(argv[i], "--ecs"))
             f.enhanced = 0;
         if (!strcmp(argv[i], "--orbit")) {
@@ -58,6 +64,11 @@ int main(int argc, char **argv) {
                         vec(0, (g.system.planets[0].radius + 220LL) * FP, -900LL * FP));
             g.pitch = -35;
         }
+    }
+    if (radar_preview) {
+        g.npc[0] = (Npc){add(g.pos, scale(forward(g.yaw, g.pitch), 2000 * FP, 16384)),
+                        vec(0, 0, 0), 100, 1, 1, -1, 0};
+        g.combat_target = 0;
     }
     if (compact) {
         if (f.w != 320) {

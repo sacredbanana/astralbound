@@ -102,7 +102,27 @@ can take hours or days of simulated time; compression repeats fixed physics tick
 Fuel follows engine impulse, so small cruise corrections cost less than full thrust.
 Delivery deadlines allow six to eight simulated hours for the longer local journeys.
 
-V cycles front/rear/external views while already in flight.
+V cycles front, rear, external, dorsal turret and ventral turret views while
+already in flight. In either turret view, arrows aim independently of the hull,
+and Ctrl fires along the turret aim; W/S still controls ship thrust. Turrets have
+full yaw and pitch limited just short of the poles. Other views fire the forward
+laser. Turret aim and contact selection reset on loading a commander.
+
+R cycles active contacts within the 10 km radar sphere. Red contacts are hostile,
+green contacts friendly, and gold marks the selected contact. The radar follows
+hull heading, with forward at the top and vertical stems showing height. The
+selected contact has a diamond, hull, range and signed closing speed; losing the
+contact removes its marker. Navigation targets and autopilot remain independent.
+
+Z opens the live top-down orbital map. C toggles system scale and local scale
+around the selected body (or its parent for a moon); Q/T and Up/Down select the
+same navigation destinations as Y. Moon and station separations are visible at
+local scale. White marks stars, green inhabited bodies, cyan other bodies, gold
+the selected destination, and red the ship. Orbits are projected at true scale;
+small bodies and ports can overlap in the system view. I opens system/body data:
+stars, economy, government, radius, gravity, atmosphere, rings, parent, orbit,
+period, inclination, ports, survey status and navigation range. Y retains the
+destination list; V returns to flight.
 
 Flight controls: arrows steer, W/S change set speed, Ctrl fires, E switches flight
 assist, K controls landing gear, Space pauses, H opens help, F5 saves, F9 loads,
