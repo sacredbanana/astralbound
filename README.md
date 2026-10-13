@@ -11,7 +11,8 @@ The current build has astronomical-scale moving systems, central/binary stars,
 moons and rings, hierarchical flight frames, spherical terrain with continuous LOD
 edges, forests, coastlines and generated cities. It includes moving planetary/orbital
 ports, station clearance and docking corridors, sparse settlement, exploration
-journals, persistent port markets, six contract types, combat, upgrades and portable commander saves.
+journals, persistent port markets, thirteen contract types, passenger cabins, crew, factions,
+police/piracy, mining, six hulls, missiles and portable commander saves.
 
 ## Amiga builds
 
@@ -77,6 +78,7 @@ use `--ecs` for the reduced palette. `--lowres` or `--ntsc` previews the 320 x 2
 layout on the host; these flags cannot be combined with `--rtg`. The host and Amiga use the same simulation and
 renderer. `Space-tests.020` runs the full core suite on an Amiga;
 `Space-tests.020 --quick` runs the shorter native smoke suite.
+`Space-career-tests.020` runs the careers/resources/equipment regressions.
 `Space-RunTests` starts the presentation/core suites with an explicit 256 KiB
 child stack and writes their result files; use it in a bare boot CLI. Full trajectories
 remain in the default suite, which can take a long time under emulation.
@@ -179,9 +181,70 @@ between 600 and 6000 m. Survey work requires twenty simulated seconds between
 500 and 6000 m at less than 200 m/s over the rotating ground. Combat jobs pay on disabling their target;
 delivery and survey jobs pay automatically on completion. Rewards are paid once.
 
+## Careers, resources and equipment
+
+Press **B again on the board** to switch between two sets of offers. **+** negotiates
+once at reputation 3 or higher: 20% more pay for 25% less time. The board shows
+required reputation, cargo tonnes and passengers. All deadlines use simulated time.
+Passenger transport reserves cabin seats through delivery; each 600 CR cabin adds
+two seats and occupies two tonnes. Rescue reserves one seat, creates a distress pod
+above 13 km, and pays after pickup with N and delivery to its named port. Escort
+requires staying within 5 km of a civilian for 120 seconds while defending it from
+raiders. Its destruction fails the job. Reconnaissance requires 30 seconds within
+10 km of the named surface port, at 500–6000 m altitude and below 200 m/s relative
+to the ground. Installation attacks create a separate ground target near the named
+surface port. Assassination pays on target destruction and creates a 1000 CR fine
+with a rival faction. Multi-leg deliveries visit three successive ports in the named
+system and pay after the final leg; J shows the current port and leg.
+
+**9** opens crew and faction records. **+** recruits for 200 CR; **-** dismisses.
+Crew cost 25 CR each per simulated hour, including compressed flight and jumps.
+Unpaid crew leave. Launch requires the hull's minimum crew. Completed jobs raise
+reputation; failure lowers it. Military jobs advance service, six ranks and medals
+at every five completions. The Aurora Union, Meridian League and Free Reach keep
+separate reputation and fines. **F on this page** pays the current faction's fine.
+
+Government 2/3 restricts crystals; government 3 also restricts circuits. **B in the
+market** toggles the black market at lawless ports or with local reputation 5+.
+Restricted goods cost 50% more there. Customs on departure, arrival and nearby
+patrol scans confiscates contraband and fines 100 CR per tonne. Wanted commanders
+attract armed police near ports; cargo attracts pirates in lawless orbital space.
+
+**U** opens the six-hull catalogue: **1–6 then Return** buys a hull. Hulls differ in
+shape, mass, cargo, crew, acceleration, turret mounts and missile capacity. Cargo
+mass reduces ordinary acceleration. A purchase refuses incompatible cargo,
+missiles, crew or mounted turrets; sell unsupported equipment first. **0** opens
+equipment: **1–8 then Return** buys, **-** sells at half price. **O** upgrades the
+selected dorsal/ventral mount or the forward laser otherwise, for 2000 CR per
+level (three levels). The starting Cinder has both turret mounts. **R** selects a
+radar contact, **comma** launches a homing missile, **period** releases a decoy that
+suppresses nearby hostile fire for 12 seconds, and **slash** uses an escape pod.
+Pod rescue takes one simulated hour, loses hull/cargo/contracts/crew/equipment,
+and returns a loaned Cinder at the nearest inhabited port. Use it before hull
+reaches zero; unsettled systems have no rescue port.
+
+**Backslash** cycles eight asteroid waypoints above the first body. P approaches
+400 m behind the selected rock. Aim at the rock and press **O** with mining gear
+to release ore; approach within 250 m and below 50 m/s relative speed, then **N**
+collects it. Rocks have collision geometry and four tonnes each. Depletion survives
+jumps/saves in a 32-system ledger; mining a new system is refused when it fills.
+Destroyed hostiles also leave collectible salvage. Cargo pods are local encounters
+and disappear on jumping; collected cargo and rescued passengers travel with you.
+
+On open ground, **O** deploys a 500 CR mining rig; **N** recovers it within 500 m of
+the deployment site. Up to four rigs persist across sectors/saves, producing one
+tonne of alloys per simulated hour up to 20 tonnes. Recovery loads available hold
+space; an emptied rig is removed and sold for 250 CR. A fuel scoop gathers one
+fuel point per second in the upper two thirds of a hydrogen atmosphere at
+50–800 m/s relative air speed. Docking, combat, pickups and missiles retain fixed
+1/32-second physics. These are bounded game careers and local encounters; the
+civilian economy and strategic faction wars are not simulated.
+
 Read [Space.guide](Space.guide) on the Amiga for the controls and prototype limits.
-Save format 5 includes the market ledger alongside exploration, frame, fuel-impulse
-and approach state. World generation stays at version 3. Version 3 commanders load
+Save format 6 preserves crew, cabins, mount upgrades, factions, legal status,
+contract stages, cargo pods, missiles, mining rigs and finite asteroid deposits,
+alongside exploration, markets, frame, fuel-impulse and approach state. Formats
+3, 4 and 5 migrate with default faction records and enough crew for their hull. World generation stays at version 3. Version 3 commanders load
 with their saved stock assigned to the docked port; other ports start with generated
 supply. Version 4 commanders also load; older open-ground landings are reattached
 to rotating terrain and docked ships follow their ports. Version 2 remains incompatible.

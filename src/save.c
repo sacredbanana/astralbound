@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 typedef struct {
-    unsigned char data[16384];
+    unsigned char data[24576];
     size_t pos;
     int read, error;
 } Stream;
@@ -55,6 +55,47 @@ static void mission(Stream *s, Mission *m) {
     FIELD(m->progress);
     FIELD(m->spawned);
     FIELD(m->deadline);
+}
+static void career_payload(Stream *s, Game *g) {
+    int i, j;
+    uint32_t tag = word(s, 0x43415236U);
+    if (tag != 0x43415236U) { s->error = 1; return; }
+    FIELD(g->crew); FIELD(g->cabins); FIELD(g->equipment);
+    FIELD(g->missiles); FIELD(g->countermeasures);
+    FIELD(g->turret_upgrade[0]); FIELD(g->turret_upgrade[1]);
+    FIELD(g->wage_tick); FIELD(g->encounter_tick);
+    for (i = 0; i < FACTIONS; i++) {
+        FIELD(g->reputation[i]); FIELD(g->service[i]); FIELD(g->medals[i]); FIELD(g->wanted[i]);
+    }
+    for (i = 0; i < MAX_MISSIONS * 2; i++) {
+        Mission *m = i < MAX_MISSIONS ? &g->board[i] : &g->contracts[i - MAX_MISSIONS];
+        FIELD(m->faction); FIELD(m->required_rep); FIELD(m->passengers);
+        FIELD(m->legs); FIELD(m->leg); FIELD(m->negotiated);
+    }
+    for (i = 0; i < MAX_NPC; i++) { FIELD(g->npc_role[i]); FIELD(g->npc_ship[i]); }
+    for (i = 0; i < MAX_PODS; i++) {
+        CargoPod *p = &g->pods[i];
+        vector(s, &p->pos); vector(s, &p->vel);
+        FIELD(p->active); FIELD(p->good); FIELD(p->quantity); FIELD(p->mission);
+    }
+    for (i = 0; i < MAX_MISSILES; i++) {
+        Missile *m = &g->projectiles[i];
+        vector(s, &m->pos); vector(s, &m->vel);
+        FIELD(m->active); FIELD(m->target); FIELD(m->ttl);
+    }
+    FIELD(g->rig_count);
+    if (g->rig_count < 0 || g->rig_count > MAX_RIGS) { s->error = 1; return; }
+    for (i = 0; i < g->rig_count; i++) {
+        MiningRig *r = &g->rigs[i];
+        sector(s, &r->sector); FIELD(r->body); FIELD(r->stock);
+        vector(s, &r->anchor); FIELD(r->last_tick);
+    }
+    FIELD(g->deposit_count);
+    if (g->deposit_count < 0 || g->deposit_count > MAX_DEPOSITS) { s->error = 1; return; }
+    for (i = 0; i < g->deposit_count; i++) {
+        sector(s, &g->deposits[i].sector);
+        for (j = 0; j < ASTEROIDS; j++) FIELD(g->deposits[i].ore[j]);
+    }
 }
 static void payload(Stream *s, Game *g, uint32_t version) {
     int i, j, legacy_stock[GOODS];
@@ -150,6 +191,20 @@ static void payload(Stream *s, Game *g, uint32_t version) {
         for (j = 0; j < GOODS; j++)
             m->stock[j] = legacy_stock[j];
     }
+    if (version >= 6) career_payload(s, g);
+    else if (s->read) {
+        g->wage_tick = g->encounter_tick = g->tick;
+        g->crew = ship_specs[g->ship < 0 || g->ship >= SHIPS ? 0 : g->ship].crew;
+        g->turret_upgrade[0] = g->turret_upgrade[1] = g->upgrade;
+        for (i = 0; i < MAX_MISSIONS; i++) {
+            g->board[i].faction = g->contracts[i].faction = system_faction(g);
+            g->board[i].legs = g->contracts[i].legs = 1;
+            g->board[i].passengers = g->contracts[i].passengers = 0;
+            g->board[i].leg = g->contracts[i].leg = 0;
+            g->board[i].negotiated = g->contracts[i].negotiated = 0;
+            g->board[i].required_rep = g->contracts[i].required_rep = -100;
+        }
+    }
 }
 #undef FIELD
 static uint32_t checksum(const unsigned char *p, size_t n) {
@@ -171,13 +226,13 @@ static int valid(const Game *g) {
     int i;
     if (!g->system.count || !good_sector(g->system.sector) || !good_sector(g->selected) ||
         !good_vec(g->pos, 2000000000000000LL) || !good_vec(g->vel, (SYSTEM_DRIVE_SPEED + 1000000) * FP) || g->ship < 0 ||
-        g->ship > 2 ||
+        g->ship >= SHIPS ||
         (g->target < -1 || g->target >= g->nports ||
          (g->target < 0 && (g->target_body < 0 || g->target_body >= g->system.count))) ||
         g->docked < -2 || g->docked >= port_count(g) || g->hull < 0 || g->hull > 100 ||
         g->shield < 0 || g->shield > 100 || g->fuel < 0 || g->fuel > 100 || g->heat < 0 ||
         g->heat > 100 || g->credits < 0 || g->credits > 100000000 || g->pitch < -250 ||
-        g->pitch > 250 || g->yaw < 0 || g->yaw > 1023 || g->page < 0 || g->page > HELP ||
+        g->pitch > 250 || g->yaw < 0 || g->yaw > 1023 || g->page < 0 || g->page > CAREER ||
         g->selection < 0 || g->selection >= MAX_MISSIONS || g->upgrade < 0 || g->upgrade > 3 ||
         g->throttle < 0 || g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 4)
         return 0;
@@ -185,7 +240,7 @@ static int valid(const Game *g) {
         g->warp != 256 && g->warp != 1024 && g->warp != MAX_WARP)
         return 0;
     for (i = 0; i < GOODS; i++)
-        if (g->cargo[i] < 0 || g->cargo[i] > 140)
+        if (g->cargo[i] < 0 || g->cargo[i] > 180)
             return 0;
     for (i = 0; i < MAX_MISSIONS * 2; i++) {
         const Mission *m = i < MAX_MISSIONS ? &g->contracts[i] : &g->board[i - MAX_MISSIONS];
@@ -196,7 +251,7 @@ static int valid(const Game *g) {
             return 0;
     }
     for (i = 0; i < MAX_NPC; i++)
-        if (!good_vec(g->npc[i].pos, 2000000000000000LL) || !good_vec(g->npc[i].vel, 512000000) ||
+        if (!good_vec(g->npc[i].pos, 2000000000000000LL) || !good_vec(g->npc[i].vel, (SYSTEM_DRIVE_SPEED + 1000000) * FP) ||
             g->npc[i].mission < -1 || g->npc[i].mission >= MAX_MISSIONS)
             return 0;
     if (g->fuel_burn >= 50000U * FP || g->dock_stage < 0 || g->dock_stage > 1 ||
@@ -223,7 +278,54 @@ static int valid(const Game *g) {
             if (m->stock[j] < 0 || m->stock[j] > 10000)
                 return 0;
     }
-    return cargo_used(g) <= ship_capacity[g->ship];
+    if (g->crew < 0 || g->crew > 5 || g->cabins < 0 || g->cabins > 8 ||
+        g->equipment < 0 || (g->equipment & ~((1 << EQUIP_TYPES) - 1)) ||
+        g->missiles < 0 || g->missiles > ship_specs[g->ship].missiles ||
+        g->turret_upgrade[0] < 0 || g->turret_upgrade[0] > 3 ||
+        g->turret_upgrade[1] < 0 || g->turret_upgrade[1] > 3 ||
+        g->countermeasures < 0 || g->countermeasures > 20 ||
+        g->wage_tick > g->tick || g->encounter_tick > g->tick ||
+        g->rig_count < 0 || g->rig_count > MAX_RIGS ||
+        g->deposit_count < 0 || g->deposit_count > MAX_DEPOSITS) return 0;
+    for (i = 0; i < FACTIONS; i++) if (g->reputation[i] < -100 || g->reputation[i] > 100 ||
+        g->service[i] < 0 || g->service[i] > 10000 || g->medals[i] != g->service[i] / 5 ||
+        g->wanted[i] < 0 || g->wanted[i] > 1000000) return 0;
+    for (i = 0; i < MAX_MISSIONS * 2; i++) {
+        const Mission *m = i < MAX_MISSIONS ? &g->board[i] : &g->contracts[i - MAX_MISSIONS];
+        if (m->faction < 0 || m->faction >= FACTIONS || m->required_rep < -100 ||
+            m->required_rep > 100 || m->passengers < 0 || m->passengers > 3 ||
+            m->legs < 0 || m->legs > 3 || m->leg < 0 || m->leg > m->legs ||
+            m->negotiated < 0 || m->negotiated > 1 || m->spawned < 0 || m->spawned > 1) return 0;
+    }
+    for (i = 0; i < MAX_NPC; i++) if (g->npc_role[i] < 0 || g->npc_role[i] > INSTALLATION_TARGET ||
+        g->npc_ship[i] < 0 || g->npc_ship[i] >= SHIPS) return 0;
+    for (i = 0; i < MAX_PODS; i++) {
+        const CargoPod *p = &g->pods[i];
+        if (!good_vec(p->pos, 2000000000000000LL) || !good_vec(p->vel, (SYSTEM_DRIVE_SPEED + 1000000) * FP) ||
+            p->active < 0 || p->active > 1 || p->good < 0 || p->good >= GOODS ||
+            p->quantity < 0 || p->quantity > 8 || p->mission < -1 || p->mission >= MAX_MISSIONS) return 0;
+    }
+    for (i = 0; i < MAX_MISSILES; i++) {
+        const Missile *m = &g->projectiles[i];
+        if (!good_vec(m->pos, 2000000000000000LL) || !good_vec(m->vel, (SYSTEM_DRIVE_SPEED + 1000000) * FP) ||
+            m->active < 0 || m->active > 1 || m->target < 0 || m->target >= MAX_NPC ||
+            m->ttl < 0 || m->ttl > HZ * 20) return 0;
+    }
+    for (i = 0; i < g->rig_count; i++) {
+        const MiningRig *r = &g->rigs[i];
+        if (!good_sector(r->sector) || r->body < 0 || r->body >= MAX_PLANETS ||
+            r->stock < 0 || r->stock > 20 || r->last_tick > g->tick ||
+            !good_vec(r->anchor, 100000000000LL)) return 0;
+    }
+    for (i = 0; i < g->deposit_count; i++) {
+        int j;
+        if (!good_sector(g->deposits[i].sector)) return 0;
+        for (j = 0; j < i; j++) if (g->deposits[i].sector.x == g->deposits[j].sector.x &&
+            g->deposits[i].sector.y == g->deposits[j].sector.y &&
+            g->deposits[i].sector.z == g->deposits[j].sector.z) return 0;
+        for (j = 0; j < ASTEROIDS; j++) if (g->deposits[i].ore[j] < 0 || g->deposits[i].ore[j] > 4) return 0;
+    }
+    return cargo_used(g) <= ship_capacity[g->ship] && passengers_used(g) <= g->cabins * 2;
 }
 int save_game(const Game *g, const char *path) {
     Stream s = {0};
@@ -298,7 +400,7 @@ int load_game(Game *g, const char *path) {
     if (word(&s, 0) != 0x53504331)
         return 0;
     version = word(&s, 0);
-    if (version != GENERATOR_VERSION && version != 4 && version != SAVE_VERSION)
+    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != SAVE_VERSION)
         return 0;
     size = word(&s, 0);
     crc = word(&s, 0);

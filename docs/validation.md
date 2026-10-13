@@ -493,3 +493,47 @@ km and km/s where large cruise values would overflow a native 32-bit display val
 
 Physical hardware, live AGA/RTG drive flight and a complete interplanetary journey
 under native emulation remain untested; those routes have host simulation evidence.
+
+## Remaining career/economy roadmap (2026-10-13)
+
+The software career items now have bounded playable implementations: passenger
+cabins and rescue pickup/delivery, hourly crew recruitment/wages and hull crew
+requirements, escort/reconnaissance/assassination/installation/multi-leg objectives,
+negotiated terms and reputation gates, three original factions with military
+service/ranks/medals and separate fines, black markets/customs/police/piracy,
+finite asteroids, persistent surface rigs, salvage pickup and hydrogen scooping,
+six hulls with distinct geometry/specifications and cargo-dependent acceleration,
+separate turret upgrades, missiles, decoys and escape-pod rescue.
+
+- `make test navigation-test` passes the full core, presentation, renderer,
+  careers and interplanetary suites. The existing 58 generated port arrivals and
+  all six original contract paths remain covered. Career regressions cover
+  capacity/refusal paths, reserved seats, hourly wages, gates/negotiation,
+  objective completion/failure and payment once, police/pirate encounters,
+  swept missile hits, salvage, saved finite deposits, rigs, scooping, pod rescue,
+  full exploration/market/deposit ledgers and semantic save rejection.
+- `make sanitize` passes with AddressSanitizer/UndefinedBehaviorSanitizer,
+  including the career suite and existing astronomical navigation regressions.
+- `./build-amiga.sh -j4 all variants tests` builds software-integer
+  68000/020/030/040/060 games and native tests without SDL/OpenGL. The test runner
+  includes `Space-career-tests.020` with a 256 KiB child stack.
+- Save format 6 appends explicit big-endian career fields to the existing
+  commander prefix. Formats 3/4/5 migrate with default faction data, hull crew,
+  no passenger reservations and preserved legacy turret upgrade levels.
+  Malformed checksummed extension data leaves the live commander unchanged.
+- New equipment and crew/faction pages are included in compact-layout regression
+  comparisons. ECS 320 x 200 previews were visually inspected, along with live
+  native menus. The guide checker reports zero errors or warnings.
+- Isolated PAL 68020 Amiberry passes presentation, core quick and career suites.
+  Live ECS low-resolution interaction confirms crew hire, cabin purchase, both
+  board pages and F5/F9 restoration of crew/cabins/credits from a version 6 file.
+  Escape returns to the CLI and restores DMA `03F0`. The user's running AmiKit
+  instance was left untouched. Evidence is under `build/evidence/careers-*`.
+- `./package.sh` produces ZIP/LHA packages with extracted-byte verification and
+  the self-booting ECS ADF. No ROM or OS files are included.
+
+These tests establish host and selected ECS emulator behavior, not physical
+PAL/NTSC performance, analogue/CD32 devices, other RTG cards, live AGA/RTG career
+play or long-duration audio/display lifecycle stability. That hardware QA item
+remains unchecked. Careers are bounded templates and local encounters, not a
+persistent civilian economy or strategic war simulation.

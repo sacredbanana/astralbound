@@ -194,46 +194,46 @@ static void test_markets(void) {
     Sector home = {0, 0, 0};
     game_init(&g, 1);
     g.credits = 100000;
-    normal = market_stock(&g, 6);
-    quote = price(&g, 6);
+    normal = market_stock(&g, 5);
+    quote = price(&g, 5);
     assert(g.market_count == 0);
-    assert(trade(&g, 6, 1));
-    assert(market_stock(&g, 6) == normal - 1);
+    assert(trade(&g, 5, 1));
+    assert(market_stock(&g, 5) == normal - 1);
     assert(g.credits == 100000 - quote);
     g.docked = 1;
-    other = market_stock(&g, 6);
-    assert(trade(&g, 6, 1));
-    assert(market_stock(&g, 6) == other - 1);
+    other = market_stock(&g, 5);
+    assert(trade(&g, 5, 1));
+    assert(market_stock(&g, 5) == other - 1);
     g.docked = 0;
-    assert(market_stock(&g, 6) == normal - 1 && g.market_count == 2);
+    assert(market_stock(&g, 5) == normal - 1 && g.market_count == 2);
     setup_system(&g, (Sector){1, 0, 1});
     setup_system(&g, home);
     g.docked = 0;
-    assert(market_stock(&g, 6) == normal - 1);
-    for (i = 0; i < 10 && market_stock(&g, 6); i++)
-        assert(trade(&g, 6, 1));
-    assert(price(&g, 6) > quote);
+    assert(market_stock(&g, 5) == normal - 1);
+    for (i = 0; i < 10 && market_stock(&g, 5); i++)
+        assert(trade(&g, 5, 1));
+    assert(price(&g, 5) > quote);
     assert(save_game(&g, TEST_SAVE));
     assert(load_game(&h, TEST_SAVE));
-    assert(h.market_count == g.market_count && market_stock(&h, 6) == market_stock(&g, 6));
-    assert(price(&h, 6) == price(&g, 6));
+    assert(h.market_count == g.market_count && market_stock(&h, 5) == market_stock(&g, 5));
+    assert(price(&h, 5) == price(&g, 5));
     g.tick += MARKET_INTERVAL - 1;
-    assert(market_stock(&g, 6) == normal - 11);
+    assert(market_stock(&g, 5) == normal - 11);
     g.tick++;
-    assert(market_stock(&g, 6) == normal - 10);
+    assert(market_stock(&g, 5) == normal - 10);
     /* Trade materializes recovery for every commodity and preserves sub-hour time. */
     assert(trade(&g, 0, 1));
-    assert(market_stock(&g, 6) == normal - 10);
+    assert(market_stock(&g, 5) == normal - 10);
     g.tick += MARKET_INTERVAL * 100;
-    assert(market_stock(&g, 6) == normal && price(&g, 6) == quote);
-    g.markets[0].stock[6] = 0;
+    assert(market_stock(&g, 5) == normal && price(&g, 5) == quote);
+    g.markets[0].stock[5] = 0;
     g.markets[0].last_tick = g.tick;
     before = g;
-    assert(!trade(&g, 6, 1));
+    assert(!trade(&g, 5, 1));
     assert(!memcmp(&g, &before, sizeof(g)));
-    quote = sell_price(&g, 6);
-    assert(trade(&g, 6, 0));
-    assert(g.credits == before.credits + quote && market_stock(&g, 6) == 1);
+    quote = sell_price(&g, 5);
+    assert(trade(&g, 5, 0));
+    assert(g.credits == before.credits + quote && market_stock(&g, 5) == 1);
     g.credits = 0;
     before = g;
     assert(!trade(&g, 0, 1));
@@ -242,11 +242,11 @@ static void test_markets(void) {
     assert(!memcmp(&g, &before, sizeof(g)));
     g.credits = 100000000;
     before = g;
-    assert(!trade(&g, 6, 0) && !memcmp(&g, &before, sizeof(g)));
+    assert(!trade(&g, 5, 0) && !memcmp(&g, &before, sizeof(g)));
     g.credits = 100000;
-    g.markets[0].stock[6] = normal + 3;
+    g.markets[0].stock[5] = normal + 3;
     g.tick += MARKET_INTERVAL;
-    assert(market_stock(&g, 6) == normal + 2);
+    assert(market_stock(&g, 5) == normal + 2);
     g.markets[0].last_tick = g.tick + 1;
     assert(!save_game(&g, TEST_SAVE));
     g.markets[0].last_tick = g.tick;
@@ -272,6 +272,7 @@ static void test_markets(void) {
         int good;
         game_init(&g, (uint32_t)i);
         g.credits = 100000;
+        g.system.government = 1;
         for (good = 0; good < GOODS; good++) {
             int credits = g.credits, stock = market_stock(&g, good);
             assert(trade(&g, good, 1) && trade(&g, good, 0));
@@ -304,6 +305,8 @@ static void test_legacy_market_save(void) {
     len = fread(data, 1, sizeof(data), f);
     fclose(f);
     /* Version 3 ends before the market ledger; its common prefix includes stock. */
+    for (i = 16; i + 4 < len; i += 4) if (data[i] == 0x43 && data[i+1] == 0x41 &&
+        data[i+2] == 0x52 && data[i+3] == 0x36) { len = i; break; }
     len -= 4 + 52 * g.market_count;
     put_word(data + 4, GENERATOR_VERSION);
     put_word(data + 8, (uint32_t)(len - 16));
@@ -322,7 +325,10 @@ static void test_legacy_market_save(void) {
     assert(f);
     len = fread(data, 1, sizeof(data), f);
     fclose(f);
-    put_word(data + len - 52 - 4, MAX_MARKETS + 1);
+    for (i = 16; i + 4 < len; i += 4) if (data[i] == 0x43 && data[i+1] == 0x41 &&
+        data[i+2] == 0x52 && data[i+3] == 0x36) break;
+    if (i < 56 || i >= len) abort();
+    put_word(data + i - 56, MAX_MARKETS + 1);
     sum = 2166136261U;
     for (i = 16; i < len; i++)
         sum = (sum ^ data[i]) * 16777619U;
@@ -513,7 +519,7 @@ static void test_missions(void) {
     Game g;
     Controls c = {0};
     int type, i, old, slot;
-    for (type = 0; type < MISSION_TYPES; type++) {
+    for (type = 0; type <= BOUNTY; type++) {
         game_init(&g, 37);
         assert(accept_mission(&g, type));
         slot = 0;
@@ -750,8 +756,17 @@ static void test_environment(void) {
     assert(save_game(&g, TEST_SAVE) && load_game(&h, TEST_SAVE));
     assert(length(sub(g.pos,h.pos)) < 4);
     { /* Version 4 ground commander has an unrotated body-relative position. */
-        FILE *old = fopen(TEST_SAVE, "r+b");
-        assert(old && !fseek(old,7,SEEK_SET)); fputc(4,old); fclose(old);
+        unsigned char data[24576];
+        size_t len, k;
+        uint32_t sum = 2166136261U;
+        FILE *old = fopen(TEST_SAVE, "rb");
+        assert(old); len = fread(data, 1, sizeof(data), old); fclose(old);
+        for (k = 16; k + 4 < len; k += 4) if (data[k] == 0x43 && data[k+1] == 0x41 &&
+            data[k+2] == 0x52 && data[k+3] == 0x36) { len = k; break; }
+        put_word(data + 4, 4); put_word(data + 8, (uint32_t)(len - 16));
+        for (k = 16; k < len; k++) sum = (sum ^ data[k]) * 16777619U;
+        put_word(data + 12, sum);
+        old = fopen(TEST_SAVE, "wb"); assert(old && fwrite(data, 1, len, old) == len); fclose(old);
         assert(load_game(&h,TEST_SAVE));
         assert(length(sub(g.pos,h.pos)) > fixed.radius * FP / 2);
         assert(altitude_at(&h,h.pos) >= 10 && altitude_at(&h,h.pos) <= 14);

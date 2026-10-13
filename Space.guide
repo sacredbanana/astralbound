@@ -1,6 +1,6 @@
 @database "Space.guide"
 @author "Space project"
-@$VER: Space.guide 0.1 (12.10.2026)
+@$VER: Space.guide 0.1 (13.10.2026)
 @wordwrap
 @help help
 
@@ -16,6 +16,7 @@
   @{"Navigation   " link navigation}
   @{"Contracts    " link contracts}
   @{"Trade / Ships" link trade}
+  @{"Careers      " link careers}
   @{"Save / Load  " link saving}
   @{"Hardware     " link hardware}
   @{"Known Limits " link limits}
@@ -166,14 +167,26 @@
   Survey: fly between 500 and 6000 m below 200 m/s for twenty seconds.
 
   Payment is automatic and occurs once. Expired contracts fail.
-  These are simple prototype templates, not the complete career system.
+  B again switches board pages. + negotiates once at reputation 3:
+  20% more pay with 25% less remaining time. The board shows reputation,
+  cargo and passenger requirements. Jobs cannot be accepted while wanted.
+
+  Passenger: reserve cabin seats and deliver to the named port.
+  Rescue: collect the distress pod above 13 km with N, then deliver.
+  Escort: stay within 5 km for 120 seconds and keep the civilian alive.
+  Recon: 30 seconds within 10 km of the surface port, at 500-6000 m
+  and below 200 m/s relative to rotating ground.
+  Installation: destroy the separate ground target near the surface port.
+  Assassination: destroy the target; a rival faction issues a 1000 CR fine.
+  Multi-leg: visit three ports in the destination system. J shows each leg.
+  These are bounded templates. Payment occurs only after the final objective.
 
 @endnode
 
 @node trade "Trading and Ship Services"
 @toc main
 @prev contracts
-@next saving
+@next careers
 
   M opens the market. Select a commodity with 1-8.
   + buys one tonne; - sells one tonne. Transactions require docking.
@@ -188,24 +201,74 @@
   U opens the shipyard.
   F refuels and repairs for 100 credits.
   O buys a laser upgrade for 2000 credits, up to three upgrades.
-  N buys a larger hull; the displayed cost depends on your ship.
+  1-6 and Return selects a hull; N selects the next catalogue hull.
   L launches again.
 
-  Cinder, Loom and Hearth hulls have 20, 60 and 140 tonne holds.
+  Cinder/Loom/Hearth: 20/60/140 tonnes. Kestrel/Quarry/Wayfarer:
+  35/90/180 tonnes. Larger hulls need crew; see Careers.
   The full equipment catalogue and civilian economy are unfinished.
+
+@endnode
+
+@node careers "Careers, Mining and Equipment"
+@toc main
+@prev trade
+@next saving
+
+  9 opens crew/factions. + recruits for 200 CR; - dismisses.
+  Crew cost 25 CR each per simulated hour, including jumps and warp.
+  Unpaid crew leave; launch requires the hull's minimum crew.
+  Aurora Union, Meridian League and Free Reach keep independent records.
+  Completed jobs raise reputation; failed jobs lower it. Military jobs
+  advance service/rank, with a medal every five jobs. F here pays fines.
+
+  U opens six hulls: 1-6 and Return buys. Mass, acceleration, hold, crew,
+  shapes, turret mounts and missile capacities differ. Cargo adds mass.
+  Purchases refuse incompatible cargo, crew, missiles or turret mounts.
+  0 opens equipment: 1-8 and Return buys; - sells at half price.
+  Cabins have two seats and take two tonnes each. O upgrades the selected
+  dorsal/ventral turret, or the forward laser otherwise (2000 CR, 3 levels).
+  Starting Cinder turrets are fitted. Sell unsupported mounts before
+  buying another hull. R selects radar contacts; comma launches a missile.
+  Period releases a decoy, suppressing nearby hostile fire for 12 seconds.
+  Slash uses a pod before hull reaches zero: rescue takes an hour and loses
+  hull, cargo, crew, equipment and contracts, then loans a Cinder at a port.
+  Unsettled systems have no pod-rescue destination.
+
+  Governments 2/3 restrict crystals; 3 also restricts circuits.
+  B in M market toggles black-market access at lawless ports or reputation
+  5+. Restricted goods cost 50% more. Customs confiscates contraband on
+  departure, arrival and patrol scans: 100 CR fine per tonne.
+  Wanted commanders attract police near ports; lawless space has pirates.
+
+  Backslash selects an asteroid above the first body; P approaches 400 m
+  behind it. Aim and O with mining equipment releases ore. Within 250 m
+  and below 50 m/s relative speed, N collects ore, salvage or distress pods.
+  Each asteroid has four tonnes; depletion survives saves/jumps.
+  New mining systems are refused when the 32-system deposit ledger fills.
+  Rocks have collision geometry: do not fly into them.
+
+  Land on open ground and O deploys a 500 CR rig. N recovers within 500 m
+  of that site, loading available hold space. Rigs produce one tonne/hour
+  of alloys, up to 20 tonnes. An emptied rig sells for 250 CR.
+  Up to four rigs persist across jumps/saves. Semicolon selects a rig
+  waypoint in the current system; P stops 100 m above it for manual landing.
+  Pods are local to a system.
+  A fuel scoop gathers one fuel point/second in the upper two thirds of
+  hydrogen atmosphere at 50-800 m/s relative to its air.
 
 @endnode
 
 @node saving "Commander Saves"
 @toc main
-@prev trade
+@prev careers
 @next hardware
 
   F5 saves to PROGDIR:space.sav. F9 loads the commander.
   Native modes restore the OS for file access, then resume takeover.
   The save includes its format/generator version and checksum, exploration
   journal, local frame, accumulated fuel impulse, docking approach and markets.
-  Save format 5 keeps world generator version 3. Version 3 commanders load
+  Save format 6 keeps world generator version 3. Version 3 commanders load
   with saved supply assigned to the docked port; other ports use generated
   supply. Old version 2 prototype commanders remain incompatible.
   A rejected or corrupt load leaves the current game unchanged.
@@ -213,7 +276,8 @@
   New data is written and closed before replacing the old slot.
   On filesystems that cannot replace via Rename, the old slot is kept
   as space.sav.bak. A failed replacement attempts to restore it.
-  Version 4 commanders also load. Old open-ground landings are attached to
+  Version 4 and 5 commanders also load, with default faction records
+  and the crew needed by their hull. Careers/equipment/resources are saved. Old open-ground landings are attached to
   the rotating terrain; docked commanders follow their moving port.
   Prototype save formats can change between development revisions.
 
@@ -267,8 +331,12 @@
   The renderer uses a depth buffer. Docking walls have swept collisions.
   Clearance traffic is scheduled; it is not a persistent civilian fleet.
 
-  Mining, passengers, crew, factions, military careers, richer missions,
-  police, missiles and countermeasures remain to be built.
+  Careers use thirteen templates, three factions and six hulls.
+  Mining records 32 systems with eight four-tonne asteroids each, plus
+  four persistent rigs. Eight cargo pods and eight missiles are local.
+  Local NPCs are mission/police/pirate encounters, not persistent fleets.
+  Strategic wars and a fully simulated civilian economy remain outside
+  this model. Physical hardware and long-duration play still need QA.
   Analogue/CD32 input and RTG high-colour are implemented; physical QA remains.
   NTSC ECS output has emulator evidence; physical PAL/NTSC QA remains.
   Real-hardware frame rates have not been established.
@@ -284,7 +352,7 @@
 
   Launch L / Port T / Body Q / Auto P / Clearance D / Flight V
   System ports Y / Galaxy G / Jump X / Contract log J
-  Contracts B / Market M / Shipyard U
+  Contracts B / Market M / Shipyard U / Equipment 0 / Crew 9
   Steer arrows / Set speed W S / Fire Ctrl / Assist E / Gear K
   Time [ ] / Pause Space / Save F5 / Load F9 / Exit Escape
 

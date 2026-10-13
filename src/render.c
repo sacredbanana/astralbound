@@ -992,24 +992,62 @@ static void world(void) {
     for (i = 0; i < MAX_NPC; i++)
         if (game->npc[i].active) {
             Vec p = scale(game->npc[i].pos, 1, FP);
-            Vec a = add(p, vec(0, 0, -45)), b2 = add(p, vec(-55, 0, 25)),
-                c = add(p, vec(55, 0, 25)), d = add(p, vec(0, 15, 15));
+            if (game->npc_role[i] == INSTALLATION_TARGET) {
+                const Planet *body = &game->system.planets[nearest_body(game, game->npc[i].pos)];
+                Vec up = unit(sub(p, body->center), 16384);
+                box(p, up, 75, 100, 23);
+                box(add(p, scale(up, 100, 16384)), up, 20, 60, 24);
+                continue;
+            }
+            const ShipSpec *spec = &ship_specs[game->npc_ship[i]];
+            Vec a = add(p, vec(0, 0, -spec->depth)), b2 = add(p, vec(-spec->width, 0, spec->depth / 2)),
+                c = add(p, vec(spec->width, 0, spec->depth / 2)), d = add(p, vec(0, spec->height, 15));
             triangle(a, b2, d, 23);
             triangle(a, d, c, 24);
             triangle(b2, c, d, 22);
             triangle(a, c, b2, 21);
         }
+    for (i = 0; i < ASTEROIDS; i++) {
+        Vec p = scale(asteroid_position(game, i), 1, FP);
+        if (length(sub(p, scale(camera_position, 1, FP))) < 100000) {
+            box(add(p, vec(0, -90, 0)), vec(0, 16384, 0), 90, 180, 6);
+        }
+    }
+    for (i = 0; i < game->rig_count; i++) {
+        const MiningRig *r = &game->rigs[i];
+        if (r->sector.x == game->system.sector.x && r->sector.y == game->system.sector.y &&
+            r->sector.z == game->system.sector.z) {
+            const Planet *p = &game->system.planets[r->body];
+            Vec pos = rig_position(game, i);
+            box(scale(pos, 1, FP), unit(sub(pos, scale(p->center, FP, 1)), 16384), 12, 20, 12);
+        }
+    }
+    for (i = 0; i < MAX_PODS; i++) if (game->pods[i].active) {
+        Vec p = scale(game->pods[i].pos, 1, FP);
+        box(p, vec(0, 16384, 0), 12, 24, game->pods[i].mission >= 0 ? 13 : 12);
+    }
+    for (i = 0; i < MAX_MISSILES; i++) if (game->projectiles[i].active)
+        box(scale(game->projectiles[i].pos, 1, FP), vec(0, 16384, 0), 4, 8, 11);
     if (game->camera_mode == 2) {
-        int wide = game->ship == 0 ? 35 : game->ship == 1 ? 60 : 110;
+        const ShipSpec *spec = &ship_specs[game->ship];
+        int wide = spec->width;
         Vec p = scale(game->pos, 1, FP), f = forward(game->yaw, game->pitch);
         Vec right = vec(cosi(game->yaw), 0, -sini(game->yaw)), up = unit(cross(f, right), 16384);
-        Vec tip = add(p, scale(f, wide * 2, 16384)), left = add(p, scale(right, -wide, 16384));
+        Vec tip = add(p, scale(f, spec->depth, 16384)), left = add(p, scale(right, -wide, 16384));
         Vec r = add(p, scale(right, wide, 16384)),
-            roof = add(sub(p, scale(f, wide / 2, 16384)), scale(up, wide / 3, 16384));
+            roof = add(sub(p, scale(f, wide / 2, 16384)), scale(up, spec->height, 16384));
         triangle(tip, left, roof, 19);
         triangle(tip, roof, r, 20);
         triangle(left, r, roof, 17);
         triangle(tip, r, left, 16);
+        if (game->ship == 3) {
+            Vec wing = add(p, scale(right, wide * 2, 16384));
+            Vec other = sub(p, scale(right, wide * 2, 16384));
+            triangle(tip, wing, r, 21); triangle(tip, left, other, 21);
+        } else if (game->ship >= 4) {
+            box(sub(p, scale(right, wide / 2, 16384)), up, wide / 3, spec->height, 17);
+            box(add(p, scale(right, wide / 2, 16384)), up, wide / 3, spec->height, 19);
+        }
     }
     qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
     for (i = 0; i < nt; i++) {
@@ -1325,11 +1363,11 @@ static void menus(void) {
         }
         {
             const Mission *m = &game->board[game->selection];
-            snprintf(s, sizeof(s), "%ld/%ld PORT %d - %d T", (long)m->destination.x,
-                     (long)m->destination.z, m->port + 1, m->quantity);
+            snprintf(s, sizeof(s), "%ld/%ld P%d %dT %dP REP%d", (long)m->destination.x,
+                     (long)m->destination.z, m->port + 1, m->quantity, m->passengers, m->required_rep);
             text(12, 158, 13, s);
         }
-        text(12, 174, 7, "1-8 SELECT / ENTER ACCEPT / J LOG");
+        text(12, 174, 7, "ENTER ACCEPT / + TERMS / B MORE");
         break;
     case MARKET:
         snprintf(s, sizeof(s), "MARKET / %s",
@@ -1345,20 +1383,47 @@ static void menus(void) {
         snprintf(s, sizeof(s), "HOLD %d/%d T - 1-8 SELECT  +/- TRADE", cargo_used(game),
                  ship_capacity[game->ship]);
         text(12, 168, 7, s);
+        text(12, 181, 7, game->black_market ? "B REGULATED / BLACK MARKET" : "B BLACK MARKET / REGULATED");
         break;
     case SHIPYARD:
-        panel("PORT / SHIPYARD");
-        snprintf(s, sizeof(s), "%s / %d TONNE HOLD",
-                 game->ship == 0   ? "CINDER"
-                 : game->ship == 1 ? "LOOM"
-                                   : "HEARTH",
-                 ship_capacity[game->ship]);
-        text(12, 35, 15, s);
-        text(12, 62, 15, "F REFUEL AND REPAIR - 100 CR");
-        text(12, 86, 15, "O LASER UPGRADE - 2000 CR");
-        snprintf(s, sizeof(s), "N LARGER HULL - %d CR", 8000 * (game->ship + 1));
-        text(12, 110, 15, s);
-        text(12, 144, 7, "L TO REQUEST LAUNCH");
+        panel("PORT / SHIP CATALOGUE");
+        for (i = 0; i < SHIPS; i++) {
+            const ShipSpec *spec = &ship_specs[i];
+            snprintf(s, sizeof(s), "%d %-9s %3dT %dCREW %5dCR", i + 1,
+                     spec->name, spec->capacity, spec->crew, spec->cost);
+            text(12, 30 + i * 16, i == game->selection ? 12 : game->ship == i ? 13 : 15, s);
+        }
+        { const ShipSpec *spec = &ship_specs[game->ship];
+          snprintf(s, sizeof(s), "%s %dT MASS / %d M/S2 / CREW %d", spec->name, spec->mass,
+                   spec->acceleration, game->crew); text(12, 132, 13, s); }
+        text(12, 150, 7, "1-6 ENTER BUY / F SERVICE / O LASER");
+        text(12, 170, 7, "0 EQUIPMENT / 9 CREW AND FACTIONS");
+        break;
+    case EQUIPMENT:
+        panel("PORT / EQUIPMENT AND HARDPOINTS");
+        for (i = 0; i < EQUIP_TYPES; i++) {
+            int count = i == CABIN ? game->cabins : i == MISSILE_RACK ? game->missiles :
+                        i == COUNTERMEASURE ? game->countermeasures : equipped(game, (Equipment)i);
+            snprintf(s, sizeof(s), "%d %-19s %4dCR %d", i + 1, equipment_names[i], equipment_cost[i], count);
+            text(12, 30 + i * 16, i == game->selection ? 12 : 15, s);
+        }
+        text(12, 165, 7, "ENTER BUY / - SELL / O MOUNT LASER");
+        break;
+    case CAREER:
+        panel("COMMANDER / CREW AND FACTIONS");
+        snprintf(s, sizeof(s), "CREW %d/%d / %d CR PER HOUR", game->crew,
+                 ship_specs[game->ship].crew, game->crew * 25);
+        text(12, 30, 15, s);
+        snprintf(s, sizeof(s), "PASSENGERS %d/%d / CABINS %d", passengers_used(game), game->cabins * 2, game->cabins);
+        text(12, 46, 15, s);
+        for (i = 0; i < FACTIONS; i++) {
+            snprintf(s, sizeof(s), "%s REP %d FINE %d", faction_names[i], game->reputation[i], game->wanted[i]);
+            text(12, 70 + i * 29, system_faction(game) == i ? 12 : 13, s);
+            snprintf(s, sizeof(s), "%s / SERVICE %d MEDALS %d", military_rank(game, i), game->service[i], game->medals[i]);
+            text(12, 81 + i * 29, 7, s);
+        }
+        text(12, 163, 7, "+ HIRE 200 / - DISMISS / F PAY FINE");
+        text(12, 177, 7, "0 EQUIPMENT / B CONTRACTS / V FLIGHT");
         break;
     case LOG:
         panel("COMMANDER / CONTRACT LOG");
@@ -1371,8 +1436,8 @@ static void menus(void) {
                      : m->state == COMPLETE ? "PAID"
                                             : "FAILED");
             text(12, 30 + i * 18, 13, s);
-            snprintf(s, sizeof(s), "  %ld/%ld P%d DUE %ld S", (long)m->destination.x,
-                     (long)m->destination.z, m->port + 1,
+            snprintf(s, sizeof(s), "  %ld/%ld P%d LEG%d/%d %ldS", (long)m->destination.x,
+                     (long)m->destination.z, m->port + 1, m->leg, m->legs,
                      (long)(m->deadline > game->tick ? (m->deadline - game->tick) / HZ : 0));
             text(12, 39 + i * 18, 7, s);
         }
@@ -1386,7 +1451,7 @@ static void menus(void) {
                 "[ ] TIME TO 4096X / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
                 "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
                 "F5 SAVE / F9 LOAD / ESC EXIT",         "R CONTACT / Z ORBITS / I BODY DATA",
-                "RMOUSE/JOY STEER / LMOUSE FIRE",     "JUMP: ABOVE 12 KM / NO NEARBY TRAFFIC"};
+                "0 EQUIP / 9 CREW / , MISSILE . DECOY", "BACKSLASH ROCK / O MINE N CARGO / / POD"};
             for (i = 0; i < 12; i++)
                 text(12, 30 + i * 12, i < 9 ? 15 : 7, help[i]);
         }
@@ -1523,12 +1588,12 @@ void render_game(const Game *g, Frame *f) {
                 line(x - 8, y - 8, x - 8, y + 8, 13);
                 line(x + 8, y - 8, x + 8, y + 8, 13);
                 text(x - 30, y + 12, 13,
-                     g->target < 0 ? g->system.planets[g->target_body].name
+                     g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name
                                    : g->ports[g->target].name);
             }
         }
         text(7, 8, 13,
-             g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name);
+             g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name);
         if (!g->camera_mode || g->camera_mode >= 3) {
             line(f->w / 2 - 9, view_h / 2, f->w / 2 - 3, view_h / 2, 15);
             line(f->w / 2 + 3, view_h / 2, f->w / 2 + 9, view_h / 2, 15);

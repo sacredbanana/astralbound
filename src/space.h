@@ -20,7 +20,14 @@
 #define MAX_EXPLORED 128
 #define MAX_MARKETS 128
 #define MARKET_INTERVAL (HZ * 3600U)
-#define SAVE_VERSION 5
+#define SAVE_VERSION 6
+#define SHIPS 6
+#define FACTIONS 3
+#define MAX_PODS 8
+#define MAX_MISSILES 8
+#define MAX_RIGS 4
+#define MAX_DEPOSITS 32
+#define ASTEROIDS 8
 #define AU_METRES 149597870700LL
 
 typedef struct {
@@ -75,6 +82,7 @@ typedef enum {
     AIR_PATROL,
     SURVEY,
     BOUNTY,
+    PASSENGER, ESCORT, RESCUE, ASSASSINATION, RECON, INSTALLATION, MULTILEG,
     MISSION_TYPES
 } MissionType;
 typedef enum { OFFERED, ACTIVE, COMPLETE, FAILED } MissionState;
@@ -85,13 +93,14 @@ typedef struct {
     Sector destination;
     int port, quantity, good, reward, progress, spawned;
     uint32_t deadline;
+    int faction, required_rep, passengers, legs, leg, negotiated;
 } Mission;
 typedef struct {
     Vec pos, vel;
     int hull, active, hostile, mission;
     uint32_t cooldown;
 } Npc;
-typedef enum { FLIGHT, MAP, BOARD, MARKET, SHIPYARD, LOG, SYSTEM_MAP, HELP } Page;
+typedef enum { FLIGHT, MAP, BOARD, MARKET, SHIPYARD, LOG, SYSTEM_MAP, HELP, EQUIPMENT, CAREER } Page;
 typedef struct {
     Sector sector;
     uint32_t visited, surveyed;
@@ -103,6 +112,16 @@ typedef struct {
     uint32_t last_tick;
     int stock[GOODS];
 } Market;
+typedef struct {
+    const char *name;
+    int mass, acceleration, capacity, crew, mounts, missiles, width, depth, height, cost;
+} ShipSpec;
+typedef enum { CABIN, MINING, SCOOP, MISSILE_RACK, COUNTERMEASURE, DORSAL, VENTRAL, ESCAPE_POD, EQUIP_TYPES } Equipment;
+typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
+typedef struct { Vec pos, vel; int active, good, quantity, mission; } CargoPod;
+typedef struct { Vec pos, vel; int active, target, ttl; } Missile;
+typedef struct { Sector sector; int body, stock; Vec anchor; uint32_t last_tick; } MiningRig;
+typedef struct { Sector sector; int ore[ASTEROIDS]; } Deposit;
 typedef struct {
     uint32_t seed, tick;
     System system;
@@ -127,6 +146,17 @@ typedef struct {
     int drive_manual, drive_active; /* transient; speed/thrust scale, not time warp */
     Vec ground_anchor; /* transient body-fixed Q8 landed position */
     uint32_t shots, fuel_burn;
+    /* v6 careers extension; legacy commander prefix is serialized unchanged. */
+    int crew, cabins, equipment, missiles, countermeasures, turret_upgrade[2];
+    int reputation[FACTIONS], service[FACTIONS], medals[FACTIONS], wanted[FACTIONS];
+    uint32_t wage_tick, encounter_tick;
+    int npc_role[MAX_NPC], npc_ship[MAX_NPC];
+    CargoPod pods[MAX_PODS];
+    Missile projectiles[MAX_MISSILES];
+    MiningRig rigs[MAX_RIGS];
+    Deposit deposits[MAX_DEPOSITS];
+    int rig_count, deposit_count;
+    int board_page, black_market, resource_target; /* transient UI/navigation */
     char message[80];
 } Game;
 typedef struct {
@@ -139,7 +169,38 @@ typedef struct {
     uint32_t palette[256];
 } Frame;
 extern const char *goods_names[GOODS], *mission_names[MISSION_TYPES];
-extern const int ship_capacity[3];
+extern const int ship_capacity[SHIPS];
+extern const ShipSpec ship_specs[SHIPS];
+extern const char *faction_names[FACTIONS], *equipment_names[EQUIP_TYPES];
+extern const int equipment_cost[EQUIP_TYPES];
+int system_faction(const Game *g);
+const char *military_rank(const Game *g, int faction);
+int passengers_used(const Game *g);
+int equipped(const Game *g, Equipment item);
+int buy_ship(Game *g, int ship);
+int buy_equipment(Game *g, int item);
+int sell_equipment(Game *g, int item);
+int upgrade_weapon(Game *g, int mount);
+int recruit_crew(Game *g, int hire);
+int negotiate_mission(Game *g, int index);
+int illegal_good(const Game *g, int good);
+int black_market_available(const Game *g);
+void inspect_cargo(Game *g);
+int settle_fine(Game *g);
+void career_missions(Game *g);
+void career_time(Game *g);
+void career_tick(Game *g, Vec old);
+void career_system(Game *g);
+void damage_npc(Game *g, int index, int damage);
+int fire_missile(Game *g);
+int countermeasure(Game *g);
+int escape_pod(Game *g);
+Vec asteroid_position(const Game *g, int index);
+Vec rig_position(const Game *g, int index);
+int mine_asteroid(Game *g);
+int collect_cargo(Game *g);
+int deploy_rig(Game *g);
+int recover_rig(Game *g);
 uint32_t hash32(uint32_t x);
 uint32_t sector_seed(uint32_t seed, Sector s);
 uint64_t isqrt64(uint64_t n);

@@ -40,16 +40,24 @@ terrain grid has shared edges and a skirt to the globe, and uses a raster depth 
 
 ## Careers and economy
 
-- Passenger cabins and transport, crew recruitment/wages and ship-specific crew needs.
-- Escort, rescue, assassination, reconnaissance, surface-installation attack and
+- [x] Passenger cabins and transport, crew recruitment/wages and ship-specific crew needs.
+- [x] Escort, rescue, assassination, reconnaissance, surface-installation attack and
   multi-leg contracts with negotiable terms and reputation gates.
-- Original factions, military ranks, medals, reputation and legal status.
+- [x] Original factions, military ranks, medals, reputation and legal status.
 - [x] Independent port stock, scarcity prices, hourly supply recovery, separate buy/sell
   quotes, and a portable ledger of 128 traded ports, with version 3 save migration.
-- Contraband/black markets, police and piracy.
-- Asteroid mining, surface mining rigs, cargo collection and fuel scooping.
-- Ship catalogue with distinct geometry, mass, acceleration, equipment and hardpoints.
-- Missiles, countermeasures, multiple weapon mounts, turrets and escape pods.
+- [x] Contraband/black markets, police and piracy.
+- [x] Asteroid mining, surface mining rigs, cargo collection and fuel scooping.
+- [x] Ship catalogue with distinct geometry, mass, acceleration, equipment and hardpoints.
+- [x] Missiles, countermeasures, multiple weapon mounts, turrets and escape pods.
+
+The career model has thirteen contract templates with two board pages, six ranks,
+medals every five military jobs, three original factions, hourly crew wages, local
+police/pirate encounters, eight finite asteroid deposits per system (32 recorded
+systems), four persistent rigs, eight local cargo pods and eight active missiles.
+Passenger cabins reserve seats; hull mass/cargo changes acceleration. Turret mounts
+have separate upgrades, decoys suppress enemy fire, and escape pods offer bounded
+port rescue. These features do not simulate persistent strategic wars or fleets.
 
 ## Presentation and hardware
 
@@ -83,7 +91,7 @@ Orbits and moving ports now use astronomical scales; flight velocity is relative
 its translated body frame or the system frame. Gravity uses the nearest body and includes
 solar gravity in the system frame outside body influence regions. Ships collide
 with terrain and station docking walls; decorative city buildings and forests do not
-have collision geometry. Hostile targets remain simple mission encounters. Contracts,
+have collision geometry. Careers use bounded local encounters, three faction records and six hulls. Contracts,
 markets and commander saves remain bounded; civilian production, consumption and trade
 fleets are not simulated.
 No claim is made that stock A500 frame rates or all RTG cards have been validated.

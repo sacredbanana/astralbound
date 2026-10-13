@@ -3,9 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-static int same(Sector a, Sector b) {
-    return a.x == b.x && a.y == b.y && a.z == b.z;
-}
 static int clamp(int x, int lo, int hi) {
     return x < lo ? lo : x > hi ? hi : x;
 }
@@ -49,6 +46,7 @@ void setup_system(Game *g, Sector sector) {
     for (i = 0; i < MAX_MISSIONS; i++)
         if (g->contracts[i].state == ACTIVE)
             g->contracts[i].spawned = 0;
+    career_system(g);
     g->selected = sector;
     g->body = 0;
 }
@@ -63,6 +61,7 @@ void game_init(Game *g, uint32_t seed) {
     g->assist = 1;
     g->hull = g->shield = g->fuel = 100;
     g->credits = 1500;
+    g->equipment = (1 << DORSAL) | (1 << VENTRAL);
     g->warp = g->effective_warp = 1;
     g->target = 1;
     g->page = FLIGHT;
@@ -115,6 +114,10 @@ static int64_t drive_limit(const Game *g) {
         int64_t r = length(sub(g->pos, g->npc[i].pos)) / FP - 20000;
         if (r < room) room = r;
     }
+    for (i = 0; i < ASTEROIDS; i++) {
+        int64_t r = length(sub(g->pos, asteroid_position(g, i))) / FP - 20000;
+        if (r < room) room = r;
+    }
     if (room <= 0) return 0;
     {
         int64_t limit = 600 + room / 4;
@@ -132,6 +135,10 @@ static int drive_requested(const Game *g) {
     return g->docked == -1 && g->fuel > 0 && !g->dead && !g->laser &&
            (g->autopilot || g->drive_manual);
 }
+static int ordinary_thrust(const Game *g) {
+    const ShipSpec *s = &ship_specs[g->ship];
+    return s->acceleration * s->mass / (s->mass + cargo_used(g)) * FP;
+}
 static int drive_thrust(const Game *g) {
     /* Retain powerful brakes after disengaging, including a restored save
        with cruise momentum. Never clamp or teleport the ship's velocity. */
@@ -142,7 +149,7 @@ static int drive_thrust(const Game *g) {
         ((drive_requested(g) && drive_limit(g) > 4000) ||
          length(g->vel) > 2000000LL * FP ||
          (g->drive_active && speed > (g->autopilot ? 4000LL : 8LL) * FP))
-        ? SYSTEM_DRIVE_ACCEL * FP : 60 * FP;
+        ? SYSTEM_DRIVE_ACCEL * FP : ordinary_thrust(g);
 }
 static void burn_fuel(Game *g, Vec engine, int ticks, int drive) {
     uint64_t impulse = (uint64_t)length(engine) * ticks / HZ;
@@ -174,6 +181,8 @@ int safe_warp(const Game *g) {
     for (i = 0; i < MAX_NPC; i++)
         if (g->npc[i].active && length(sub(g->npc[i].pos, g->pos)) < 20000 * FP)
             return 1;
+    for (i = 0; i < ASTEROIDS; i++) if (length(sub(g->pos, asteroid_position(g, i))) < 20000 * FP) return 1;
+    for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active) return 1;
     if (g->target >= 0 && length(sub(g->ports[g->target].pos, g->pos)) < 6000 * FP)
         w = 1;
     return w;
@@ -230,65 +239,13 @@ static Vec autopilot_target(const Game *g) {
     }
     return dest;
 }
-static void missions(Game *g) {
-    int i, j;
-    for (i = 0; i < MAX_MISSIONS; i++) {
-        Mission *m = &g->contracts[i];
-        if (m->state != ACTIVE)
-            continue;
-        if (g->tick > m->deadline) {
-            m->state = FAILED;
-            for (j = 0; j < MAX_NPC; j++)
-                if (g->npc[j].mission == i)
-                    g->npc[j].mission = -1;
-            say(g, "CONTRACT EXPIRED");
-            continue;
-        }
-        if (!same(m->destination, g->system.sector))
-            continue;
-        if (m->type == COURIER || m->type == FREIGHT) {
-            if (g->docked != m->port)
-                continue;
-        } else if (m->type == SURVEY) {
-            int64_t alt = altitude_at(g, g->pos);
-            if (g->docked != -1 || alt < 500 || alt > 6000 || length(sub(g->vel, surface_velocity(&g->system.planets[g->body],
-                sub(scale(g->pos, 1, FP), g->system.planets[g->body].center)))) > 200 * FP)
-                continue;
-            if (++m->progress < 20 * HZ)
-                continue;
-        } else {
-            int64_t alt = altitude_at(g, g->pos);
-            if (!m->spawned && g->docked == -1 &&
-                ((m->type == AIR_PATROL && alt > 600 && alt < 6000) ||
-                 (m->type != AIR_PATROL && alt > 13000))) {
-                for (j = 0; j < MAX_NPC; j++)
-                    if (!g->npc[j].active) {
-                        Npc *n = &g->npc[j];
-                        n->pos = add(g->pos, scale(forward(g->yaw, g->pitch), 2000 * FP, 16384));
-                        n->vel = g->vel;
-                        n->active = n->hostile = 1;
-                        n->hull = 60;
-                        n->mission = i;
-                        n->cooldown = HZ * 3;
-                        m->spawned = 1;
-                        break;
-                    }
-            }
-            if (m->progress < 1)
-                continue;
-        }
-        m->state = COMPLETE;
-        g->credits += m->reward;
-        say(g, "CONTRACT COMPLETE - PAYMENT RECEIVED");
-    }
-}
 void game_tick(Game *g, Controls c) {
     Vec acceleration = vec(0, 0, 0), gravity, old, frame_delta;
     int i;
     int64_t r, dist, alt, ground_alt;
     Vec local, center;
     const Planet *planet;
-    int thrust = 60 * FP;
+    int thrust = ordinary_thrust(g);
     if (g->paused || g->dead)
         return;
     /* Translated local frames preserve relative precision and do not inject
@@ -303,6 +260,11 @@ void game_tick(Game *g, Controls c) {
     for (i = 0; i < MAX_NPC; i++)
         if (g->npc[i].active)
             g->npc[i].pos = add(g->npc[i].pos, frame_delta);
+    for (i = 0; i < MAX_PODS; i++) if (g->pods[i].active)
+        g->pods[i].pos = add(g->pods[i].pos, frame_delta);
+    for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active)
+        g->projectiles[i].pos = add(g->projectiles[i].pos, frame_delta);
+    career_time(g);
     if (g->laser)
         g->laser--;
     if (g->heat > 0 && g->tick % 8 == 0)
@@ -351,7 +313,7 @@ void game_tick(Game *g, Controls c) {
         }
         if (g->tick % HZ == 0)
             record_exploration(g);
-        missions(g);
+        career_missions(g);
         return;
     }
     g->body = nearest_body(g, g->pos);
@@ -365,6 +327,10 @@ void game_tick(Game *g, Controls c) {
             for (i = 0; i < MAX_NPC; i++)
                 if (g->npc[i].active)
                     g->npc[i].vel = add(g->npc[i].vel, transfer);
+            for (i = 0; i < MAX_PODS; i++) if (g->pods[i].active)
+                g->pods[i].vel = add(g->pods[i].vel, transfer);
+            for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active)
+                g->projectiles[i].vel = add(g->projectiles[i].vel, transfer);
             g->frame_body = new_frame;
         }
     }
@@ -388,7 +354,7 @@ void game_tick(Game *g, Controls c) {
         }
     }
     thrust = drive_thrust(g);
-    g->drive_active = thrust > 60 * FP;
+    g->drive_active = thrust == SYSTEM_DRIVE_ACCEL * FP;
     if (g->autopilot) {
         Vec target;
         if (g->target >= 0 && g->clearance == g->target) {
@@ -525,6 +491,7 @@ void game_tick(Game *g, Controls c) {
             g->throttle = 0;
             refresh_board(g);
             say(g, "DOCKED - B CONTRACTS / M MARKET / U SHIPYARD");
+            inspect_cargo(g);
             break;
         }
     if (g->docked == -1)
@@ -563,7 +530,8 @@ void game_tick(Game *g, Controls c) {
                 g->hull = 0;
                 say(g, "STELLAR IMPACT");
             }
-    if (c.fire && g->heat < 90 && g->tick % 6 == 0) {
+    if (c.fire && g->heat < 90 && g->tick % 6 == 0 &&
+        (g->camera_mode < 3 || equipped(g, g->camera_mode == 3 ? DORSAL : VENTRAL))) {
         int yaw = g->yaw, pitch = g->pitch;
         Vec f;
         if (g->camera_mode >= 3)
@@ -585,15 +553,7 @@ void game_tick(Game *g, Controls c) {
             if (along <= 0)
                 continue;
             if (length(sub(rel, scale(f, along, 16384))) < 70 * FP) {
-                n->hull -= 20 + g->upgrade * 10;
-                if (n->hull <= 0) {
-                    n->active = 0;
-                    g->kills++;
-                    if (n->mission >= 0)
-                        g->contracts[n->mission].progress++;
-                    g->credits += 100;
-                    say(g, "HOSTILE DISABLED - BOUNTY 100 CR");
-                }
+                damage_npc(g, i, 20 + (g->camera_mode >= 3 ? g->turret_upgrade[g->camera_mode - 3] : g->upgrade) * 10);
                 break;
             }
         }
@@ -604,6 +564,16 @@ void game_tick(Game *g, Controls c) {
         int64_t l;
         if (!n->active)
             continue;
+        if (g->npc_role[i] == INSTALLATION_TARGET) {
+            const Planet *p = &g->system.planets[nearest_body(g, n->pos)];
+            Planet previous = *p;
+            Vec local = sub(n->pos, scale(p->center, FP, 1));
+            set_rotation(&previous, g->tick - 1);
+            local = body_rotate(p, body_rotate(&previous, local, 1), 0);
+            n->pos = add(scale(p->center, FP, 1), local);
+            n->vel = surface_velocity(p, scale(local, 1, FP));
+            continue;
+        }
         rel = sub(g->pos, n->pos);
         rv = sub(g->vel, n->vel);
         l = length(rel);
@@ -628,7 +598,7 @@ void game_tick(Game *g, Controls c) {
         }
         if (n->cooldown)
             n->cooldown--;
-        if (l < 2500 * FP && l > 400 * FP && !n->cooldown) {
+        if (n->hostile && l < 2500 * FP && l > 400 * FP && !n->cooldown) {
             n->cooldown = HZ * 3;
             if (g->shield > 0)
                 g->shield = clamp(g->shield - 8, 0, 100);
@@ -636,7 +606,8 @@ void game_tick(Game *g, Controls c) {
                 g->hull -= 8;
         }
     }
-    missions(g);
+    career_tick(g, old);
+    career_missions(g);
     if (g->hull <= 0) {
         g->hull = 0;
         g->dead = 1;
@@ -653,7 +624,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     int i, step = remaining;
     int accel = drive_thrust(g) / FP;
     /* Rapid drive changes use short bounded cruise steps. */
-    if (accel > 60 && step > HZ) step = HZ;
+    if (accel == SYSTEM_DRIVE_ACCEL && step > HZ) step = HZ;
     Vec dest, target;
     int64_t speed, route, closing;
     if (step < HZ || g->frame_body != -1 || g->paused || g->dead || !g->fuel ||
@@ -662,8 +633,10 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
         (g->target < 0 && g->target_body < 0))
         return 1;
     for (i = 0; i < MAX_NPC; i++)
-        if (g->npc[i].active)
-            return 1;
+        if (g->npc[i].active) return 1;
+    for (i = 0; i < MAX_PODS; i++) if (g->pods[i].active) return 1;
+    for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active) return 1;
+    if (g->resource_target >= 0) return 1;
     for (i = 0; i < MAX_MISSIONS; i++) {
         const Mission *m = &g->contracts[i];
         if (m->state != ACTIVE)
@@ -723,7 +696,7 @@ static void cruise_step(Game *g, int ticks) {
     int64_t room = altitude_at(g, g->pos) -
                    g->system.planets[nearest_body(g, g->pos)].atmosphere - 20000;
     int64_t maxspeed = room > 0 ? (int64_t)isqrt64((uint64_t)room * 60) : 600;
-    g->drive_active = thrust > 60 * FP;
+    g->drive_active = thrust == SYSTEM_DRIVE_ACCEL * FP;
     if (g->drive_active) maxspeed = drive_limit(g);
     else maxspeed = clamp((int)maxspeed, 600, 1000000);
     Vec acceleration = guidance_step(g->pos, sub(g->vel, motion), navigation_position(g),
@@ -765,7 +738,8 @@ static void cruise_step(Game *g, int ticks) {
                                 -turns, turns)) & 1023;
         g->pitch = clamp(g->pitch + clamp(pitch - g->pitch, -turns, turns), -250, 250);
     }
-    missions(g);
+    career_time(g);
+    career_missions(g);
 }
 void game_frame(Game *g, Controls c, int ticks) {
     uint32_t before = g->tick;
@@ -814,6 +788,7 @@ int jump(Game *g, Sector d) {
         return 0;
     g->fuel -= cost;
     g->tick += HZ * 300;
+    career_time(g);
     setup_system(g, d);
     g->pos = add(scale(g->system.planets[0].center, FP, 1),
                  vec(0, (int64_t)(g->system.planets[0].radius + 200000) * FP, 0));
@@ -878,6 +853,12 @@ void game_action(Game *g, int k) {
         g->page = MAP;
         break;
     case 'b':
+        if (g->page == MARKET) {
+            if (black_market_available(g)) g->black_market = !g->black_market;
+            say(g, g->black_market ? "BLACK MARKET ENABLED" : "REGULATED MARKET");
+            break;
+        }
+        if (g->page == BOARD) { g->board_page = !g->board_page; refresh_board(g); }
         g->page = BOARD;
         g->selection = 0;
         break;
@@ -897,12 +878,14 @@ void game_action(Game *g, int k) {
         g->selected = g->system.sector;
         break;
     case 'q':
+        g->resource_target = -1;
         g->target_body = (g->target_body + 1) % g->system.count;
         g->target = -1;
         g->dock_stage = 0;
         g->clearance = -1;
         break;
     case 't':
+        g->resource_target = -1;
         if (g->nports) {
             g->target = (g->target + 1) % g->nports;
             g->target_body = -1;
@@ -953,7 +936,11 @@ void game_action(Game *g, int k) {
         g->warp = g->warp <= 1 ? 1 : g->warp / 4;
         break;
     case 'l':
+        if (g->docked != -1 && g->crew < ship_specs[g->ship].crew) {
+            say(g, "INSUFFICIENT CREW - 9 THEN + TO RECRUIT"); break;
+        }
         if (g->docked != -1) {
+            int departure = g->docked >= 0;
             Vec up = unit(sub(g->pos, scale(g->system.planets[g->body].center, FP, 1)), 16384);
             g->pos = add(g->pos, scale(up, 80 * FP, 16384));
             g->vel = add(g->docked >= 0 ? port_relative_velocity(g, g->docked) : g->vel,
@@ -965,6 +952,7 @@ void game_action(Game *g, int k) {
             g->page = FLIGHT;
             g->throttle = 0;
             say(g, "LAUNCHED - P AUTOPILOT / H HELP");
+            if (departure) inspect_cargo(g);
         }
         break;
     case 'x':
@@ -981,20 +969,54 @@ void game_action(Game *g, int k) {
     case '8':
         g->selection = k - '1';
         break;
+    case '9': g->page = CAREER; g->selection = 0; break;
+    case '0': g->page = EQUIPMENT; g->selection = 0; break;
+    case ';': {
+        int i, start = g->resource_target >= ASTEROIDS ? g->resource_target - ASTEROIDS + 1 : 0;
+        for (i = 0; i < g->rig_count; i++) {
+            int index = (start + i) % g->rig_count;
+            MiningRig *r = &g->rigs[index];
+            if (r->sector.x == g->system.sector.x && r->sector.y == g->system.sector.y && r->sector.z == g->system.sector.z) {
+                g->resource_target = ASTEROIDS + index; g->target = -1; g->target_body = r->body;
+                g->clearance = -1; g->dock_stage = 0;
+                say(g, "RIG WAYPOINT - P APPROACH / MANUAL LAND / N RECOVER");
+                break;
+            }
+        }
+        if (i == g->rig_count) say(g, "NO RIG IN CURRENT SYSTEM");
+        break;
+    }
+    case '\\':
+        g->resource_target = (g->resource_target + 1) % ASTEROIDS;
+        g->target = -1; g->target_body = 0; g->clearance = -1; g->dock_stage = 0;
+        say(g, "ASTEROID WAYPOINT SELECTED - P AUTO / O MINE / N COLLECT");
+        break;
+    case ',': say(g, fire_missile(g) ? "MISSILE AWAY" : "NO MISSILE / NO RADAR TARGET"); break;
+    case '.': if (!countermeasure(g)) say(g, "NO COUNTERMEASURES"); break;
+    case '/': escape_pod(g); break;
     case '\r':
+        if (g->page == EQUIPMENT)
+            say(g, buy_equipment(g, g->selection) ? "EQUIPMENT PURCHASED" : "PURCHASE REFUSED");
+        if (g->page == SHIPYARD)
+            say(g, buy_ship(g, g->selection) ? "HULL PURCHASED" : "HULL PURCHASE REFUSED");
         if (g->page == BOARD)
             say(g, accept_mission(g, g->selection) ? "CONTRACT ACCEPTED - J FOR DETAILS"
                                                    : "CANNOT ACCEPT CONTRACT");
         break;
     case '+':
+        if (g->page == CAREER) say(g, recruit_crew(g, 1) ? "CREW HIRED - 25 CR PER HOUR" : "RECRUITMENT REFUSED");
+        if (g->page == BOARD) say(g, negotiate_mission(g, g->selection) ? "TERMS: +20% PAY / -25% TIME" : "NEGOTIATION REFUSED");
         if (g->page == MARKET)
             say(g, trade(g, g->selection, 1) ? "PURCHASED 1 TONNE" : "PURCHASE REFUSED");
         break;
     case '-':
+        if (g->page == EQUIPMENT) say(g, sell_equipment(g, g->selection) ? "EQUIPMENT SOLD AT HALF PRICE" : "SALE REFUSED");
+        if (g->page == CAREER) recruit_crew(g, 0);
         if (g->page == MARKET)
             say(g, trade(g, g->selection, 0) ? "SOLD 1 TONNE" : "SALE REFUSED");
         break;
     case 'f':
+        if (g->page == CAREER) { say(g, settle_fine(g) ? "FINE PAID" : "CANNOT PAY FINE"); break; }
         if (g->docked >= 0 && g->credits >= 100) {
             g->credits -= 100;
             g->fuel = g->hull = g->shield = 100;
@@ -1003,18 +1025,18 @@ void game_action(Game *g, int k) {
         }
         break;
     case 'o':
-        if (g->docked >= 0 && g->credits >= 2000 && g->upgrade < 3) {
-            g->credits -= 2000;
-            g->upgrade++;
-            say(g, "LASER UPGRADED");
+        if (g->page == FLIGHT && g->docked < 0) {
+            if (!(g->docked == -2 ? deploy_rig(g) : mine_asteroid(g))) say(g, "MINING REFUSED / AIM AT ASTEROID");
+            break;
         }
+        say(g, upgrade_weapon(g, g->page == EQUIPMENT && g->selection == DORSAL ? 1 :
+                              g->page == EQUIPMENT && g->selection == VENTRAL ? 2 : 0)
+            ? "WEAPON MOUNT UPGRADED" : "UPGRADE REFUSED");
         break;
     case 'n':
-        if (g->docked >= 0 && g->ship < 2 && g->credits >= 8000 * (g->ship + 1)) {
-            g->credits -= 8000 * (g->ship + 1);
-            g->ship++;
-            say(g, "NEW SHIP PURCHASED");
-        }
+        if (g->docked < 0) {
+            if (!(g->docked == -2 ? recover_rig(g) : collect_cargo(g))) say(g, "NO NEARBY CARGO/RIG OR HOLD FULL");
+        } else if (!buy_ship(g, g->ship + 1)) say(g, "HULL PURCHASE REFUSED");
         break;
     case 1001:
     case 1002:

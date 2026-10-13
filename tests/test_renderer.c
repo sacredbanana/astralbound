@@ -3,6 +3,22 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+static void resource_visibility(void) {
+    Game g;
+    Frame f = {320, 200, 0, 0, {0}};
+    int x, y, pixels = 0;
+    game_init(&g, 0x53504143);
+    g.docked = -1; g.target = -1; g.target_body = 0; g.resource_target = 0;
+    g.pos = add(asteroid_position(&g, 0), vec(0, 0, -800 * FP));
+    f.pixels = calloc(320 * 200, 1); assert(f.pixels && render_init(&f));
+    render_game(&g, &f);
+    for (y = 53; y < 89; y++) for (x = 140; x < 180; x++)
+        if (depth_buffer[y * 320 + x] && f.pixels[y * 320 + x] >= 6 &&
+            f.pixels[y * 320 + x] <= 8) pixels++;
+    assert(pixels > 500);
+    free(f.pixels); render_shutdown();
+    puts("PASS asteroid geometry visible in the astronomical Q8 camera frame");
+}
 static int surface_color(const Planet *p, int face, int u, int v) {
     return surface_cache[surface_lookup(p,face,u,v)].color;
 }
@@ -50,7 +66,7 @@ static void compact_display(void) {
     assert(small.pixels && full.pixels && planar);
     /* Compare every menu's text area with the established 256-line layout,
        including the last contract/commodity row and the bottom instructions. */
-    for (page = MAP; page <= HELP; page++) {
+    for (page = MAP; page <= CAREER; page++) {
         g.page = page;
         assert(render_init(&full));
         render_game(&g, &full);
@@ -530,6 +546,7 @@ int main(void) {
     free(f.pixels);
     render_shutdown();
     assert(!render_init(&(Frame){64, 56, 0, 0, {0}}));
+    resource_visibility();
     terrain_angles();
     terrain_flight_colors();
     terrain_smooth_motion();

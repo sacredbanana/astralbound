@@ -5,8 +5,9 @@
 const char *goods_names[GOODS] = {"WATER",    "GRAIN",     "ALLOYS",   "MEDICINE",
                                   "CIRCUITS", "MACHINERY", "CRYSTALS", "FUEL CELLS"};
 const char *mission_names[MISSION_TYPES] = {"COURIER",    "FREIGHT", "ORBIT PATROL",
-                                            "AIR PATROL", "SURVEY",  "BOUNTY"};
-const int ship_capacity[3] = {20, 60, 140};
+                                            "AIR PATROL", "SURVEY",  "BOUNTY", "PASSENGER", "ESCORT", "RESCUE",
+    "ASSASSINATION", "RECON", "INSTALLATION", "MULTI-LEG"};
+const int ship_capacity[SHIPS] = {20, 60, 140, 35, 90, 180};
 static uint32_t next(uint32_t *s) {
     *s = hash32(*s + 0x9e3779b9U);
     return *s;
@@ -301,6 +302,13 @@ Vec port_relative_velocity(const Game *g, int port) {
     return sub(g->ports[port].velocity, frame_velocity(g));
 }
 Vec navigation_position(const Game *g) {
+    if (g->resource_target >= ASTEROIDS) {
+        Vec p = rig_position(g, g->resource_target - ASTEROIDS);
+        Vec local = sub(p, scale(g->system.planets[g->target_body].center, FP, 1));
+        return add(p, unit(local, 100 * FP));
+    }
+    if (g->resource_target >= 0)
+        return add(asteroid_position(g, g->resource_target), vec(0, 0, -400 * FP));
     if (g->target >= 0)
         return g->ports[g->target].pos;
     {
@@ -310,7 +318,14 @@ Vec navigation_position(const Game *g) {
     }
 }
 Vec navigation_velocity(const Game *g) {
-    return g->target >= 0
+    if (g->resource_target >= ASTEROIDS) {
+        Vec pos = rig_position(g, g->resource_target - ASTEROIDS);
+        const Planet *p = &g->system.planets[g->target_body];
+        return add(sub(body_velocity(&g->system, g->target_body, g->tick), frame_velocity(g)),
+                   surface_velocity(p, sub(scale(pos, 1, FP), p->center)));
+    }
+    return g->resource_target >= 0 ? sub(body_velocity(&g->system, 0, g->tick), frame_velocity(g)) :
+           g->target >= 0
                ? port_relative_velocity(g, g->target)
                : sub(body_velocity(&g->system, g->target_body, g->tick), frame_velocity(g));
 }
@@ -405,10 +420,16 @@ void refresh_board(Game *g) {
         Mission *m = &g->board[i];
         memset(m, 0, sizeof(*m));
         m->id = next(&r);
-        m->type = (MissionType)(i % MISSION_TYPES);
+        m->type = (MissionType)(g->board_page ?
+            (int[]){ESCORT, ASSASSINATION, RECON, INSTALLATION, MULTILEG, PASSENGER, RESCUE, FREIGHT}[i] : i);
+        m->faction = system_faction(g);
+        m->required_rep = m->type == ASSASSINATION || m->type == INSTALLATION ? 10 :
+                          m->type == ESCORT || m->type == RECON || m->type == MULTILEG ? 3 : -100;
+        m->passengers = m->type == PASSENGER ? 1 + next(&r) % 3 : m->type == RESCUE ? 1 : 0;
+        m->legs = m->type == MULTILEG ? 3 : 1;
         m->state = OFFERED;
         m->destination = g->system.sector;
-        if (m->type == COURIER || m->type == FREIGHT) {
+        if (m->type == COURIER || m->type == FREIGHT || m->type == PASSENGER || m->type == MULTILEG) {
             m->destination.x += (int)(next(&r) % 3) - 1;
             m->destination.z += 1;
         }
@@ -425,6 +446,11 @@ void refresh_board(Game *g) {
                           ? next(&r) % (system_port_count(&dest) > 4 ? 4 : system_port_count(&dest))
                           : 0;
         }
+        if (m->type == INSTALLATION || m->type == RECON) {
+            int j;
+            for (j = 0; j < g->nports; j++) if (g->ports[j].surface) { m->port = j; break; }
+            if (j == g->nports) { m->type = ORBIT_PATROL; m->required_rep = -100; }
+        }
         m->good = next(&r) % GOODS;
         m->quantity = m->type == FREIGHT ? 2 + next(&r) % 6 : 0;
         m->reward = 400 + next(&r) % 2400;
@@ -439,6 +465,7 @@ int cargo_used(const Game *g) {
     for (i = 0; i < MAX_MISSIONS; i++)
         if (g->contracts[i].state == ACTIVE)
             n += g->contracts[i].quantity;
+    n += g->cabins * 2;
     return n;
 }
 /* Only traded markets occupy the bounded commander ledger. Quotes lazily
@@ -487,6 +514,7 @@ int price(const Game *g, int good) {
     p = base[good] * (70 + (int)(h % 61) +
                      (good % 4 == g->system.economy ? -25 : 15)) / 100;
     p = p * (100 + scarcity) / 100;
+    if (g->black_market && illegal_good(g, good)) p = p * 3 / 2;
     return p > 0 ? p : 1;
 }
 int sell_price(const Game *g, int good) {
@@ -495,7 +523,8 @@ int sell_price(const Game *g, int good) {
 int trade(Game *g, int good, int buy) {
     int p, i, j, stock;
     Market *m;
-    if (g->docked < 0 || g->docked >= g->nports || good < 0 || good >= GOODS || g->dead)
+    if (g->docked < 0 || g->docked >= g->nports || good < 0 || good >= GOODS || g->dead ||
+        (illegal_good(g, good) && (!g->black_market || !black_market_available(g))))
         return 0;
     stock = market_stock(g, good);
     p = buy ? price(g, good) : sell_price(g, good);
@@ -532,7 +561,10 @@ int accept_mission(Game *g, int index) {
         return 0;
     m = &g->board[index];
     if (m->state != OFFERED || g->tick >= m->deadline ||
-        cargo_used(g) + m->quantity > ship_capacity[g->ship])
+        cargo_used(g) + m->quantity > ship_capacity[g->ship] ||
+        passengers_used(g) + m->passengers > g->cabins * 2 ||
+        g->reputation[m->faction] < m->required_rep || g->wanted[m->faction] ||
+        (m->type == ESCORT && g->crew < ship_specs[g->ship].crew))
         return 0;
     for (i = 0; i < MAX_MISSIONS; i++) {
         if (g->contracts[i].id == m->id)
