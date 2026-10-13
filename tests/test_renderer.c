@@ -9,6 +9,30 @@ static int surface_color(const Planet *p, int face, int u, int v) {
 static int ground_color(const Planet *p, Vec local) {
     return material_color(p,local,terrain_material(p,local));
 }
+static void hetha_target_bearing(void) {
+    Game g;
+    Frame f = {320, 200, 0, 0, {0}};
+    Vec p;
+    int pitch = 0, x, y;
+    game_init(&g, 0x53504143);
+    game_action(&g, 'l');
+    g.target = -1;
+    g.target_body = 2;
+    aim_angles(sub(navigation_position(&g), g.pos), &g.yaw, &pitch);
+    g.pitch = 0;
+    f.pixels = calloc(f.w * f.h, 1);
+    assert(f.pixels && render_init(&f));
+    render_game(&g, &f);
+    p = camera(scale(navigation_position(&g), 1, FP));
+    assert(p.z > 0 && p.y < 0 && pitch < 0);
+    x = f.w / 2 + (int)(p.x * (f.w / 2) / p.z);
+    y = view_h / 2 - (int)(p.y * (f.w / 2) / p.z);
+    assert(y > view_h / 2 && y < view_h - 25);
+    assert(f.pixels[(y + 8) * f.w + x] == 13);
+    free(f.pixels);
+    render_shutdown();
+    puts("PASS Hetha D target marker below level forward bearing");
+}
 
 static void compact_display(void) {
     static Game g;
@@ -515,6 +539,7 @@ int main(void) {
     environment_rendering();
     compact_display();
     orbital_and_radar();
+    hetha_target_bearing();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");
     return 0;
 }

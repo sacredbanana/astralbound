@@ -112,6 +112,7 @@ int safe_warp(const Game *g) {
 }
 static Vec autopilot_target(const Game *g) {
     const Port *port = g->target >= 0 ? &g->ports[g->target] : NULL;
+    int destination_body = port ? port->body : g->target_body;
     Vec dest = navigation_position(g);
     /* Enter rotating stations only through their outward traffic corridor. */
     if (port && (!g->dock_stage || g->clearance != g->target))
@@ -126,6 +127,13 @@ static Vec autopilot_target(const Game *g) {
         int64_t r = (int64_t)p->radius * FP, alt = length(local) - r;
         Vec up = unit(local, 16384), du = unit(dlocal, 16384);
         int64_t cosine = (up.x * du.x + up.y * du.y + up.z * du.z) / 16384;
+        /* A shallow interplanetary bearing can clear the solid surface while
+           still trapping the ship in atmospheric cruise. Finish the climb
+           before handing over to the remote destination, even on a clear ray. */
+        if (destination_body != b &&
+            alt < (int64_t)(p->atmosphere + 100000) * FP &&
+            length(dlocal) > r + (int64_t)(p->atmosphere + 200000) * FP)
+            return add(center, radial(local, r + (int64_t)(p->atmosphere + 200000) * FP));
         if (length(sub(du, up)) > 4 &&
             swept_sphere(scale(g->pos, 1, FP), scale(dest, 1, FP), p->center, p->radius + 1000)) {
             Vec tangent = sub(du, scale(up, cosine, 16384));

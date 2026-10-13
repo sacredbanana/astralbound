@@ -12,6 +12,28 @@ unsigned long __stack = 131072;
 #define TEST_SAVE "build/test.sav"
 #endif
 static int quick;
+static void test_hetha_departure(void) {
+    Game g;
+    Controls c = {0};
+    int i, yaw = 0, pitch = 0;
+    game_init(&g, 0x53504143);
+    game_action(&g, 'l');
+    g.target = -1;
+    g.target_body = 2;
+    assert(!strcmp(g.system.planets[2].name, "HETHA D"));
+    aim_angles(sub(navigation_position(&g), g.pos), &yaw, &pitch);
+    assert(pitch < 0 && pitch > -4);
+    g.autopilot = 1;
+    /* The original route levelled off at about 2 km and 450 m/s. Run fixed
+       ticks so this also covers the uncompressed atmospheric departure. */
+    for (i = 0; i < 12000 && !g.dead &&
+         altitude_at(&g, g.pos) < g.system.planets[0].atmosphere + 100000; i++)
+        game_tick(&g, c);
+    assert(!g.dead && g.autopilot && g.hull == 100 && g.fuel > 0);
+    assert(altitude_at(&g, g.pos) >= g.system.planets[0].atmosphere + 100000);
+    assert(length(g.vel) > 600 * FP);
+    puts("PASS Hetha D downward bearing and atmospheric departure");
+}
 static void test_universe(void) {
     System a, b, c;
     int i;
@@ -756,6 +778,7 @@ int main(int argc, char **argv) {
     test_universe();
     test_environment();
     test_world();
+    test_hetha_departure();
     test_collision();
     test_economy();
     test_markets();

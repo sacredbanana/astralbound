@@ -172,6 +172,18 @@ void aim_angles(Vec direction, int *yaw, int *pitch) {
                 best_yaw = a;
             }
         }
+        /* Refine the coarse search to individual table entries. Shallow
+           bearings must not flatten to the horizon at four-entry precision. */
+        {
+            int coarse = best_yaw;
+            for (a = coarse - 3; a <= coarse + 3; a++) {
+                int64_t dot = d.x * sini(a) + d.z * cosi(a);
+                if (dot > best) {
+                    best = dot;
+                    best_yaw = a & 1023;
+                }
+            }
+        }
     }
     best = INT64_MIN;
     for (a = -256; a <= 256; a += 4) {
@@ -179,6 +191,19 @@ void aim_angles(Vec direction, int *yaw, int *pitch) {
         if (dot > best) {
             best = dot;
             best_pitch = a;
+        }
+    }
+    {
+        int coarse = best_pitch;
+        for (a = coarse - 3; a <= coarse + 3; a++) {
+            int64_t dot;
+            if (a < -256 || a > 256)
+                continue;
+            dot = d.y * sini(a) + horizontal * cosi(a);
+            if (dot > best) {
+                best = dot;
+                best_pitch = a;
+            }
         }
     }
     *yaw = best_yaw;

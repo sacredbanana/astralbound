@@ -106,12 +106,34 @@ static void moving_target_approach(void) {
     assert(!g.dead && !g.autopilot && g.fuel > 0);
     assert(g.frame_body == 1 && length(sub(g.pos, navigation_position(&g))) < 100 * FP);
 }
+static void hetha_d_route(void) {
+    Game g;
+    Controls c = {0};
+    int i, escaped = 0;
+    game_init(&g, 0x53504143);
+    game_action(&g, 'l');
+    g.target = -1;
+    g.target_body = 2;
+    g.autopilot = 1;
+    g.warp = MAX_WARP;
+    for (i = 0; i < 150000 && g.autopilot && !g.dead; i++) {
+        game_frame(&g, c, 1);
+        escaped |= g.frame_body == -1;
+    }
+    printf("Hetha D launch/arrival: %lu ticks, fuel %d, arrival %ld m\n",
+           (unsigned long)g.tick, g.fuel,
+           (long)(length(sub(g.pos, navigation_position(&g))) / FP));
+    assert(escaped && !g.dead && !g.autopilot && g.fuel > 0);
+    assert(g.body == 2 && g.frame_body == 2);
+    assert(length(sub(g.pos, navigation_position(&g))) < 100 * FP);
+}
 int main(void) {
     Game g;
     Controls c = {0};
     int i, system_frame = 0;
     remote_cruise();
     moving_target_approach();
+    hetha_d_route();
     game_init(&g, 1);
     g.docked = -1;
     g.target = -1;
