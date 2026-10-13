@@ -191,7 +191,7 @@
   Native modes restore the OS for file access, then resume takeover.
   The save includes its format/generator version and checksum, exploration
   journal, local frame, accumulated fuel impulse, docking approach and markets.
-  Save format 4 keeps world generator version 3. Version 3 commanders load
+  Save format 5 keeps world generator version 3. Version 3 commanders load
   with saved supply assigned to the docked port; other ports use generated
   supply. Old version 2 prototype commanders remain incompatible.
   A rejected or corrupt load leaves the current game unchanged.
@@ -199,6 +199,8 @@
   New data is written and closed before replacing the old slot.
   On filesystems that cannot replace via Rename, the old slot is kept
   as space.sav.bak. A failed replacement attempts to restore it.
+  Version 4 commanders also load. Old open-ground landings are attached to
+  the rotating terrain; docked commanders follow their moving port.
   Prototype save formats can change between development revisions.
 
 @endnode
@@ -234,14 +236,22 @@
   Orbits are inclined circles, not a full gravitational N-body solver.
   Gravity follows the nearest body and adds solar gravity in space.
   Terrain LOD edges share vertices and use a skirt to the coarse globe.
-  The renderer still uses painter sorting. Forests, buildings and clouds
-  are decorative. Station docking walls do have swept collision geometry.
+  Planets rotate about their Z axes. Terrain, forests and surface ports
+  follow that rotation; port velocities include ground motion. Moons are
+  landable and gas giants can have multiple satellites and equatorial rings.
+  Stellar geometry controls day/night and planet/moon eclipses. Atmosphere
+  colours approximate Rayleigh single scattering above the solar horizon.
+  Temperate/frozen weather has a permeable curved cloud deck, cockpit fog,
+  rain and snow. Flora grows on temperate land, with polar ice and dry rock.
+  Clouds and precipitation are bounded procedural visual models, without
+  fluid dynamics, accumulation or hydrology. Trees/buildings are decorative.
+  The renderer uses a depth buffer. Docking walls have swept collisions.
   Clearance traffic is scheduled; it is not a persistent civilian fleet.
 
   Mining, passengers, crew, factions, military careers, richer missions,
-  police, missiles, countermeasures and sound/music remain to be built.
+  police, missiles and countermeasures remain to be built.
   Analogue/CD32 input and RTG high-colour are implemented; physical QA remains.
-  Native NTSC output still needs emulator and real-machine QA.
+  NTSC ECS output has emulator evidence; physical PAL/NTSC QA remains.
   Real-hardware frame rates have not been established.
 
   Passing specific regression tests does not prove absence of all bugs.

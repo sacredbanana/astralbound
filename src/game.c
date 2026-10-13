@@ -175,7 +175,8 @@ static void missions(Game *g) {
                 continue;
         } else if (m->type == SURVEY) {
             int64_t alt = altitude_at(g, g->pos);
-            if (g->docked != -1 || alt < 500 || alt > 6000 || length(g->vel) > 200 * FP)
+            if (g->docked != -1 || alt < 500 || alt > 6000 || length(sub(g->vel, surface_velocity(&g->system.planets[g->body],
+                sub(scale(g->pos, 1, FP), g->system.planets[g->body].center)))) > 200 * FP)
                 continue;
             if (++m->progress < 20 * HZ)
                 continue;
@@ -251,6 +252,20 @@ void game_tick(Game *g, Controls c) {
         c.yaw = c.pitch = c.axis_yaw = c.axis_pitch = 0;
     }
     if (g->docked != -1) {
+        if (g->docked == -2) {
+            const Planet *p = &g->system.planets[g->body];
+            Vec local_ground;
+            if (!length(g->ground_anchor)) {
+                Planet before = *p;
+                set_rotation(&before, g->tick - 1);
+                g->ground_anchor = body_rotate(&before,
+                    sub(g->pos, scale(p->center, FP, 1)), 1);
+            }
+            /* Analytic placement avoids accumulated rounding drift while landed. */
+            local_ground = body_rotate(p, g->ground_anchor, 0);
+            g->pos = add(scale(p->center, FP, 1), local_ground);
+            g->vel = surface_velocity(p, scale(local_ground, 1, FP));
+        }
         if (g->docked >= 0) {
             g->body = g->ports[g->docked].body;
             g->frame_body = g->body;
@@ -365,6 +380,8 @@ void game_tick(Game *g, Controls c) {
             g->throttle = clamp(g->throttle + c.thrust * 3, 0, 4000);
         if (g->assist) {
             Vec desired = scale(forward(g->yaw, g->pitch), g->throttle * FP, 16384);
+            if (alt < planet->atmosphere)
+                desired = add(desired, surface_velocity(planet, scale(local, 1, FP)));
             Vec error = sub(desired, g->vel);
             acceleration = length(error) > thrust ? unit(error, thrust) : error;
             acceleration = sub(acceleration, gravity);
@@ -389,12 +406,13 @@ void game_tick(Game *g, Controls c) {
     /* Atmospheric drag and heating depend on speed, never on render rate. */
     if (alt < planet->atmosphere && alt > 0) {
         int density = atmosphere_density(planet, alt);
-        int64_t speed = length(g->vel);
+        Vec air = surface_velocity(planet, scale(local, 1, FP));
+        int64_t speed = length(sub(g->vel, air));
         if (speed > 1200 * FP && g->tick % HZ == 0) {
             g->hull -= 2;
             g->heat = clamp(g->heat + 5, 0, 100);
         }
-        g->vel = scale(g->vel, 1048576 - density, 1048576);
+        g->vel = add(air, scale(sub(g->vel, air), 1048576 - density, 1048576));
     }
     for (i = 0; i < port_count(g); i++)
         if (length(sub(g->pos, g->ports[i].pos)) < 35 * FP &&
@@ -424,11 +442,13 @@ void game_tick(Game *g, Controls c) {
             if (terrain_impact(g, old, g->pos, i)) {
                 const Planet *p = &g->system.planets[i];
                 Vec lc = sub(g->pos, scale(p->center, FP, 1));
-                if (g->gear && p->type != GAS_GIANT && length(g->vel) < 8 * FP) {
+                if (g->gear && p->type != GAS_GIANT && length(sub(g->vel, surface_velocity(p, scale(lc, 1, FP)))) < 8 * FP) {
                     int height = terrain_height(p, scale(lc, 1, FP));
                     g->pos = add(scale(p->center, FP, 1),
                                  radial(lc, (int64_t)(p->radius + height + 12) * FP));
-                    g->vel = vec(0, 0, 0);
+                    g->vel = surface_velocity(p, scale(lc, 1, FP));
+                    g->ground_anchor = body_rotate(p, sub(g->pos, scale(p->center, FP, 1)), 1);
+                    g->frame_body = i;
                     g->docked = -2;
                     g->autopilot = 0;
                     g->body = i;
@@ -689,11 +709,12 @@ void game_action(Game *g, int k) {
         if (g->docked != -1) {
             Vec up = unit(sub(g->pos, scale(g->system.planets[g->body].center, FP, 1)), 16384);
             g->pos = add(g->pos, scale(up, 80 * FP, 16384));
-            g->vel = add(g->docked >= 0 ? port_relative_velocity(g, g->docked) : vec(0, 0, 0),
+            g->vel = add(g->docked >= 0 ? port_relative_velocity(g, g->docked) : g->vel,
                          scale(up, 20 * FP, 16384));
             g->clearance = -1;
             g->dock_stage = 0;
             g->docked = -1;
+            g->ground_anchor = vec(0, 0, 0);
             g->page = FLIGHT;
             g->throttle = 0;
             say(g, "LAUNCHED - P AUTOPILOT / H HELP");

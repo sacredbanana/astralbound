@@ -175,14 +175,60 @@ void generate_system(uint32_t seed, Sector s, System *out) {
             snprintf(p->name, sizeof(p->name), "%.18s %c M", out->name, 'B' + i);
         }
     }
+    /* Extra gas-giant satellites use a separate stream: old body indices,
+       markets and mission destinations remain stable. */
+    for (i = 0; i < primaries && out->count < MAX_PLANETS; i++) {
+        int n;
+        if (out->planets[i].type != GAS_GIANT) continue;
+        for (n = 0; n < 1 + (int)(hash32(out->planets[i].seed) & 1) && out->count < MAX_PLANETS; n++) {
+            Planet *p = &out->planets[out->count++];
+            const Planet *parent = &out->planets[i];
+            p->seed = hash32(parent->seed ^ (0x4d4f4f4eU + (unsigned)n));
+            p->parent = i; p->type = MOON; p->climate = VACUUM;
+            p->radius = 300000 + p->seed % 1000000;
+            p->gravity = 1 + p->seed % 3;
+            p->orbit = (int64_t)parent->radius * (16 + n * 8) + 60000000;
+            p->period = (uint32_t)(isqrt64((uint64_t)p->orbit / parent->gravity) *
+                                   (uint64_t)p->orbit / parent->radius * 6283 / 1000);
+            p->phase = (int)(p->seed & 1023); p->inclination = (int)(p->seed % 33) - 16;
+            p->influence = p->orbit / 5;
+            snprintf(p->name, sizeof(p->name), "%.16s %c M%d", out->name, 'B' + i, n + 2);
+        }
+    }
     for (i = 0; i < out->count; i++)
         out->planets[i].center = body_position(out, i, 0);
 }
+uint32_t rotation_period(const Planet *p) {
+    return p->parent >= 0 ? p->period : 18000U + hash32(p->seed ^ 0x5350494eU) % 90000U;
+}
+void set_rotation(Planet *p, uint32_t tick) {
+    uint64_t cycle = (uint64_t)rotation_period(p) * HZ;
+    uint64_t time = (uint64_t)tick % cycle;
+    /* Split before the angle multiply: long moon days overflow time*2^40. */
+    uint64_t scaled = time << 30;
+    uint64_t a = ((scaled / cycle) << 10) + ((scaled % cycle) << 10) / cycle;
+    p->spin_sin = (int32_t)sine_fine(a);
+    p->spin_cos = (int32_t)sine_fine(a + (256ULL << 30));
+}
+Vec body_rotate(const Planet *p, Vec v, int inverse) {
+    int64_t sn = inverse ? -(int64_t)p->spin_sin : p->spin_sin;
+    int64_t cs = p->spin_cos;
+    Vec a, b;
+    if (!sn && !cs) return v; /* newly generated / legacy caller */
+    a = scale(v, cs, 1LL << 30);
+    b = scale(v, sn, 1LL << 30);
+    return vec(a.x - b.y, b.x + a.y, v.z);
+}
+Vec surface_velocity(const Planet *p, Vec local) {
+    /* Q8 m/s relative to the translated planetary frame. */
+    return scale(vec(-local.y, local.x, 0), 6283185LL * FP,
+                 (int64_t)rotation_period(p) * 1000000);
+}
 static Vec port_offset(const Planet *p, int slot, uint32_t tick) {
     if (slot == 0)
-        return vec(0, (int64_t)(p->radius + 12) * FP, 0);
+        return body_rotate(p, vec(0, (int64_t)(p->radius + 12) * FP, 0), 0);
     if (slot == 2)
-        return radial(forward(120, 180), (int64_t)(p->radius + 12) * FP);
+        return body_rotate(p, radial(forward(120, 180), (int64_t)(p->radius + 12) * FP), 0);
     {
         int64_t radius = p->radius + p->atmosphere + (slot == 1 ? 100000LL : 120000LL);
         uint32_t period = (uint32_t)(isqrt64((uint64_t)radius / p->gravity) * (uint64_t)radius /
@@ -197,6 +243,7 @@ void update_world(Game *g) {
     int refresh = !g->system.world_ready || g->system.orbit_tick != epoch;
     for (i = 0; i < g->system.count; i++) {
         Planet *p = &g->system.planets[i];
+        set_rotation(p, g->tick);
         if (refresh) {
             p->orbit_start = body_position(&g->system, i, epoch);
             p->orbit_end = body_position(&g->system, i, epoch + HZ);
@@ -218,15 +265,18 @@ void update_world(Game *g) {
                                  : (strstr(port->name, "RELAY") ? 1 : 3);
         Vec offset;
         if (refresh) {
-            port->orbit_start = port_offset(p, slot, epoch);
-            port->orbit_end = port_offset(p, slot, epoch + HZ);
+            Planet at = *p;
+            set_rotation(&at, epoch);
+            port->orbit_start = port_offset(&at, slot, epoch);
+            set_rotation(&at, epoch + HZ);
+            port->orbit_end = port_offset(&at, slot, epoch + HZ);
         }
         offset = add(port->orbit_start,
                      scale(sub(port->orbit_end, port->orbit_start), g->tick % HZ, HZ));
         port->pos = add(scale(p->center, FP, 1), offset);
         port->normal = unit(offset, 16384);
         port->velocity = body_velocity(&g->system, port->body, g->tick);
-        if (!port->surface) {
+        {
             Vec v = sub(port->orbit_end, port->orbit_start);
             port->velocity = add(port->velocity, v);
         }

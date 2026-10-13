@@ -25,7 +25,7 @@ static void (*platform_pump)(void);
 static uint32_t plane_low[256], plane_high[256];
 static int tables_ready;
 static Vec globe_vertices[MAX_PLANETS][17][33];
-static uint8_t globe_colors[MAX_PLANETS][17][33];
+
 static uint32_t globe_seed, globe_hour;
 static int globe_ready, globe_enhanced;
 
@@ -280,35 +280,31 @@ static void box(Vec center, Vec up, int size, int height, int color) {
     for (i = 0; i < 12; i++)
         triangle(v[faces[i][0]], v[faces[i][1]], v[faces[i][2]], color + (i / 2) % 3);
 }
-static int ground_color(const Planet *planet, Vec local) {
-    int h = terrain_height(planet, local);
-    Vec normal = unit(local, 16384);
-    Vec light = unit(sub(game->system.star[0].center, planet->center), 16384);
-    int shade = (int)(((int)normal.x * (int)light.x + (int)normal.y * (int)light.y +
-                       (int)normal.z * (int)light.z) /
-                      16384);
-    shade = (shade + 16000) / 2400;
-    if (shade < 0)
-        shade = 0;
-    if (shade > 15)
-        shade = 15;
-    {
-        int material = terrain_material(planet, local);
-        static const int ecs[] = {25, 8, 8, 16, 28, 21};
-        static const int aga[] = {80, 64, 64, 96, 112, 96};
-        (void)h;
-        if (material == 5)
-            shade = (shade + (int)(normal.y / 1200) + 32) % 16;
-        return frame->enhanced ? aga[material] + shade : ecs[material] + shade / 6;
+static int material_color(const Planet *planet, Vec local, int material) {
+    int shade = surface_light(&game->system, planet, local) * 14 / 16384;
+    static const int ecs[] = {25, 8, 8, 16, 28, 21};
+    static const int aga[] = {80, 64, 64, 96, 112, 96};
+    if (material == 5) {
+        Vec fixed = unit(body_rotate(planet, local, 1), 16384);
+        shade = shade * (8 + (int)((fixed.z + 16384) / 1800) % 8) / 15;
+        /* Broad body-fixed longitude variation makes gas rotation visible. */
+        shade = shade * (12 + (int)fixed.x * 2 / 16384 + (int)fixed.y / 16384) / 15;
     }
+    return frame->enhanced ? aga[material] + shade : ecs[material] + shade / 6;
 }
+static int ground_color(const Planet *planet, Vec local) {
+    return material_color(planet, local, terrain_material(planet, local));
+}
+static uint8_t globe_material[MAX_PLANETS][17][33];
 static void cache_globes(void) {
     int b, x, y;
     if (globe_ready && globe_seed == game->system.seed && globe_enhanced == frame->enhanced &&
-        globe_hour == game->tick / (HZ * 3600U))
+        globe_hour == 0)
         return;
     for (b = 0; b < game->system.count; b++) {
-        const Planet *p = &game->system.planets[b];
+        Planet fixed = game->system.planets[b];
+        const Planet *p = &fixed;
+        set_rotation(&fixed, 0);
         for (y = 0; y <= 16; y++) {
             if (platform_pump)
                 platform_pump();
@@ -316,12 +312,13 @@ static void cache_globes(void) {
                 Vec dir = forward(x * 32, y * 32 - 256);
                 Vec local = radial(dir, p->radius + terrain_height(p, dir));
                 globe_vertices[b][y][x] = local;
-                globe_colors[b][y][x] = (uint8_t)ground_color(p, local);
+                globe_material[b][y][x] = (uint8_t)terrain_material(p, local);
+
             }
         }
     }
     globe_seed = game->system.seed;
-    globe_hour = game->tick / (HZ * 3600U);
+    globe_hour = 0;
     globe_enhanced = frame->enhanced;
     globe_ready = 1;
 }
@@ -343,11 +340,11 @@ static void planet_mesh(int body) {
             for (y = 0; y < lats; y++)
                 for (x = 0; x < lons; x++) {
                     int row = y * step, column = x * step;
-                    Vec a = add(p->center, globe_vertices[body][row][column]),
-                        b = add(p->center, globe_vertices[body][row][column + step]);
-                    Vec c2 = add(p->center, globe_vertices[body][row + step][column + step]),
-                        d = add(p->center, globe_vertices[body][row + step][column]);
-                    int color = globe_colors[body][row][column];
+                    Vec a = add(p->center, body_rotate(p, globe_vertices[body][row][column], 0)),
+                        b = add(p->center, body_rotate(p, globe_vertices[body][row][column + step], 0));
+                    Vec c2 = add(p->center, body_rotate(p, globe_vertices[body][row + step][column + step], 0)),
+                        d = add(p->center, body_rotate(p, globe_vertices[body][row + step][column], 0));
+                    int color = material_color(p, sub(a, p->center), globe_material[body][row][column]);
                     triangle(a, b, c2, color);
                     triangle(a, c2, d, color);
                 }
@@ -420,50 +417,59 @@ static void forests(void) {
        of camera motion and LOD. All six face orientations use the same rule. */
     {
         int axis = 0;
-        int64_t dominant = llabs(local.x), u, v, size = p->radius;
-        if (llabs(local.y) > dominant) {
+        Vec fixed = body_rotate(p, local, 1);
+        int64_t dominant = llabs(fixed.x), u, v, size = p->radius;
+        if (llabs(fixed.y) > dominant) {
             axis = 1;
-            dominant = llabs(local.y);
+            dominant = llabs(fixed.y);
         }
-        if (llabs(local.z) > dominant) {
+        if (llabs(fixed.z) > dominant) {
             axis = 2;
-            dominant = llabs(local.z);
+            dominant = llabs(fixed.z);
         }
         if (!dominant)
             return;
-        u = (axis == 0 ? local.y : local.x) * size / dominant;
-        v = (axis == 2 ? local.y : local.z) * size / dominant;
+        u = (axis == 0 ? fixed.y : fixed.x) * size / dominant;
+        v = (axis == 2 ? fixed.y : fixed.z) * size / dominant;
         for (y = -4; y <= 4; y++)
             for (x = -4; x <= 4; x++) {
                 int64_t a = (u / 400 + x) * 400, b = (v / 400 + y) * 400;
-                int64_t sign = (axis == 0   ? local.x
-                                : axis == 1 ? local.y
-                                            : local.z) < 0
+                int64_t sign = (axis == 0   ? fixed.x
+                                : axis == 1 ? fixed.y
+                                            : fixed.z) < 0
                                    ? -size
                                    : size;
                 Vec d = axis == 0 ? vec(sign, a, b) : axis == 1 ? vec(a, sign, b) : vec(a, b, sign);
+                d = body_rotate(p, d, 0);
                 uint32_t h = hash32(p->seed ^ (unsigned)(a / 400) ^ (unsigned)(b / 400) * 7919U);
-                Vec pos = scale(unit(d, 16384), p->radius + terrain_height(p, d), 16384);
+                Vec pos = radial(d, p->radius + terrain_height(p, d));
                 if (h % 3 || terrain_material(p, pos) != 2)
                     continue;
+                up = unit(pos, 16384);
                 pos = add(p->center, pos);
                 triangle(add(pos, scale(right, -15, 16384)), add(pos, scale(right, 15, 16384)),
-                         add(pos, scale(up, 45 + h % 30, 16384)), 10);
+                         add(pos, scale(up, 20 + h % 55, 16384)),
+                         surface_light(&game->system, p, sub(pos,p->center)) ? 10 : 8);
                 triangle(add(pos, scale(front, -15, 16384)), add(pos, scale(front, 15, 16384)),
-                         add(pos, scale(up, 45 + h % 30, 16384)), 8);
+                         add(pos, scale(up, 20 + h % 55, 16384)), 8);
             }
     }
 }
 static void ring_mesh(const Planet *p) {
-    int i;
-    int64_t outer = (int64_t)p->radius * 2, inner = (int64_t)p->radius * 13 / 10;
-    for (i = 0; i < 32; i++) {
-        Vec a = add(p->center, scale(forward(i * 32, 0), inner, 16384));
-        Vec b = add(p->center, scale(forward((i + 1) * 32, 0), inner, 16384));
-        Vec c = add(p->center, scale(forward((i + 1) * 32, 0), outer, 16384));
-        Vec d = add(p->center, scale(forward(i * 32, 0), outer, 16384));
-        triangle(a, b, c, 12 + i % 3);
-        triangle(a, c, d, 12 + i % 3);
+    int i, band;
+    for (band = 0; band < 3; band++) {
+        int64_t inner = (int64_t)p->radius * (130 + band * 25) / 100;
+        int64_t outer = (int64_t)p->radius * (150 + band * 25) / 100;
+        for (i = 0; i < 32; i++) {
+            Vec a = vec(sini(i * 32), cosi(i * 32), 0);
+            Vec b = vec(sini((i + 1) * 32), cosi((i + 1) * 32), 0);
+            Vec c = add(p->center, scale(b, outer, 16384));
+            Vec d = add(p->center, scale(a, outer, 16384));
+            a = add(p->center, scale(a, inner, 16384));
+            b = add(p->center, scale(b, inner, 16384));
+            triangle(a, b, c, 17 + band);
+            triangle(a, c, d, 17 + band);
+        }
     }
 }
 static void stellar_discs(void) {
@@ -485,6 +491,52 @@ static void stellar_discs(void) {
         }
     }
 }
+/* Sparse curved cloud deck in body coordinates: depth-tested, permeable and
+   sampled by the identical density field used for cockpit fog. */
+static void cloud_deck(void) {
+    const Planet *p = &game->system.planets[game->body];
+    Vec local = sub(scale(game->pos, 1, FP), p->center), up = unit(local, 16384);
+    Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), front;
+    int x, y, level = p->climate == HYDROGEN ? 18000 : 1800;
+    if (!p->atmosphere || length(local) - p->radius > 40000) return;
+    if (!length(right)) right = vec(16384, 0, 0);
+    front = cross(right, up);
+    for (y = -4; y < 4; y++) for (x = -4; x < 4; x++) {
+        Vec a = radial(add(local, add(scale(right, x * 2400, 16384),
+                                     scale(front, y * 2400, 16384))), p->radius + level);
+        Vec b = radial(add(a, scale(right, 2200, 16384)), p->radius + level);
+        Vec c = radial(add(b, scale(front, 2200, 16384)), p->radius + level);
+        Vec d = radial(add(a, scale(front, 2200, 16384)), p->radius + level);
+        int light = surface_light(&game->system, p, a);
+        if (cloud_density(p, a, game->tick) < 70) continue;
+        triangle(add(p->center,a), add(p->center,b), add(p->center,c), light ? 7 : 1);
+        triangle(add(p->center,a), add(p->center,c), add(p->center,d), light ? 7 : 1);
+    }
+}
+static void weather_overlay(void) {
+    const Planet *p = &game->system.planets[game->body];
+    Vec local = sub(scale(game->pos, 1, FP), p->center);
+    int density = cloud_density(p, local, game->tick), rain = precipitation(p, local, game->tick);
+    int x, y, i, lit = surface_light(&game->system, p, local) > 0;
+    if (density) {
+        for (y = 0; y < view_h; y += 2) {
+            if (platform_pump && !(y % 16)) platform_pump();
+            for (x = 0; x < frame->w; x += 2)
+                if ((int)(hash32((unsigned)(x / 2 + y / 2 * frame->w)) & 255) < density * 3 / 4)
+                    rect(x, y, 2, 2, lit ? 7 : 1);
+        }
+        text(8, 32, 15, "IN CLOUD");
+    }
+    if (rain) {
+        for (i = 0; i < (frame->enhanced ? 48 : 24); i++) {
+            uint32_t h = hash32(p->seed + (unsigned)i * 7919U);
+            x = (int)(h % (unsigned)frame->w);
+            y = (int)(((h >> 16) + game->tick * (rain == 1 ? 9U : 2U)) % (unsigned)view_h);
+            rect(x, y, rain == 1 ? 1 : 2, rain == 1 ? 7 : 2, lit ? 7 : 8);
+        }
+        text(8, 44, 15, rain == 1 ? "RAIN" : "SNOW");
+    }
+}
 static void world(void) {
     int i, x, b;
     cache_globes();
@@ -495,6 +547,7 @@ static void world(void) {
             ring_mesh(&game->system.planets[b]);
     }
     forests();
+    cloud_deck();
     for (i = 0; i < port_count(game); i++) {
         const Port *port = &game->ports[i];
         const Planet *body = &game->system.planets[port->body];
@@ -1039,19 +1092,19 @@ void render_game(const Game *g, Frame *f) {
             return;
         memset(depth_buffer, 0, count * sizeof(*depth_buffer));
     }
-    for (i = 0; i < view_h; i++) {
-        int c = 0;
-        if (alt < g->system.planets[g->body].atmosphere) {
-            AtmosphereType climate = g->system.planets[g->body].climate;
-            int base = climate == DENSE      ? 128
-                       : climate == FROZEN   ? 160
-                       : climate == HYDROGEN ? 192
-                                             : 32;
-            c = f->enhanced        ? base + i * 25 / view_h
-                : climate == DENSE ? 21 + i * 3 / view_h
-                                   : 4 + i * 4 / view_h;
+    {
+        const Planet *p = &g->system.planets[g->body];
+        Vec local = sub(scale(g->pos, 1, FP), p->center);
+        int scatter = rayleigh_scattering(&g->system, p, local,
+                                         forward(camera_yaw, camera_pitch));
+        for (i = 0; i < view_h; i++) {
+            int c = 0, intensity = scatter * (view_h + i) / (2 * view_h);
+            if (intensity) {
+                int base = p->climate == DENSE ? 128 : p->climate == HYDROGEN ? 192 : 32;
+                c = f->enhanced ? base + intensity : 1 + intensity * 6 / 31;
+            }
+            rect(0, i, f->w, 1, c);
         }
-        rect(0, i, f->w, 1, c);
     }
     if (alt > 6000) {
         for (i = 0; i < 120; i++) {
@@ -1067,26 +1120,10 @@ void render_game(const Game *g, Frame *f) {
             }
         }
     }
-    if (g->page == FLIGHT && atmosphere_density(&g->system.planets[g->body], alt) > 4) {
-        const Planet *p = &g->system.planets[g->body];
-        for (i = 0; i < 18; i++) {
-            uint32_t h = hash32(p->seed + (unsigned)i * 173U);
-            Vec dir =
-                forward((int)(h & 1023) + (int)(g->tick / (HZ * 30)), 80 + (int)((h >> 16) % 160));
-            Vec v = camera(add(scale(g->pos, 1, FP), scale(dir, 50000, 16384)));
-            if (v.z > 100) {
-                int x = f->w / 2 + (int)(v.x * (f->w / 2) / v.z),
-                    y = view_h / 2 - (int)(v.y * (f->w / 2) / v.z);
-                int width = 12 + (int)(h % 35);
-                if (y > 0 && y < view_h - 8) {
-                    rect(x, y, width, 3, 7);
-                    rect(x + 4, y - 2, width / 2, 7, 7);
-                }
-            }
-        }
-    }
-    if (g->page == FLIGHT)
+    if (g->page == FLIGHT) {
         world();
+        weather_overlay();
+    }
     if (g->page == FLIGHT) {
         Vec p = camera(scale(navigation_position(g), 1, FP));
         if (p.z > 8) {

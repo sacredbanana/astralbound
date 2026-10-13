@@ -47,3 +47,9 @@ build/navigation-tests: $(CORE) $(HEADERS) tests/test_navigation.c src/space.h s
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_navigation.c -o $@
 navigation-test: build/navigation-tests
 	./build/navigation-tests
+
+.PHONY: environment-preview
+build/environment-preview: $(CORE) $(HEADERS) tools/environment_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/environment_preview.c -o $@
+environment-preview: build/environment-preview
+	./build/environment-preview

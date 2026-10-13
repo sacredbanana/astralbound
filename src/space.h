@@ -17,7 +17,7 @@
 #define MAX_EXPLORED 128
 #define MAX_MARKETS 128
 #define MARKET_INTERVAL (HZ * 3600U)
-#define SAVE_VERSION 4
+#define SAVE_VERSION 5
 #define AU_METRES 149597870700LL
 
 typedef struct {
@@ -44,6 +44,7 @@ typedef struct {
     int64_t orbit, influence;
     uint32_t period;
     Vec orbit_start, orbit_end, velocity;
+    int32_t spin_sin, spin_cos; /* transient Q30 rotation about body Z */
     Vec center; /* metres in the system frame; ship coordinates are Q8 metres */
     char name[24];
 } Planet;
@@ -119,6 +120,7 @@ typedef struct {
     /* Presentation state is transient; version 3/4 commander payloads stay compatible. */
     int turret_yaw, turret_pitch, combat_target, system_display, map_local;
     int yaw_fraction, pitch_fraction;
+    Vec ground_anchor; /* transient body-fixed Q8 landed position */
     uint32_t shots, fuel_burn;
     char message[80];
 } Game;
@@ -163,6 +165,15 @@ int exploration_index(const Game *g, Sector s);
 int request_clearance(Game *g, int port);
 int station_impact(const Game *g, Vec from, Vec to, int port);
 int atmosphere_density(const Planet *p, int64_t altitude);
+void set_rotation(Planet *p, uint32_t tick);
+uint32_t rotation_period(const Planet *p);
+Vec body_rotate(const Planet *p, Vec v, int inverse);
+Vec surface_velocity(const Planet *p, Vec local);
+int surface_light(const System *s, const Planet *p, Vec local);
+/* Shared deterministic weather: density 0..256, precipitation 0/1 rain/2 snow. */
+int rayleigh_scattering(const System *s, const Planet *p, Vec local, Vec view);
+int cloud_density(const Planet *p, Vec local, uint32_t tick);
+int precipitation(const Planet *p, Vec local, uint32_t tick);
 int terrain_elevation(const Planet *p, Vec relative_metres);
 int terrain_material(const Planet *p, Vec relative_metres);
 /* The anchor is a full-precision body-relative direction; tangent axes are Q14. */

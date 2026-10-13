@@ -158,14 +158,15 @@ Courier and freight jobs require docking at the named destination port in the
 specified sector. Cargo space is reserved when accepting freight. Orbital
 patrols and bounties create a hostile above 13 km. Air patrols create a hostile
 between 600 and 6000 m. Survey work requires twenty simulated seconds between
-500 and 6000 m at less than 200 m/s. Combat jobs pay on disabling their target;
+500 and 6000 m at less than 200 m/s over the rotating ground. Combat jobs pay on disabling their target;
 delivery and survey jobs pay automatically on completion. Rewards are paid once.
 
 Read [Space.guide](Space.guide) on the Amiga for the controls and prototype limits.
-Save format 4 includes the market ledger alongside exploration, frame, fuel-impulse
+Save format 5 includes the market ledger alongside exploration, frame, fuel-impulse
 and approach state. World generation stays at version 3. Version 3 commanders load
 with their saved stock assigned to the docked port; other ports start with generated
-supply. Version 2 prototype commanders remain incompatible.
+supply. Version 4 commanders also load; older open-ground landings are reattached
+to rotating terrain and docked ships follow their ports. Version 2 remains incompatible.
 
 Research sources are in [docs/research.md](docs/research.md). Remaining full-game
 work is tracked in [docs/roadmap.md](docs/roadmap.md), and current test evidence in
@@ -214,3 +215,10 @@ expanded procedural world and depth buffer (2 MiB Chip plus 8 MiB Fast is the
 emulator-tested configuration). It is not an unexpanded A500 release. Escape returns
 to the boot CLI; no Workbench files or licensed ROMs are distributed. Installer and
 boot evidence, timings and remaining physical QA are recorded in `docs/validation.md`.
+
+Planetary rotation now moves terrain, flora, surface ports and landed ships. Actual
+stellar geometry controls day/night, eclipses and an indexed Rayleigh scattering
+approximation. Temperate/frozen weather provides curved cloud decks, entry/exit fog,
+rain and snow; gas giants have cloud layers, multiple moons and equatorial ring bands.
+Weather and vegetation are bounded prototype models. `make environment-preview`
+produces reproducible host frames and portable commander fixtures under `build/evidence`.

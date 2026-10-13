@@ -115,6 +115,39 @@ static void orbital_and_radar(void) {
     render_shutdown();
 }
 
+static void environment_rendering(void) {
+    Game g;
+    Frame f = {320,256,1,0,{0}};
+    int a, found = 0;
+    Vec local;
+    game_init(&g,37);
+    f.pixels = calloc((size_t)f.w*f.h,1); assert(f.pixels && render_init(&f));
+    game=&g; frame=&f; view_h=200;
+    g.docked=-1;
+    for (a=0;a<1024;a+=8) {
+        const Planet *p=&g.system.planets[0];
+        local=radial(forward(a,0),p->radius+200);
+        if (terrain_material(p,local)!=2) continue;
+        g.pos=scale(add(p->center,local),FP,1); camera_position=g.pos;
+        aim_angles(vec(-local.y,local.x,0),&camera_yaw,&camera_pitch);
+        nt=0; forests(); found |= nt>0;
+    }
+    assert(found); /* geometry survives full-radius placement and terrain depth */
+    for (a=0;a<1024;a+=8) {
+        const Planet *p=&g.system.planets[0];
+        local=radial(forward(a,0),p->radius+1800);
+        if (cloud_density(p,local,g.tick)<100) continue;
+        g.pos=scale(add(p->center,local),FP,1);
+        memset(f.pixels,0,(size_t)f.w*f.h); weather_overlay();
+        assert(f.pixels[100*320+160] || f.pixels[100*320+161] || f.pixels[102*320+160]);
+        g.pos=scale(add(p->center,radial(local,p->radius+4000)),FP,1);
+        memset(f.pixels,0,(size_t)f.w*f.h); weather_overlay();
+        assert(!f.pixels[100*320+160]); break;
+    }
+    assert(a<1024);
+    free(f.pixels); render_shutdown();
+    puts("PASS procedural flora geometry and visible cloud entry/exit fog");
+}
 int main(void) {
     Frame f = {64, 120, 1, 0, {0}};
     Tri ground = {{0, 64, 0}, {0, 0, 64}, {1000, 1000, 1000}, 1000, 8};
@@ -158,6 +191,7 @@ int main(void) {
     free(f.pixels);
     render_shutdown();
     assert(!render_init(&(Frame){64, 56, 0, 0, {0}}));
+    environment_rendering();
     compact_display();
     orbital_and_radar();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");

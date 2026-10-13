@@ -127,7 +127,7 @@ static void payload(Stream *s, Game *g, uint32_t version) {
         FIELD(g->explored[i].first_tick);
         FIELD(g->explored[i].last_tick);
     }
-    if (version >= SAVE_VERSION) {
+    if (version >= 4) {
         FIELD(g->market_count);
         if (g->market_count < 0 || g->market_count > MAX_MARKETS) {
             s->error = 1;
@@ -298,7 +298,7 @@ int load_game(Game *g, const char *path) {
     if (word(&s, 0) != 0x53504331)
         return 0;
     version = word(&s, 0);
-    if (version != GENERATOR_VERSION && version != SAVE_VERSION)
+    if (version != GENERATOR_VERSION && version != 4 && version != SAVE_VERSION)
         return 0;
     size = word(&s, 0);
     crc = word(&s, 0);
@@ -309,6 +309,25 @@ int load_game(Game *g, const char *path) {
     if (s.error || s.pos != len || !valid(&copy))
         return 0;
     copy.body = nearest_body(&copy, copy.pos);
+    /* v3/v4 ground coordinates predate axial rotation. Reattach stationary
+       ground commanders to the corresponding body-fixed terrain direction. */
+    if (version < 5 && copy.docked == -2) {
+        const Planet *p = &copy.system.planets[copy.body];
+        Vec local = sub(scale(copy.pos, 1, FP), p->center);
+        local = body_rotate(p, local, 0);
+        local = radial(local, p->radius + terrain_height(p, local) + 12);
+        copy.pos = scale(add(p->center, local), FP, 1);
+        copy.vel = surface_velocity(p, local);
+        copy.frame_body = copy.body;
+    }
+    if (copy.docked == -2) {
+        const Planet *p = &copy.system.planets[copy.body];
+        copy.ground_anchor = body_rotate(p, sub(copy.pos, scale(p->center, FP, 1)), 1);
+    }
+    if (copy.docked >= 0) {
+        copy.pos = copy.ports[copy.docked].pos;
+        copy.vel = port_relative_velocity(&copy, copy.docked);
+    }
     copy.paused = 0;
     copy.turret_yaw = copy.yaw;
     copy.turret_pitch = copy.pitch;

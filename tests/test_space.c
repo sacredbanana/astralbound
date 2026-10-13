@@ -512,7 +512,8 @@ static void test_missions(void) {
                              (type == AIR_PATROL || type == SURVEY ? 2000LL : 18000LL)) *
                                 FP,
                             0));
-            g.vel = vec(0, 0, 0);
+            g.vel = surface_velocity(&g.system.planets[0],
+                sub(scale(g.pos, 1, FP), g.system.planets[0].center));
             c.fire = type != SURVEY;
             for (i = 0; i < 30 * HZ && g.contracts[slot].state == ACTIVE && !g.dead; i++)
                 game_tick(&g, c);
@@ -646,11 +647,113 @@ static void test_flight_input(void) {
     assert(g.warp == 1);
     puts("PASS mouse deadzone/recenter, joystick quadrature, 4096x controls/save");
 }
+static void test_environment(void) {
+    Game g, h;
+    Planet fixed;
+    Vec local, turned, before, v;
+    int a, found_rain = 0, found_snow = 0, found_cloud = 0;
+    game_init(&g, 37);
+    fixed = g.system.planets[0];
+    {
+        Planet slow = fixed;
+        slow.parent=0; slow.period=2000000;
+        set_rotation(&slow,slow.period*HZ/2);
+        assert(length(sub(body_rotate(&slow,vec(1000000,0,0),0),vec(-1000000,0,0))) < 4);
+        set_rotation(&slow,slow.period*HZ);
+        assert(length(sub(body_rotate(&slow,vec(1000000,0,0),0),vec(1000000,0,0))) < 4);
+    }
+    local = radial(forward(140, 30), fixed.radius + 1800);
+    set_rotation(&g.system.planets[0], rotation_period(&fixed) * HZ / 4);
+    turned = body_rotate(&g.system.planets[0], local, 0);
+    assert(length(sub(local, turned)) > fixed.radius / 2);
+    assert(length(sub(body_rotate(&g.system.planets[0], turned, 1), local)) < 4);
+    assert(abs(terrain_elevation(&fixed, local) - terrain_elevation(&g.system.planets[0], turned)) < 2);
+    assert(terrain_material(&fixed, local) == terrain_material(&g.system.planets[0], turned));
+    g.tick = rotation_period(&fixed) * HZ / 4; update_world(&g);
+    before = g.ports[0].pos; v = g.ports[0].velocity;
+    g.tick++; update_world(&g);
+    assert(length(sub(scale(sub(g.ports[0].pos, before), HZ, 1), v)) < 100 * FP);
+    g.docked = -2; g.frame_body = g.body = 0;
+    g.pos = add(scale(g.system.planets[0].center, FP, 1),
+                scale(turned, FP, 1));
+    before = body_rotate(&g.system.planets[0], sub(scale(g.pos, 1, FP), g.system.planets[0].center), 1);
+    game_tick(&g, (Controls){0});
+    local = body_rotate(&g.system.planets[0], sub(scale(g.pos, 1, FP), g.system.planets[0].center), 1);
+    assert(length(sub(local, before)) < 4);
+    assert(save_game(&g, TEST_SAVE) && load_game(&h, TEST_SAVE));
+    assert(length(sub(g.pos,h.pos)) < 4);
+    { /* Version 4 ground commander has an unrotated body-relative position. */
+        FILE *old = fopen(TEST_SAVE, "r+b");
+        assert(old && !fseek(old,7,SEEK_SET)); fputc(4,old); fclose(old);
+        assert(load_game(&h,TEST_SAVE));
+        assert(length(sub(g.pos,h.pos)) > fixed.radius * FP / 2);
+        assert(altitude_at(&h,h.pos) >= 10 && altitude_at(&h,h.pos) <= 14);
+    }
+    remove(TEST_SAVE);
+    /* Isolate a star and test both hemispheres and an eclipse. */
+    g.system.count = 1; g.system.stars = 1;
+    g.system.star[0].center = add(g.system.planets[0].center, vec(1000000000,0,0));
+    local = vec(fixed.radius + 100,0,0);
+    assert(surface_light(&g.system,&g.system.planets[0],local) > 16000);
+    assert(!surface_light(&g.system,&g.system.planets[0],scale(local,-1,1)));
+    assert(rayleigh_scattering(&g.system,&g.system.planets[0],local,vec(0,1,0)) > 0);
+    assert(!rayleigh_scattering(&g.system,&g.system.planets[0],scale(local,-1,1),vec(0,1,0)));
+    g.system.count = 2; g.system.planets[1].center = add(g.system.planets[0].center,vec(100000000,0,0));
+    g.system.planets[1].radius = 1000000;
+    assert(!surface_light(&g.system,&g.system.planets[0],local));
+    for (a = 0; a < 1024; a += 8) {
+        local = radial(forward(a,0), fixed.radius + 1800);
+        found_cloud |= cloud_density(&fixed,local,0) > 0;
+        assert(!cloud_density(&fixed,radial(local,fixed.radius + 4000),0));
+        assert(!cloud_density(&fixed,radial(local,fixed.radius + 200),0));
+        local = radial(local,fixed.radius + 200);
+        found_rain |= precipitation(&fixed,local,0) == 1;
+        fixed.climate = FROZEN;
+        found_snow |= precipitation(&fixed,local,0) == 2;
+        fixed.climate = TEMPERATE;
+    }
+    assert(found_cloud && found_rain && found_snow);
+    fixed.atmosphere = 0;
+    assert(!cloud_density(&fixed,local,0) && !precipitation(&fixed,local,0));
+    game_init(&g,37);
+    for (a=0; a<g.system.count && g.system.planets[a].type!=MOON; a++) {}
+    assert(a<g.system.count);
+    g.body=g.frame_body=a; g.docked=-1; g.target=-1; g.target_body=a;
+    g.assist=0; g.throttle=0; g.gear=1;
+    local=vec(0,g.system.planets[a].radius+13,0);
+    g.pos=scale(add(g.system.planets[a].center,local),FP,1);
+    g.vel=surface_velocity(&g.system.planets[a],local);
+    for (a=0; a<4*HZ && g.docked==-1 && !g.dead; a++) game_tick(&g,(Controls){0});
+    assert(g.docked==-2 && !g.dead && g.system.planets[g.body].type==MOON);
+    before=g.vel; game_action(&g,'l');
+    assert(g.docked==-1 && length(sub(g.vel,before)) >= 19*FP &&
+           length(sub(g.vel,before)) <= 21*FP);
+    game_init(&g,37);
+    for (a=0; a<1024; a+=8) {
+        local=radial(forward(a,0),g.system.planets[0].radius+1800);
+        if (cloud_density(&g.system.planets[0],local,0)>100 &&
+            terrain_height(&g.system.planets[0],local)<500) break;
+    }
+    assert(a<1024);
+    local=radial(local,g.system.planets[0].radius+600);
+    g.pos=scale(add(g.system.planets[0].center,local),FP,1);
+    g.vel=add(surface_velocity(&g.system.planets[0],local),unit(local,400*FP));
+    g.docked=-1; g.assist=0; g.throttle=0; g.gear=0;
+    found_cloud=0;
+    for (a=0; a<10*HZ && !g.dead; a++) {
+        game_tick(&g,(Controls){0});
+        local=sub(scale(g.pos,1,FP),g.system.planets[0].center);
+        found_cloud |= cloud_density(&g.system.planets[0],local,g.tick)>100;
+    }
+    assert(!g.dead && found_cloud && !cloud_density(&g.system.planets[0],local,g.tick));
+    puts("PASS body-fixed terrain, rotating ports/ground saves, day/night/eclipse, scattering, cloud entry/exit, rain/snow");
+}
 int main(int argc, char **argv) {
     quick = argc > 1 && !strcmp(argv[1], "--quick");
     setvbuf(stdout, NULL, _IONBF, 0);
     puts(quick ? "SPACE QUICK SMOKE SUITE" : "SPACE FULL CORE SUITE");
     test_universe();
+    test_environment();
     test_world();
     test_collision();
     test_economy();

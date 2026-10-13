@@ -26,7 +26,7 @@ static int noise(uint32_t seed, Vec q, int shift) {
     return mix(mix(a, b, fy), mix(c, d, fy), fz);
 }
 int terrain_elevation(const Planet *p, Vec relative) {
-    Vec n = unit(relative, 65536);
+    Vec n = unit(body_rotate(p, relative, 1), 65536);
     int h =
         noise(p->seed, n, 14) * 1400 / 4096 + noise(p->seed ^ 0x8537U, n, 12) * 250 / 4096 - 650;
     Vec pad = scale(forward(120, 180), 4, 1);
@@ -50,10 +50,10 @@ int terrain_height(const Planet *p, Vec relative) {
 /* Shared land/water/forest/rock/ice classification drives local and globe LOD. */
 int terrain_material(const Planet *p, Vec relative) {
     int h = terrain_elevation(p, relative);
-    Vec normal = unit(relative, 16384);
+    Vec normal = unit(body_rotate(p, relative, 1), 16384);
     if (p->type == GAS_GIANT)
         return 5;
-    if (p->type == ICE || normal.y > 14000 || normal.y < -14000)
+    if (p->type == ICE || normal.z > 14000 || normal.z < -14000)
         return 4;
     if (p->type == OCEAN && h <= 0)
         return 0;
@@ -121,4 +121,75 @@ crossing of the whole planet is separately covered by the inner sphere. */
             return 1;
     }
     return 0;
+}
+
+/* Direct illumination from every visible stellar disc. Planet/moon eclipses
+   use the same bounded swept-sphere primitive as flight. No render-time clock. */
+static int stellar_light(const System *s, const Planet *p, Vec point, Vec normal, int star) {
+    Vec sun = unit(sub(s->star[star].center, point), 16384);
+    int dot = ((int)normal.x * (int)sun.x + (int)normal.y * (int)sun.y +
+               (int)normal.z * (int)sun.z) / 16384;
+    int j;
+    if (dot <= 0) return 0;
+    for (j = 0; j < s->count; j++) {
+        const Planet *other = &s->planets[j];
+        if (other != p && swept_sphere(point, s->star[star].center, other->center, other->radius))
+            return 0;
+    }
+    return dot;
+}
+int surface_light(const System *s, const Planet *p, Vec local) {
+    Vec normal = unit(local, 16384), point = add(p->center, local);
+    int i, light = 0;
+    for (i = 0; i < s->stars; i++) light += stellar_light(s, p, point, normal, i);
+    return light > 16384 ? 16384 : light;
+}
+static int cloud_cover(const Planet *p, Vec local, uint32_t tick) {
+    Vec n = unit(body_rotate(p, local, 1), 65536);
+    int drift = (int)(tick / (HZ * 60U) % 8192U);
+    if (p->climate != TEMPERATE && p->climate != FROZEN && p->climate != HYDROGEN &&
+        p->climate != DENSE) return 0;
+    n.x += drift; n.y -= drift / 2;
+    return noise(p->seed ^ 0x434c4f55U, n, 12);
+}
+int cloud_density(const Planet *p, Vec local, uint32_t tick) {
+    int64_t alt = length(local) - p->radius;
+    int base = p->climate == HYDROGEN ? 18000 : 1800;
+    int thickness = p->climate == HYDROGEN ? 10000 : 1200;
+    int cover = cloud_cover(p, local, tick) - 1500;
+    int64_t d = alt - base;
+    if (d < 0) d = -d;
+    if (!p->atmosphere || cover <= 0 || d >= thickness) return 0;
+    if (cover > 1200) cover = 1200;
+    return (int)((int64_t)cover * (thickness - d) * 256 / (1200LL * thickness));
+}
+int precipitation(const Planet *p, Vec local, uint32_t tick) {
+    int64_t alt = length(local) - p->radius;
+    Vec n = unit(body_rotate(p, local, 1), 16384);
+    if (!p->atmosphere || alt > 1800 || alt < 0 ||
+        (p->climate != TEMPERATE && p->climate != FROZEN) ||
+        cloud_cover(p, local, tick) < 2450) return 0;
+    return p->climate == FROZEN || n.z > 12000 || n.z < -12000 || alt > 1400 ? 2 : 1;
+}
+
+/* Single-scattering Rayleigh approximation: 1+cos^2 phase, optical path
+   enhanced towards the horizon, blue spectral response in the indexed palette. */
+int rayleigh_scattering(const System *s, const Planet *p, Vec local, Vec view) {
+    int i, phase = 0;
+    Vec up = unit(local, 16384), direction = unit(view, 16384);
+    int elevation = ((int)up.x * (int)direction.x + (int)up.y * (int)direction.y +
+                     (int)up.z * (int)direction.z) / 16384;
+    int density = atmosphere_density(p, length(local) - p->radius);
+    if (!density) return 0;
+    for (i = 0; i < s->stars; i++) {
+        Vec sun = unit(sub(s->star[i].center, add(p->center,local)), 16384);
+        int cosine = ((int)sun.x * (int)direction.x + (int)sun.y * (int)direction.y +
+                      (int)sun.z * (int)direction.z) / 16384;
+        int light = stellar_light(s, p, add(p->center,local), up, i);
+        phase += (8 + cosine * cosine / 33554432) * light / 16384;
+    }
+    if (elevation < 0) elevation = -elevation;
+    phase = phase * (24576 - elevation) / 16384;
+    if (density < 32) phase = phase * density / 32;
+    return phase > 31 ? 31 : phase;
 }

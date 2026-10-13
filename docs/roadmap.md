@@ -15,7 +15,7 @@ Implemented in the current development build:
 - [x] Portable exploration journals, sparse settlement, and star occupancy following
   galaxy disc density, a central bulge and four spiral arms.
 - [x] Continuous terrain LOD edges and outer skirts, anchored forests, generated city
-  streets, moving sky clouds, coastlines and varied city blocks/towers.
+  streets, permeable cloud decks, rain/snow, coastlines and varied city blocks/towers.
 - [x] Rotating orbital stations, traffic clearance queues, swept hollow dock geometry,
   marked approach corridors and moving-port velocity matching.
 - [x] Regression coverage for all six generated body types, 58 generated port arrivals,
@@ -26,11 +26,17 @@ Q cycles body waypoints, T cycles inhabited ports, Y shows the selected destinat
 list, and D requests clearance. Autopilot requests clearance automatically. Empty
 sectors cannot be jumped to; unsettled star systems can be explored using body targets.
 
+- [x] Axial rotation of body-fixed terrain, flora, surface ports and landed ships;
+  ground-relative atmospheric assist, drag, landing and survey speeds.
+- [x] Live stellar day/night and eclipse lighting, indexed Rayleigh approximation,
+  cloud entry/exit fog and climate/latitude-driven rain and snow.
+- [x] Multiple gas-giant moons and separated equatorial ring bands.
+- [x] Version 5 saves with version 3/4 ground/docked commander migration.
+
 These are bounded procedural game models: circular inclined orbits rather than an
-N-body solver, a 128-system exploration journal, decorative forests/buildings/clouds,
+N-body solver, a 128-system exploration journal, decorative flora/buildings and procedural weather,
 and scheduled clearance traffic rather than a persistent civilian fleet. The local
-terrain grid has shared edges and a skirt to the globe, but the renderer still uses
-painter sorting. Hardware frame rates and long-duration play remain QA work.
+terrain grid has shared edges and a skirt to the globe, and uses a raster depth buffer. Hardware frame rates and long-duration play remain QA work.
 
 ## Careers and economy
 

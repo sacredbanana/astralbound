@@ -329,3 +329,85 @@ active encounter ships, not a persistent civilian fleet. Turrets share the
 existing laser heat, cooldown, upgrade and 5 km range; separate hardpoint and
 weapon equipment systems remain roadmap work. These checks do not establish
 real hardware frame rates or NTSC runtime behavior.
+
+## Planet rotation and weather (2026-10-13)
+
+Continues from `7559bc89027f93d72a583f1ccb9e5f5e42c70f2b`. The audit found
+analytic inclined planetary and parented moon orbits, a central/binary star model,
+translated local frames, landable terrain, single moons and simple rings already
+implemented. Surface features did not rotate. Globe lighting was cached for an
+hour, clouds followed the camera, and low-precision forest placement could bury
+vegetation beneath the collision terrain.
+
+The new model rotates body-fixed terrain/materials, flora, landing pads and
+surface ports using analytic Q30 rotation at simulation time. Ports include their
+rotational velocity. Landed ships use a transient body-fixed anchor to avoid
+cumulative rounding drift; launch inherits ground velocity. Atmospheric assist,
+drag/heating, open-ground landing and survey speeds account for rotating ground.
+The existing 1/32-second physics, translated orbital frames and safe warp remain.
+Extra gas-giant moons are appended without changing existing body/port indices.
+Gas giants have separated equatorial ring bands and body-fixed band/longitude
+colour variation. Globe geometry/materials are cached; illumination is live.
+
+Visible stellar geometry supplies hemisphere lighting and planet/moon eclipses.
+The indexed atmosphere approximates Rayleigh single scattering with the angular
+`1 + cos^2` phase, horizon path enhancement and a blue palette. Stars below the
+local horizon or occulted by another body do not contribute. A shared deterministic
+cloud field supplies a curved deck and cockpit fog when the ship enters it.
+Temperate/frozen precipitation uses climate, body-fixed latitude and altitude;
+clouds have slow simulation-time drift. Flora uses the same immutable body-fixed
+terrain and full-precision radial placement. Work is bounded: an 8 x 8 local
+cloud patch, a 9 x 9 flora lattice, 24 ECS/48 enhanced precipitation particles,
+and two-pixel fog blocks with clock servicing. These are original generated visuals.
+
+Save format 5 retains the market/exploration payload and reads versions 3 and 4.
+Older open-ground landings migrate to rotating terrain; docked commanders follow
+their regenerated port. Existing generated body indices, settlement and market
+indices are retained. New saves cannot be opened by the older executable.
+
+Validation:
+
+- `make test` and `make sanitize`: core, presentation and renderer suites pass.
+  Added checks cover long-period moon half/full turns without angle overflow,
+  body-fixed height/material sampling and inverse rotation,
+  moving-port derivatives, anchored ground/save migration, moon landing/launch,
+  day/night and eclipses, scattering, actual fixed-tick flight through clouds,
+  rain/snow/vacuum boundaries, flora geometry and visible fog entry/exit.
+  Existing 58 port arrivals, all six body types, mission completion, swept
+  collisions, warp/braking, docking clearance and save-corruption checks pass.
+- `make navigation-test`: AU-scale arrival remains 8,492,040 ticks, 67% fuel
+  and 4 m error. This is simulation evidence, not physical hardware evidence.
+- `./build-amiga.sh -j4 all variants tests`: SDL/OpenGL-free, soft-float
+  68000/020/030/040/060 games and native suites build successfully.
+- `make all preview` and `make environment-preview`: host surface/orbit output,
+  320 x 256 weather/rotation fixtures and 640 x 480 RTG-size fixtures render.
+  Rain, flora, inside/above cloud, clear polar snowfall, night and quarter-turn
+  frames were inspected. `./build/environment-preview --rtg` generates the
+  larger fixtures. Frames and portable saves are `build/evidence/environment-*`.
+- Host orbit benchmark: about 0.453 ms/frame over 200 frames, hash `e3347ecc`.
+  Live geometry/lighting costs more than the previous roughly 0.2 ms/frame;
+  caching material classifications reduced an initial 0.752 ms/frame result.
+  No Amiga frame rate is inferred from these host timings.
+- Isolated PAL 68020/AGA-configured Amiberry, with a distinct runtime/socket,
+  runs `Space-RunTests` with 256 KiB parent/child stacks. Native presentation
+  and core quick suites pass. ECS low-resolution screenshots show rain, cloud
+  fog, the deck from above and clear polar snowfall. Native F5 resumes with
+  SAVED; the written version 5 commander has a verified payload/checksum.
+  Escape restores the CLI and DMA `03F0`.
+  Evidence is `environment-native-ecs-*.png` and native suite logs under
+  `build/evidence/`. The user's existing AmiKit process was preserved.
+- `./package.sh` builds and verifies ZIP/LHA contents and the bootable ADF;
+  `Space.guide` passes the AmigaGuide checker without warnings/errors.
+
+Limits: this uses common system-frame Z spin axes, type-assigned climates and
+circular orbits, rather than per-body obliquity, stellar thermodynamics or an
+N-body solver. Satellite spin periods match their orbital periods but do not
+constitute a full tidal/orientation model. Weather is a sparse procedural visual
+model, without fluid dynamics, accumulation, wind forces or hydrology. Flora and
+buildings remain decorative geometry. Equal-strength direct stellar contributions
+are a lighting approximation, not a radiometric atmosphere model. The bare isolated
+boot did not reach the AGA display after its initial hardware-detection refusal;
+new AGA/RTG weather runtime checks are not claimed. They retain build/host coverage
+and the earlier presentation evidence above. Physical hardware, stock 68000 weather
+frame rates and long-duration runtime stress remain unverified. The previously
+recorded direct bare-CLI stack-swap exit fault remains toolchain QA.
