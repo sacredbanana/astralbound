@@ -9,9 +9,13 @@ typedef struct {
     uint32_t inverse_z[3];
     int64_t z;
     uint8_t color;
+    const Planet *surface;
+    int64_t local_z[3][3]; /* body-fixed direction / camera depth */
 } Tri;
 static Tri triangles[TRI_MAX];
 static int nt;
+static const Planet *terrain_surface;
+static int surface_color(const Planet *p, int face, int u, int v);
 /* Reciprocal depth is linear in screen space. Keep the buffer in ordinary
    RAM; only the final indexed image is copied to Amiga display memory. */
 static uint32_t *depth_buffer;
@@ -21,6 +25,15 @@ static const Game *game;
 static int view_h;
 static Vec camera_position;
 static int camera_yaw, camera_pitch;
+static Vec camera_to_local(const Planet *p, Vec v) {
+    int sy = sini(camera_yaw), cy = cosi(camera_yaw);
+    int sp = sini(camera_pitch), cp = cosi(camera_pitch);
+    int64_t y = (v.y * cp + v.z * sp) / 16384;
+    int64_t z = (v.z * cp - v.y * sp) / 16384;
+    Vec world = vec((v.x * cy + z * sy) / 16384, y, (z * cy - v.x * sy) / 16384);
+    return body_rotate(p, add(world, sub(scale(camera_position, 1, FP), p->center)), 1);
+}
+
 static void (*platform_pump)(void);
 static uint32_t plane_low[256], plane_high[256];
 static int tables_ready;
@@ -152,10 +165,17 @@ static void emit(Vec a, Vec b, Vec c, int color) {
     if (nt >= TRI_MAX)
         return;
     t = &triangles[nt];
+    t->surface = terrain_surface;
     for (i = 0; i < 3; i++) {
         t->inverse_z[i] = (uint32_t)(1073741824LL / v[i].z);
         t->x[i] = screen_coord(frame->w / 2 + v[i].x * (frame->w / 2) / v[i].z);
         t->y[i] = screen_coord(view_h / 2 - v[i].y * (frame->w / 2) / v[i].z);
+        if (t->surface) {
+            Vec local = camera_to_local(t->surface, v[i]);
+            t->local_z[i][0] = local.x * t->inverse_z[i] / t->surface->radius;
+            t->local_z[i][1] = local.y * t->inverse_z[i] / t->surface->radius;
+            t->local_z[i][2] = local.z * t->inverse_z[i] / t->surface->radius;
+        }
     }
     if ((t->x[0] < 0 && t->x[1] < 0 && t->x[2] < 0) ||
         (t->x[0] >= frame->w && t->x[1] >= frame->w && t->x[2] >= frame->w) ||
@@ -166,29 +186,60 @@ static void emit(Vec a, Vec b, Vec c, int color) {
     t->color = (uint8_t)color;
     nt++;
 }
-static void triangle(Vec a, Vec b, Vec c, int color) {
-    Vec in[3], out[4];
-    int i, n = 0;
-    in[0] = camera(a);
-    in[1] = camera(b);
-    in[2] = camera(c);
-    for (i = 0; i < 3; i++) {
-        Vec p = in[i], q = in[(i + 1) % 3];
-        if (p.z >= 8)
-            out[n++] = p;
-        if ((p.z >= 8) != (q.z >= 8)) {
-            Vec d = sub(q, p);
-            out[n++] = add(p, scale(d, 8 - p.z, d.z));
-        }
+/* Clip in camera space before projection. Clamping projected coordinates
+   bends the reciprocal-depth plane of large nearby terrain faces. */
+static int64_t clip_distance(Vec v, int plane) {
+    switch (plane) {
+    case 0: return v.z - 8;
+    case 1: return v.z + v.x;
+    case 2: return v.z - v.x;
+    case 3: return v.z * (view_h / 2) - v.y * (frame->w / 2);
+    default: return v.z * (view_h - view_h / 2) + v.y * (frame->w / 2);
     }
-    if (n >= 3)
-        emit(out[0], out[1], out[2], color);
-    if (n == 4)
-        emit(out[0], out[2], out[3], color);
+}
+static void triangle(Vec a, Vec b, Vec c, int color) {
+    Vec vertices[2][10];
+    int plane, i, count = 3, current = 0;
+    vertices[0][0] = camera(a);
+    vertices[0][1] = camera(b);
+    vertices[0][2] = camera(c);
+    for (plane = 0; plane < 5 && count >= 3; plane++) {
+        Vec *in = vertices[current], *out = vertices[1 - current];
+        int n = 0;
+        for (i = 0; i < count; i++) {
+            Vec p = in[i], q = in[(i + 1) % count];
+            int64_t dp = clip_distance(p, plane), dq = clip_distance(q, plane);
+            if (dp >= 0)
+                out[n++] = p;
+            if ((dp >= 0) != (dq >= 0))
+                out[n++] = add(p, scale(sub(q, p), dp, dp - dq));
+        }
+        count = n;
+        current = 1 - current;
+    }
+    for (i = 1; i + 1 < count; i++)
+        emit(vertices[current][0], vertices[current][i], vertices[current][i + 1], color);
 }
 static int sort_tri(const void *a, const void *b) {
     const Tri *x = a, *y = b;
-    return x->z < y->z ? 1 : x->z > y->z ? -1 : 0;
+    /* Opaque depth-tested geometry can draw nearest first, avoiding surface
+       lookups for the coarse globe and far faces hidden by local terrain. */
+    return x->z < y->z ? -1 : x->z > y->z ? 1 : 0;
+}
+/* Perspective-correct body coordinates decouple surface colour from the
+   camera-centred mesh and its altitude-dependent cell sizes. Ratios cancel
+   reciprocal depth, giving a fixed metre lattice on the planet's cube faces. */
+static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u, int *v) {
+    Vec q = vec(value[0], value[1], value[2]);
+    int axis = 0;
+    int64_t dominant = llabs(q.x);
+    if (llabs(q.y) > dominant) { axis = 1; dominant = llabs(q.y); }
+    if (llabs(q.z) > dominant) { axis = 2; dominant = llabs(q.z); }
+    *face = axis * 2 + ((axis == 0 ? q.x : axis == 1 ? q.y : q.z) < 0);
+    if (!dominant) { *u = *v = 0; return; }
+    q = scale(q, p->radius, dominant);
+    *u = (int)(axis == 0 ? q.y : q.x);
+    *v = (int)(axis == 2 ? q.y : q.z);
 }
 static void raster(const Tri *t) {
     int y, miny = t->y[0], maxy = t->y[0], i;
@@ -199,9 +250,18 @@ static void raster(const Tri *t) {
     int64_t area = ax * by - bx * ay;
     int64_t zx = az * by - bz * ay, zy = ax * bz - bx * az;
     int64_t dz;
+    int64_t sx[3] = {0}, sy[3] = {0};
     if (!area)
         return;
     dz = zx * 256 / area;
+    if (t->surface) {
+        for (i = 0; i < 3; i++) {
+            int64_t a = t->local_z[1][i] - t->local_z[0][i];
+            int64_t b = t->local_z[2][i] - t->local_z[0][i];
+            sx[i] = a * by - b * ay;
+            sy[i] = ax * b - bx * a;
+        }
+    }
     for (i = 1; i < 3; i++) {
         if (t->y[i] < miny)
             miny = t->y[i];
@@ -240,7 +300,53 @@ static void raster(const Tri *t) {
                 int64_t end = z + dz * (r - l);
                 /* Most distant polygons fit Q8 depth in 32 bits. Keep an
                    exact wide fallback for nearby/clipped geometry. */
-                if (z >= 0 && end >= 0 && z <= INT32_MAX && end <= INT32_MAX &&
+                if (t->surface) {
+                    int block;
+                    for (block = l; block <= r; block += 8) {
+                        int stop = block + 7 < r ? block + 7 : r;
+                        int face0, face1, u0, v0, u1, v1, component;
+                        int64_t start[3], finish[3];
+                        int visible = 0;
+                        for (x = block; x <= stop; x++) {
+                            int64_t candidate = z + dz * (x - block);
+                            if (candidate >= 0 && (uint32_t)(candidate >> 8) >= depths[x - block]) {
+                                visible = 1; break;
+                            }
+                        }
+                        if (!visible) {
+                            int count = stop - block + 1;
+                            pixels += count; depths += count; z += dz * count;
+                            continue;
+                        }
+                        for (component = 0; component < 3; component++) {
+                            start[component] = t->local_z[0][component] +
+                                (sx[component] * (block - t->x[0]) +
+                                 sy[component] * (y - t->y[0])) / area;
+                            finish[component] = t->local_z[0][component] +
+                                (sx[component] * (stop - t->x[0]) +
+                                 sy[component] * (y - t->y[0])) / area;
+                        }
+                        surface_uv(t->surface, start, &face0, &u0, &v0);
+                        surface_uv(t->surface, finish, &face1, &u1, &v1);
+                        for (x = block; x <= stop; x++, pixels++, depths++, z += dz) {
+                            int face = face0, u = u0, v = v0;
+                            if (z < 0 || (uint32_t)(z >> 8) < *depths) continue;
+                            if (face0 != face1) {
+                                int64_t value[3];
+                                for (component = 0; component < 3; component++)
+                                    value[component] = t->local_z[0][component] +
+                                        (sx[component] * (x - t->x[0]) +
+                                         sy[component] * (y - t->y[0])) / area;
+                                surface_uv(t->surface, value, &face, &u, &v);
+                            } else if (stop > block) {
+                                u += (int)((int64_t)(u1 - u0) * (x - block) / (stop - block));
+                                v += (int)((int64_t)(v1 - v0) * (x - block) / (stop - block));
+                            }
+                            *depths = (uint32_t)(z >> 8);
+                            *pixels = (uint8_t)surface_color(t->surface, face, u, v);
+                        }
+                    }
+                } else if (z >= 0 && end >= 0 && z <= INT32_MAX && end <= INT32_MAX &&
                     dz >= INT32_MIN && dz <= INT32_MAX) {
                     uint32_t value = (uint32_t)z;
                     int32_t step = (int32_t)dz;
@@ -295,6 +401,48 @@ static int material_color(const Planet *planet, Vec local, int material) {
 static int ground_color(const Planet *planet, Vec local) {
     return material_color(planet, local, terrain_material(planet, local));
 }
+#define SURFACE_CACHE_SIZE 4096
+#define SURFACE_TILE 256
+static struct {
+    int u, v, face, valid, material, color;
+    uint32_t epoch;
+} surface_cache[SURFACE_CACHE_SIZE];
+static uint32_t surface_seed, surface_system;
+static int surface_enhanced;
+static int surface_color(const Planet *p, int face, int u, int v) {
+    unsigned slot;
+    int tile_u = u >= 0 ? u / SURFACE_TILE : (u - SURFACE_TILE + 1) / SURFACE_TILE;
+    int tile_v = v >= 0 ? v / SURFACE_TILE : (v - SURFACE_TILE + 1) / SURFACE_TILE;
+    uint32_t epoch = game->tick / HZ;
+    Vec fixed, local;
+    if (surface_seed != p->seed || surface_system != game->system.seed ||
+        surface_enhanced != frame->enhanced) {
+        memset(surface_cache, 0, sizeof(surface_cache));
+        surface_seed = p->seed; surface_system = game->system.seed;
+        surface_enhanced = frame->enhanced;
+    }
+    slot = hash32((unsigned)tile_u ^ hash32((unsigned)tile_v) ^ (unsigned)face * 7919U) &
+           (SURFACE_CACHE_SIZE - 1);
+    if (surface_cache[slot].valid && surface_cache[slot].u == tile_u &&
+        surface_cache[slot].v == tile_v && surface_cache[slot].face == face &&
+        surface_cache[slot].epoch == epoch)
+        return surface_cache[slot].color;
+    u = tile_u * SURFACE_TILE + SURFACE_TILE / 2;
+    v = tile_v * SURFACE_TILE + SURFACE_TILE / 2;
+    {
+        int sign = face & 1 ? -p->radius : p->radius;
+        fixed = face / 2 == 0 ? vec(sign,u,v) : face / 2 == 1 ? vec(u,sign,v) : vec(u,v,sign);
+    }
+    local = body_rotate(p, radial(fixed, p->radius), 0);
+    if (!surface_cache[slot].valid || surface_cache[slot].u != tile_u ||
+        surface_cache[slot].v != tile_v || surface_cache[slot].face != face)
+        surface_cache[slot].material = terrain_material(p, local);
+    surface_cache[slot].u = tile_u; surface_cache[slot].v = tile_v;
+    surface_cache[slot].face = face; surface_cache[slot].valid = 1;
+    surface_cache[slot].epoch = epoch;
+    surface_cache[slot].color = material_color(p, local, surface_cache[slot].material);
+    return surface_cache[slot].color;
+}
 static uint8_t globe_material[MAX_PLANETS][17][33];
 static void cache_globes(void) {
     int b, x, y;
@@ -327,10 +475,13 @@ static void planet_mesh(int body) {
     Vec cam_local = sub(scale(game->pos, 1, FP), p->center);
     int radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
     int64_t distance = length(cam_local), altitude = distance - radius;
+    terrain_surface = body == game->body && altitude < 12000 ? p : NULL;
     {
         Vec c = camera(p->center);
-        if (c.z + radius < 8)
+        if (c.z + radius < 8) {
+            terrain_surface = NULL;
             return;
+        }
         if (distance > radius * 80LL) {
             lons = 8;
             lats = 4;
@@ -377,7 +528,10 @@ static void planet_mesh(int body) {
                 for (x = 0; x < 20; x++) {
                     Vec a = rows[(y - 1) % 2][x], b = rows[(y - 1) % 2][x + 1],
                         c2 = rows[y % 2][x + 1], d = rows[y % 2][x];
-                    int color = ground_color(p, sub(a, p->center));
+                    /* Sample the cell centre: a corner inside a small landing
+                       area must not colour a large adjoining horizon cell. */
+                    Vec middle = scale(add(add(a, b), add(c2, d)), 1, 4);
+                    int color = ground_color(p, sub(middle, p->center));
                     triangle(a, b, c2, color);
                     triangle(a, c2, d, color);
                 }
@@ -400,6 +554,7 @@ static void planet_mesh(int body) {
                 triangle(a, c, d, color);
             }
     }
+    terrain_surface = NULL;
 }
 /* Decorative forests use the same terrain sampler as flight collision.
    Only nearby land has geometry; the globe material carries distant forests. */
@@ -1013,6 +1168,8 @@ void render_shutdown(void) {
     free(depth_buffer);
     depth_buffer = 0;
     depth_capacity = 0;
+    terrain_surface = NULL;
+    memset(surface_cache, 0, sizeof(surface_cache));
 }
 int render_init(Frame *f) {
     int i;

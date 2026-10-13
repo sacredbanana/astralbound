@@ -148,10 +148,110 @@ static void environment_rendering(void) {
     free(f.pixels); render_shutdown();
     puts("PASS procedural flora geometry and visible cloud entry/exit fog");
 }
+static void terrain_angles(void) {
+    Game g;
+    Frame f = {320, 256, 0, 0, {0}};
+    const Planet *p;
+    Vec local;
+    int angle, i, enhanced;
+    static const int offsets[5][2] = {{0,0},{2500,0},{-2500,0},{0,2500},{0,-2500}};
+    game_init(&g, 0x53504143);
+    p = &g.system.planets[0];
+    local = sub(scale(g.ports[0].pos, 1, FP), p->center);
+    g.pos = add(g.ports[0].pos, scale(g.ports[0].normal, 5260LL * FP, 16384));
+    g.docked = -1;
+    f.pixels = calloc((size_t)f.w * f.h, 1);
+    assert(f.pixels && render_init(&f));
+    game = &g; frame = &f; view_h = 200; camera_position = g.pos;
+    cache_globes();
+    for (enhanced = 0; enhanced < 2; enhanced++) {
+        f.enhanced = enhanced;
+        for (angle = 0; angle < 1024; angle += 32) {
+            camera_yaw = angle; camera_pitch = -256;
+            nt = 0;
+            memset(f.pixels, 0, (size_t)f.w * f.h);
+            memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
+            planet_mesh(0);
+            for (i = 0; i < nt; i++) raster(&triangles[i]);
+            for (i = 0; i < 5; i++) {
+                Vec point = terrain_vertex(p, local, vec(16384,0,0), vec(0,0,16384),
+                                           offsets[i][0], offsets[i][1]);
+                Vec v = camera(point);
+                int x = f.w / 2 + (int)(v.x * (f.w / 2) / v.z);
+                int y = view_h / 2 - (int)(v.y * (f.w / 2) / v.z);
+                /* The same ground locations retain their material as the
+                   camera rotates. A water corner must not paint adjacent land. */
+                assert(f.pixels[y * f.w + x] == ground_color(p, sub(point, p->center)));
+            }
+        }
+    }
+    /* A face crossing the near plane and all screen edges must be clipped
+       geometrically, keeping its projected vertices inside the viewport. */
+    camera_position = vec(0,0,0); camera_yaw = camera_pitch = 0; nt = 0;
+    triangle(vec(-100000, -100000, -10), vec(100000,-100000,100),
+             vec(0,100000,100), 8);
+    assert(nt > 0);
+    for (i = 0; i < nt; i++) {
+        int vertex;
+        for (vertex = 0; vertex < 3; vertex++) {
+            assert(triangles[i].x[vertex] >= -2 && triangles[i].x[vertex] <= f.w + 2);
+            assert(triangles[i].y[vertex] >= -2 && triangles[i].y[vertex] <= view_h + 2);
+        }
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS terrain materials across 32 viewing angles in ECS/AGA and frustum clipping");
+}
+static void terrain_flight_colors(void) {
+    Game g;
+    Frame f = {320,256,0,0,{0}};
+    const Planet *p;
+    Vec site;
+    int enhanced, target, altitude, shift, i;
+    static const int heights[] = {2000, 4000, 5260, 10000};
+    static const int targets[] = {0, 4500, -4500};
+    game_init(&g, 0x53504143);
+    p = &g.system.planets[0];
+    site = sub(scale(g.ports[0].pos, 1, FP), p->center);
+    g.docked = -1;
+    f.pixels = calloc((size_t)f.w * f.h, 1);
+    assert(f.pixels && render_init(&f));
+    game = &g; frame = &f; view_h = 200;
+    cache_globes();
+    for (enhanced = 0; enhanced < 2; enhanced++) {
+        f.enhanced = enhanced;
+        for (target = 0; target < 3; target++) {
+            Vec point = terrain_vertex(p, site, vec(16384,0,0), vec(0,0,16384), targets[target], 0);
+            int expected = ground_color(p, sub(point, p->center));
+            for (altitude = 0; altitude < 4; altitude++)
+                for (shift = -3000; shift <= 3000; shift += 300) {
+                    Vec local = sub(point, p->center);
+                    Vec direction = add(local, vec(shift,0,shift/2));
+                    Vec eye = add(p->center, radial(direction,
+                        p->radius + terrain_height(p, direction) + heights[altitude]));
+                    g.pos = scale(eye, FP, 1);
+                    camera_position = g.pos;
+                    aim_angles(sub(point, eye), &camera_yaw, &camera_pitch);
+                    nt = 0;
+                    memset(f.pixels, 0, (size_t)f.w * f.h);
+                    memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
+                    planet_mesh(0);
+                    qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
+                    for (i = 0; i < nt; i++) raster(&triangles[i]);
+                    if (f.pixels[(view_h/2)*f.w + f.w/2] != expected)
+                        fprintf(stderr,"enhanced %d target %d height %d shift %d color %d expected %d pitch %d yaw %d\n",
+                                enhanced,targets[target],heights[altitude],shift,
+                                f.pixels[(view_h/2)*f.w + f.w/2],expected,camera_pitch,camera_yaw);
+                    assert(f.pixels[(view_h/2)*f.w + f.w/2] == expected);
+                }
+        }
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS fixed ground colours during lateral flight and altitude changes in ECS/AGA");
+}
 int main(void) {
     Frame f = {64, 120, 1, 0, {0}};
-    Tri ground = {{0, 64, 0}, {0, 0, 64}, {1000, 1000, 1000}, 1000, 8};
-    Tri wall = {{0, 64, 0}, {0, 0, 64}, {400, 2000, 400}, 1200, 16};
+    Tri ground = {{0, 64, 0}, {0, 0, 64}, {1000, 1000, 1000}, 1000, 8, NULL, {{0}}};
+    Tri wall = {{0, 64, 0}, {0, 0, 64}, {400, 2000, 400}, 1200, 16, NULL, {{0}}};
     uint8_t reference[64 * 64];
     int order;
     assert(render_init(&f));
@@ -191,6 +291,8 @@ int main(void) {
     free(f.pixels);
     render_shutdown();
     assert(!render_init(&(Frame){64, 56, 0, 0, {0}}));
+    terrain_angles();
+    terrain_flight_colors();
     environment_rendering();
     compact_display();
     orbital_and_radar();
