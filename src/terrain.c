@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
    Coherent, immutable terrain sampled by both collision and rendering. */
 #include "space.h"
+#include <stdlib.h>
 static int mix(int a, int b, int f) {
     return a + (b - a) * f / 4096;
 }
@@ -43,9 +44,37 @@ int terrain_elevation(const Planet *p, Vec relative) {
         h = h * (int)(d - 1000) / 1000;
     return h;
 }
+/* Collision follows the renderer's fixed 256 m cube-face triangles. Sampling
+   the raw angular noise at a moving position quantizes hills near the pads. */
 int terrain_height(const Planet *p, Vec relative) {
-    int h = terrain_elevation(p, relative);
-    return h < 0 ? 0 : h;
+    Planet fixed = *p;
+    Vec q = body_rotate(p, relative, 1), a, b, c, hit;
+    int axis = 0, face, u, v, u0, v0, du, dv, h, i;
+    int64_t dominant = llabs(q.x);
+    Vec points[3];
+    if (llabs(q.y) > dominant) { axis = 1; dominant = llabs(q.y); }
+    if (llabs(q.z) > dominant) { axis = 2; dominant = llabs(q.z); }
+    if (!dominant || p->type == GAS_GIANT) return 0;
+    face = axis * 2 + ((axis == 0 ? q.x : axis == 1 ? q.y : q.z) < 0);
+    q = scale(q, p->radius, dominant);
+    u = (int)(axis == 0 ? q.y : q.x); v = (int)(axis == 2 ? q.y : q.z);
+    u0 = (u >= 0 ? u / 256 : (u - 255) / 256) * 256;
+    v0 = (v >= 0 ? v / 256 : (v - 255) / 256) * 256;
+    du = u - u0; dv = v - v0;
+    set_rotation(&fixed, 0);
+    for (i = 0; i < 3; i++) {
+        int x = u0 + (i == 2 || (i == 1 && du >= dv) ? 256 : 0);
+        int y = v0 + (i == 2 || (i == 1 && du < dv) ? 256 : 0);
+        int sign = face & 1 ? -p->radius : p->radius;
+        Vec d = axis == 0 ? vec(sign,x,y) : axis == 1 ? vec(x,sign,y) : vec(x,y,sign);
+        h = terrain_elevation(&fixed, d); if (h < 0) h = 0;
+        points[i] = radial(d, p->radius + h);
+    }
+    a = points[0]; b = points[1]; c = points[2];
+    hit = du >= dv ? add(a,add(scale(sub(b,a),du,256),scale(sub(c,b),dv,256))) :
+                       add(a,add(scale(sub(c,b),du,256),scale(sub(b,a),dv,256)));
+    h = (int)(length(hit) - p->radius);
+    return h > 0 ? h : 0;
 }
 /* Shared land/water/forest/rock/ice classification drives local and globe LOD. */
 int terrain_material(const Planet *p, Vec relative) {

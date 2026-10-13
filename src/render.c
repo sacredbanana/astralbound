@@ -16,7 +16,8 @@ typedef struct {
 static Tri triangles[TRI_MAX];
 static int nt;
 static const Planet *terrain_surface;
-static int surface_color(const Planet *p, int face, int u, int v);
+static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint);
+static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v);
 /* Reciprocal depth is linear in screen space. Keep the buffer in ordinary
    RAM; only the final indexed image is copied to Amiga display memory. */
 static uint32_t *depth_buffer;
@@ -336,7 +337,7 @@ static void raster(const Tri *t) {
                         int stop = ((block / block_width) + 1) * block_width - 1;
                         if (stop > r) stop = r;
                         int face0, face1, u0, v0, u1, v1;
-                        int visible = 0;
+                        int visible = 0, footprint;
                         for (x = block; x <= stop; x++) {
                             int64_t candidate = z + dz * (x - block);
                             if (candidate >= 0 && (uint32_t)(candidate >> 8) >= depths[x - block]) {
@@ -354,6 +355,7 @@ static void raster(const Tri *t) {
                             surface_ray_uv(t->surface, stop, y, z + dz * (stop - block),
                                            &face1, &u1, &v1);
                         else { face1 = face0; u1 = u0; v1 = v0; }
+                        footprint = stop > block ? (abs(u1-u0) + abs(v1-v0)) / (stop-block) : 0;
                         for (x = block; x <= stop; x++, pixels++, depths++, z += dz) {
                             int face = face0, u = u0, v = v0;
                             if (z < 0 || (uint32_t)(z >> 8) < *depths) continue;
@@ -364,7 +366,7 @@ static void raster(const Tri *t) {
                                 v += (int)((int64_t)(v1 - v0) * (x - block) / (stop - block));
                             }
                             *depths = (uint32_t)(z >> 8);
-                            *pixels = (uint8_t)surface_color(t->surface, face, u, v);
+                            *pixels = (uint8_t)surface_detail(t->surface, face, u, v, (uint32_t)(z >> 8), footprint);
                         }
                         block = stop + 1;
                     }
@@ -423,12 +425,14 @@ static int material_color(const Planet *planet, Vec local, int material) {
 #define SURFACE_CACHE_SIZE 4096
 #define SURFACE_TILE 256
 static struct {
-    int u, v, face, valid, material, color;
+    int u, v, face, valid, material, color, slope, slope_ready, lit;
+    uint32_t grain, slope_epoch;
+    int albedo[4];
     uint32_t epoch;
 } surface_cache[SURFACE_CACHE_SIZE];
 static uint32_t surface_seed, surface_system;
 static int surface_enhanced;
-static int surface_color(const Planet *p, int face, int u, int v) {
+static unsigned surface_lookup(const Planet *p, int face, int u, int v) {
     unsigned slot;
     int tile_u = u >= 0 ? u / SURFACE_TILE : (u - SURFACE_TILE + 1) / SURFACE_TILE;
     int tile_v = v >= 0 ? v / SURFACE_TILE : (v - SURFACE_TILE + 1) / SURFACE_TILE;
@@ -445,7 +449,7 @@ static int surface_color(const Planet *p, int face, int u, int v) {
     if (surface_cache[slot].valid && surface_cache[slot].u == tile_u &&
         surface_cache[slot].v == tile_v && surface_cache[slot].face == face &&
         surface_cache[slot].epoch == epoch)
-        return surface_cache[slot].color;
+        return slot;
     u = tile_u * SURFACE_TILE + SURFACE_TILE / 2;
     v = tile_v * SURFACE_TILE + SURFACE_TILE / 2;
     {
@@ -454,13 +458,107 @@ static int surface_color(const Planet *p, int face, int u, int v) {
     }
     local = body_rotate(p, radial(fixed, p->radius), 0);
     if (!surface_cache[slot].valid || surface_cache[slot].u != tile_u ||
-        surface_cache[slot].v != tile_v || surface_cache[slot].face != face)
+        surface_cache[slot].v != tile_v || surface_cache[slot].face != face) {
         surface_cache[slot].material = terrain_material(p, local);
+        surface_cache[slot].grain = hash32(p->seed ^ (unsigned)tile_u ^ hash32((unsigned)tile_v) ^ face*7919U);
+        surface_cache[slot].slope_ready = 0;
+        {
+            int corner;
+            for (corner=0;corner<4;corner++)
+                surface_cache[slot].albedo[corner] = (int)(hash32(p->seed ^
+                    hash32((unsigned)(tile_u+(corner & 1))) ^
+                    hash32((unsigned)(tile_v+(corner >> 1))+173U) ^ face*7919U) & 15)-7;
+        }
+    }
     surface_cache[slot].u = tile_u; surface_cache[slot].v = tile_v;
     surface_cache[slot].face = face; surface_cache[slot].valid = 1;
     surface_cache[slot].epoch = epoch;
     surface_cache[slot].color = material_color(p, local, surface_cache[slot].material);
-    return surface_cache[slot].color;
+    return slot;
+}
+/* Cache slope lighting only for nearby tiles. Distant colour lookup keeps
+   its original cost; rotating normals and suns refresh with illumination. */
+static void surface_slope(const Planet *p, unsigned slot, int face, int tu, int tv) {
+    Vec a, b, d, normal, local, up;
+    int star, slope=0;
+    uint32_t epoch=game->tick/HZ;
+    if (surface_cache[slot].slope_ready && surface_cache[slot].slope_epoch == epoch) return;
+    a=terrain_fixed_vertex(p,face,tu*256,tv*256);
+    b=terrain_fixed_vertex(p,face,tu*256+256,tv*256);
+    d=terrain_fixed_vertex(p,face,tu*256,tv*256+256);
+    normal=unit(cross(unit(sub(b,a),16384),unit(sub(d,a),16384)),16384);
+    if (normal.x*a.x+normal.y*a.y+normal.z*a.z < 0) normal=scale(normal,-1,1);
+    normal=body_rotate(p,normal,0);
+    local=body_rotate(p,a,0); up=unit(local,16384);
+    for (star=0;star<game->system.stars;star++) {
+        Vec sun=unit(sub(game->system.star[star].center,add(p->center,local)),16384);
+        Vec delta=sub(normal,up);
+        slope+=(int)((delta.x*sun.x+delta.y*sun.y+delta.z*sun.z)/16384);
+    }
+    surface_cache[slot].lit=surface_light(&game->system,p,local)>0;
+    surface_cache[slot].slope=surface_cache[slot].lit ? slope*14/16384 : 0;
+    surface_cache[slot].slope_ready=1; surface_cache[slot].slope_epoch=epoch;
+}
+/* Metre-scale albedo, never a screen-space stipple or animated texture.
+   Broad patches survive approach; small inclusions fade before minification.
+   No extra geometry, height noise, floating point or terrain sampling per pixel. */
+static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint) {
+    unsigned slot=surface_lookup(p,face,u,v);
+    int color=surface_cache[slot].color, material, shade, variation, strength;
+    int tu = u >= 0 ? u/256 : (u-255)/256;
+    int tv = v >= 0 ? v/256 : (v-255)/256;
+    uint32_t grain = surface_cache[slot].grain;
+    static const int ecs[] = {25,8,8,16,28,21};
+    static const int aga[] = {80,64,64,96,112,96};
+    if (depth <= 1073741824U/2000 || footprint >= 64) return color;
+    material = surface_cache[slot].material;
+    if (material == 5) return color;
+    strength = (int)((depth - 1073741824U/2000) / 3000);
+    if (strength > 256) strength = 256;
+    if (footprint > 32) strength = strength*(64-footprint)/32;
+    {
+        int x=u & 255, y=v & 255;
+        int a=surface_cache[slot].albedo[0], b=surface_cache[slot].albedo[1];
+        int c=surface_cache[slot].albedo[2], d=surface_cache[slot].albedo[3];
+        a += (b-a)*x/256; c += (d-c)*x/256;
+        variation = a+(c-a)*y/256;
+    }
+    /* Rounded 64 m mineral/soil/ice patches, with different aspect for water.
+       Integer masking is well-defined for negative cube-face coordinates. */
+    if (footprint < 16) {
+        uint32_t h = hash32(grain ^ (unsigned)(u & 192)*173U ^ (unsigned)(v & 192)*7919U);
+        int x = (u & 63)-32, y = (v & 63)-32;
+        int radius = 180 + (int)(h & 511);
+        if (material == 0) {
+            int wave=(v+(u & 63)*(u & 63)/128+(int)(h & 15)) & 63;
+            if (wave<8) variation += 3*(16-footprint)/16;
+        } else if (x*x+y*y < radius) variation += ((h & 512) ? 4 : -4)*(16-footprint)/16;
+    }
+    /* Fine 16 m inclusions supply optic flow in the last few hundred metres. */
+    if (material != 0 && depth > 1073741824U/500 && footprint < 4) {
+        uint32_t h = hash32(grain ^ (unsigned)(u & 240)*31U ^ (unsigned)(v & 240)*8191U);
+        int x=(u & 15)-8, y=(v & 15)-8;
+        int fine=(int)((depth-1073741824U/500)/12000);
+        if (fine>256) fine=256;
+        if (x*x+y*y < 12+(int)(h & 31))
+            variation += ((h & 64) ? 3 : -3)*fine*(4-footprint)/1024;
+    }
+    shade = frame->enhanced ? color-aga[material] : (color-ecs[material])*6;
+    /* Keep the existing eclipse/night illumination; slope detail cannot glow. */
+    if (shade == 0 && frame->enhanced) variation /= 2;
+    surface_slope(p,slot,face,tu,tv);
+    {
+        int slope=surface_cache[slot].slope;
+        if (!frame->enhanced) { if (slope>3) slope=3; if (slope<-3) slope=-3; }
+        variation += slope;
+    }
+    /* Centre the coarse ECS quantizer so adjacent ground tones survive even
+       in ambient light. AGA/RTG retain the full material luminance ramp. */
+    if (!frame->enhanced) shade += 3 + 3*strength/256;
+    shade += variation*strength/256;
+    if (shade < 0) shade = 0;
+    if (shade > 14) shade = 14;
+    return frame->enhanced ? aga[material]+shade : ecs[material]+shade/6;
 }
 static uint8_t globe_material[MAX_PLANETS][17][33];
 static void cache_globes(void) {
@@ -521,8 +619,8 @@ static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v) {
         Vec direction = face / 2 == 0 ? vec(sign,u,v) :
                         face / 2 == 1 ? vec(u,sign,v) : vec(u,v,sign);
         set_rotation(&fixed, 0);
-        terrain_vertices[slot].point = radial(direction,
-            p->radius + terrain_height(&fixed, direction));
+        int height = terrain_elevation(&fixed, direction);
+        terrain_vertices[slot].point = radial(direction, p->radius + (height > 0 ? height : 0));
         terrain_vertices[slot].u = u; terrain_vertices[slot].v = v;
         terrain_vertices[slot].face = face; terrain_vertices[slot].valid = 1;
     }

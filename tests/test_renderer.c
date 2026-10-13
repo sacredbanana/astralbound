@@ -3,6 +3,9 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+static int surface_color(const Planet *p, int face, int u, int v) {
+    return surface_cache[surface_lookup(p,face,u,v)].color;
+}
 static int ground_color(const Planet *p, Vec local) {
     return material_color(p,local,terrain_material(p,local));
 }
@@ -334,7 +337,7 @@ static void terrain_fixed_geometry(void) {
        Rendering must interpolate fixed samples rather than jumping to that
        newly sampled height whenever the camera crosses it. */
     for (u = 900; u <= 2200; u++) {
-        int h = terrain_height(p,vec(u,p->radius,0));
+        int h = terrain_elevation(p,vec(u,p->radius,0));
         if (u > 900 && abs(h-previous) > biggest) { biggest=abs(h-previous); jump_u=u; }
         previous=h;
     }
@@ -356,6 +359,55 @@ static void terrain_fixed_geometry(void) {
     }
     free(f.pixels); render_shutdown();
     puts("PASS fixed terrain vertices, recentering seams, continuous far LOD and steep ground motion");
+}
+static void close_ground_detail(void) {
+    Game g; Frame f={320,256,0,0,{0}};
+    const Planet *p; int mode,u,v,base,seen[256],count,changed,previous;
+    int64_t last=0;
+    game_init(&g,0x53504143); g.docked=-1; p=&g.system.planets[0];
+    f.pixels=calloc(320*256,1); assert(f.pixels && render_init(&f));
+    game=&g; frame=&f; view_h=200; cache_globes();
+    for (mode=0;mode<2;mode++) {
+        f.enhanced=mode; memset(seen,0,sizeof(seen)); changed=0;
+        for (u=-700;u<=700;u+=4) for (v=-700;v<=700;v+=4) {
+            int color=surface_detail(p,2,u,v,1073741824U/120,1);
+            seen[color]=1; base=surface_color(p,2,u,v);
+            changed+=color!=base;
+            assert(color>=0 && color<(mode ? 128 : 32));
+            /* Minified and distant texture converges exactly to the original
+               material, without altering the preserved coast regression. */
+            assert(surface_detail(p,2,u,v,1073741824U/2100,1)==base);
+            assert(surface_detail(p,2,u,v,1073741824U/120,64)==base);
+        }
+        count=0; for (u=0;u<256;u++) count+=seen[u];
+        assert(count>=(mode ? 6 : 2) && changed>1000);
+        /* Cache eviction/revisit and unrelated camera movement cannot move
+           the albedo at an identical body-fixed surface hit. */
+        previous=surface_detail(p,2,-317,241,1073741824U/120,1);
+        for (u=0;u<12000;u+=256) (void)surface_detail(p,2,u,u*3,1073741824U/120,1);
+        g.pos=add(g.pos,vec(513*FP,0,0));
+        assert(surface_detail(p,2,-317,241,1073741824U/120,1)==previous);
+        /* Actual low-altitude nadir flight crosses steep raw-noise samples,
+           fine grid recenters, and the landing-pad blend. Collision follows
+           visible geometry to within integer/raster rounding. */
+        camera_yaw=0; camera_pitch=-256;
+        for (u=900;u<=2200;u+=5) {
+            int i,h=terrain_height(p,vec(u,p->radius,0));
+            int64_t visible;
+            g.pos=scale(add(p->center,vec(u,p->radius+h+120LL,0)),FP,1);
+            camera_position=g.pos; nt=0;
+            memset(depth_buffer,0,depth_capacity*sizeof(*depth_buffer));
+            planet_mesh(0); qsort(triangles,(size_t)nt,sizeof(Tri),sort_tri);
+            for(i=0;i<nt;i++) raster(&triangles[i]);
+            assert(depth_buffer[100*320+160]>0);
+            visible=h+120-1073741824LL/depth_buffer[100*320+160];
+            assert(llabs(visible-h)<=3);
+            if(u>900) assert(llabs(visible-last)<=5);
+            last=visible;
+        }
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS close ECS/AGA albedo, stable cache revisits, minification and 120 m render/collision flight");
 }
 int main(void) {
     Frame f = {64, 120, 1, 0, {0}};
@@ -404,6 +456,7 @@ int main(void) {
     terrain_flight_colors();
     terrain_smooth_motion();
     terrain_fixed_geometry();
+    close_ground_detail();
     environment_rendering();
     compact_display();
     orbital_and_radar();

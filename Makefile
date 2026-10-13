@@ -53,3 +53,9 @@ build/environment-preview: $(CORE) $(HEADERS) tools/environment_preview.c | buil
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/environment_preview.c -o $@
 environment-preview: build/environment-preview
 	./build/environment-preview
+
+.PHONY: terrain-detail-preview
+build/terrain-detail-preview: $(CORE) $(HEADERS) tools/terrain_detail_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/terrain_detail_preview.c -o $@
+terrain-detail-preview: build/terrain-detail-preview
+	./build/terrain-detail-preview
