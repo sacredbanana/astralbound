@@ -427,11 +427,12 @@ static int material_color(const Planet *planet, Vec local, int material) {
 static struct {
     int u, v, face, valid, material, color, slope, slope_ready, lit;
     uint32_t grain, slope_epoch;
-    int albedo[4];
+    int8_t albedo[25]; /* Shared 64 m boundary samples, bilinear in each cell. */
+    uint8_t albedo_ready;
     uint32_t epoch;
 } surface_cache[SURFACE_CACHE_SIZE];
 static uint32_t surface_seed, surface_system;
-static int surface_enhanced;
+static int surface_enhanced, surface_radius, surface_type;
 static unsigned surface_lookup(const Planet *p, int face, int u, int v) {
     unsigned slot;
     int tile_u = u >= 0 ? u / SURFACE_TILE : (u - SURFACE_TILE + 1) / SURFACE_TILE;
@@ -439,10 +440,12 @@ static unsigned surface_lookup(const Planet *p, int face, int u, int v) {
     uint32_t epoch = game->tick / HZ;
     Vec fixed, local;
     if (surface_seed != p->seed || surface_system != game->system.seed ||
-        surface_enhanced != frame->enhanced) {
+        surface_enhanced != frame->enhanced || surface_radius != p->radius ||
+        surface_type != (int)p->type) {
         memset(surface_cache, 0, sizeof(surface_cache));
         surface_seed = p->seed; surface_system = game->system.seed;
         surface_enhanced = frame->enhanced;
+        surface_radius = p->radius; surface_type = (int)p->type;
     }
     slot = hash32((unsigned)tile_u ^ hash32((unsigned)tile_v) ^ (unsigned)face * 7919U) &
            (SURFACE_CACHE_SIZE - 1);
@@ -462,19 +465,29 @@ static unsigned surface_lookup(const Planet *p, int face, int u, int v) {
         surface_cache[slot].material = terrain_material(p, local);
         surface_cache[slot].grain = hash32(p->seed ^ (unsigned)tile_u ^ hash32((unsigned)tile_v) ^ face*7919U);
         surface_cache[slot].slope_ready = 0;
-        {
-            int corner;
-            for (corner=0;corner<4;corner++)
-                surface_cache[slot].albedo[corner] = (int)(hash32(p->seed ^
-                    hash32((unsigned)(tile_u+(corner & 1))) ^
-                    hash32((unsigned)(tile_v+(corner >> 1))+173U) ^ face*7919U) & 15)-7;
-        }
+        surface_cache[slot].albedo_ready = 0;
     }
     surface_cache[slot].u = tile_u; surface_cache[slot].v = tile_v;
     surface_cache[slot].face = face; surface_cache[slot].valid = 1;
     surface_cache[slot].epoch = epoch;
     surface_cache[slot].color = material_color(p, local, surface_cache[slot].material);
     return slot;
+}
+/* Generate only when a visible fragment resolves the geological layer.
+   Distant/minified tiles need their material/light but no texture samples. */
+static void surface_albedo(const Planet *p, unsigned slot) {
+    int x, y, face=surface_cache[slot].face;
+    if (surface_cache[slot].albedo_ready) return;
+    for (y=0;y<5;y++) for (x=0;x<5;x++) {
+        int cu=surface_cache[slot].u*SURFACE_TILE+x*64;
+        int cv=surface_cache[slot].v*SURFACE_TILE+y*64;
+        int sign=face & 1 ? -p->radius : p->radius;
+        Vec direction=face/2==0 ? vec(sign,cu,cv) :
+            face/2==1 ? vec(cu,sign,cv) : vec(cu,cv,sign);
+        surface_cache[slot].albedo[y*5+x]=(int8_t)terrain_albedo(p,direction,
+            surface_cache[slot].material);
+    }
+    surface_cache[slot].albedo_ready=1;
 }
 /* Cache slope lighting only for nearby tiles. Distant colour lookup keeps
    its original cost; rotating normals and suns refresh with illumination. */
@@ -513,26 +526,27 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     if (depth <= 1073741824U/2000 || footprint >= 64) return color;
     material = surface_cache[slot].material;
     if (material == 5) return color;
+    surface_albedo(p,slot);
     strength = (int)((depth - 1073741824U/2000) / 3000);
     if (strength > 256) strength = 256;
     if (footprint > 32) strength = strength*(64-footprint)/32;
     {
-        int x=u & 255, y=v & 255;
-        int a=surface_cache[slot].albedo[0], b=surface_cache[slot].albedo[1];
-        int c=surface_cache[slot].albedo[2], d=surface_cache[slot].albedo[3];
-        a += (b-a)*x/256; c += (d-c)*x/256;
-        variation = a+(c-a)*y/256;
+        int x=u & 63, y=v & 63;
+        int cell=((v & 255)/64)*5+(u & 255)/64;
+        int a=surface_cache[slot].albedo[cell], b=surface_cache[slot].albedo[cell+1];
+        int c=surface_cache[slot].albedo[cell+5], d=surface_cache[slot].albedo[cell+6];
+        /* Q6 interpolation preserves dark/bright bands through zero rather
+           than truncating each intermediate reflectance to a whole shade. */
+        a=a*64+(b-a)*x; c=c*64+(d-c)*x;
+        variation=(a*64+(c-a)*y)/4096;
     }
-    /* Rounded 64 m mineral/soil/ice patches, with different aspect for water.
-       Integer masking is well-defined for negative cube-face coordinates. */
-    if (footprint < 16) {
+    /* Water adds filtered wave highlights to the generated current field.
+       Solid bodies get their medium-scale structure from geology, avoiding
+       the former repeated circular soil stamps on every material. */
+    if (material == 0 && footprint < 16) {
         uint32_t h = hash32(grain ^ (unsigned)(u & 192)*173U ^ (unsigned)(v & 192)*7919U);
-        int x = (u & 63)-32, y = (v & 63)-32;
-        int radius = 180 + (int)(h & 511);
-        if (material == 0) {
-            int wave=(v+(u & 63)*(u & 63)/128+(int)(h & 15)) & 63;
-            if (wave<8) variation += 3*(16-footprint)/16;
-        } else if (x*x+y*y < radius) variation += ((h & 512) ? 4 : -4)*(16-footprint)/16;
+        int wave=(v+(u & 63)*(u & 63)/128+(int)(h & 15)) & 63;
+        if (wave<8) variation += 3*(16-footprint)/16;
     }
     /* Fine 16 m inclusions supply optic flow in the last few hundred metres. */
     if (material != 0 && depth > 1073741824U/500 && footprint < 4) {
@@ -561,6 +575,7 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     return frame->enhanced ? aga[material]+shade : ecs[material]+shade/6;
 }
 static uint8_t globe_material[MAX_PLANETS][17][33];
+static int8_t globe_albedo[MAX_PLANETS][17][33];
 static void cache_globes(void) {
     int b, x, y;
     if (globe_ready && globe_seed == game->system.seed && globe_enhanced == frame->enhanced &&
@@ -578,7 +593,8 @@ static void cache_globes(void) {
                 Vec local = radial(dir, p->radius + terrain_height(p, dir));
                 globe_vertices[b][y][x] = local;
                 globe_material[b][y][x] = (uint8_t)terrain_material(p, local);
-
+                globe_albedo[b][y][x] = (int8_t)terrain_regional_albedo(p, local,
+                    globe_material[b][y][x]);
             }
         }
     }
@@ -731,6 +747,18 @@ static void planet_mesh(int body) {
                     Vec c2 = add(p->center, body_rotate(p, globe_vertices[body][row + step][column + step], 0)),
                         d = add(p->center, body_rotate(p, globe_vertices[body][row + step][column], 0));
                     int color = material_color(p, sub(a, p->center), globe_material[body][row][column]);
+                    if (!terrain_surface) {
+                        static const int ecs[] = {25,8,8,16,28,21};
+                        static const int aga[] = {80,64,64,96,112,96};
+                        int material=globe_material[body][row][column];
+                        int base=frame->enhanced ? aga[material] : ecs[material];
+                        int shade=(color-base)*(frame->enhanced ? 1 : 6);
+                        int variation=globe_albedo[body][row][column];
+                        shade += variation*shade/14;
+                        if (shade<0) shade=0;
+                        if (shade>14) shade=14;
+                        color=base+(frame->enhanced ? shade : shade/6);
+                    }
                     if (terrain_surface) {
                         int inset = radius * 19 / 20;
                         a = add(p->center,radial(sub(a,p->center),inset));

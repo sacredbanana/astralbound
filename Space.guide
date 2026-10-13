@@ -236,6 +236,11 @@
   Orbits are inclined circles, not a full gravitational N-body solver.
   Gravity follows the nearest body and adds solar gravity in space.
   Terrain LOD edges share vertices and use a skirt to the coarse globe.
+  Surfaces have seeded rock strata, mineral deposits, desert dune ridges,
+  ice fractures, vegetation clearings and lunar crater/ejecta patterns.
+  Detail stays anchored to the rotating planet and fades with distance.
+  These are visual textures; terrain heights and landing pads are unchanged.
+
   Planets rotate about their Z axes. Terrain, forests and surface ports
   follow that rotation; port velocities include ground motion. Moons are
   landable and gas giants can have multiple satellites and equatorial rings.

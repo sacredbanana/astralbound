@@ -59,3 +59,10 @@ build/terrain-detail-preview: $(CORE) $(HEADERS) tools/terrain_detail_preview.c 
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/terrain_detail_preview.c -o $@
 terrain-detail-preview: build/terrain-detail-preview
 	./build/terrain-detail-preview
+
+.PHONY: surface-preview
+build/surface-preview: $(CORE) $(HEADERS) tools/surface_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/surface_preview.c -o $@
+surface-preview: build/surface-preview
+	mkdir -p build/evidence
+	./build/surface-preview

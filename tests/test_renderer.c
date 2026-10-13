@@ -380,6 +380,7 @@ static void close_ground_detail(void) {
             assert(surface_detail(p,2,u,v,1073741824U/120,64)==base);
         }
         count=0; for (u=0;u<256;u++) count+=seen[u];
+        if (count<(mode ? 6 : 2) || changed<=1000) fprintf(stderr,"detail mode %d colours %d changed %d\n",mode,count,changed);
         assert(count>=(mode ? 6 : 2) && changed>1000);
         /* Cache eviction/revisit and unrelated camera movement cannot move
            the albedo at an identical body-fixed surface hit. */
@@ -408,6 +409,59 @@ static void close_ground_detail(void) {
     }
     free(f.pixels); render_shutdown();
     puts("PASS close ECS/AGA albedo, stable cache revisits, minification and 120 m render/collision flight");
+}
+static void procedural_geology(void) {
+    Game g; Frame f={320,256,1,0,{0}};
+    Planet p; int type, u, v, lo, hi, distinct=0;
+    uint32_t previous=0;
+    game_init(&g,0x53504143); p=g.system.planets[0]; set_rotation(&p,0);
+    assert(render_init(&f)); game=&g; frame=&f;
+    for (type=0;type<BODY_TYPES;type++) {
+        uint32_t fingerprint=2166136261U;
+        int material=type==ICE ? 4 : type==OCEAN ? 2 : type==GAS_GIANT ? 5 : 3;
+        p.type=(BodyType)type; lo=100; hi=-100;
+        for (u=-2048;u<=2048;u+=32) for (v=-1024;v<=1024;v+=32) {
+            Vec q=vec(u,p.radius,v);
+            int a=terrain_albedo(&p,q,material);
+            assert(a>=-10 && a<=10);
+            assert(a==terrain_albedo(&p,scale(q,2,1),material));
+            fingerprint=(fingerprint^(uint32_t)a)*16777619U;
+            if (a<lo) lo=a;
+            if (a>hi) hi=a;
+        }
+        if (material!=5) assert(hi-lo>=6);
+        else assert(lo==0 && hi==0);
+        if (type>0) distinct+=fingerprint!=previous;
+        previous=fingerprint;
+        /* Neighbouring cache tiles share their reflectance boundary exactly,
+           even across negative coordinates; no 256 m texture rectangles. */
+        for (u=-512;u<=512;u+=256) {
+            int left[5], i;
+            unsigned slot=surface_lookup(&p,2,u-1,11);
+            surface_albedo(&p,slot);
+            for(i=0;i<5;i++) left[i]=surface_cache[slot].albedo[i*5+4];
+            slot=surface_lookup(&p,2,u,11);
+            surface_albedo(&p,slot);
+            for(i=0;i<5;i++) assert(left[i]==surface_cache[slot].albedo[i*5]);
+        }
+        /* The positive X/Y cube-face boundary is the identical physical
+           direction, with no dependence on the chart used to reach it. */
+        for (v=-p.radius;v<=p.radius;v+=p.radius/8) {
+            Vec xface=vec(p.radius,p.radius-1,v), yface=vec(p.radius-1,p.radius,v);
+            assert(abs(terrain_albedo(&p,xface,material)-terrain_albedo(&p,yface,material))<=1);
+        }
+    }
+    assert(distinct==BODY_TYPES-1);
+    /* Changing a planet's size/type must invalidate its metre-scale cache. */
+    p.type=ICE; p.radius/=2;
+    {
+        unsigned slot=surface_lookup(&p,2,0,0);
+        assert(!surface_cache[slot].albedo_ready);
+        surface_albedo(&p,slot);
+        assert(surface_cache[slot].albedo[0]==terrain_albedo(&p,vec(0,p.radius,0),4));
+    }
+    render_shutdown();
+    puts("PASS seeded geological diversity, spherical sampling and shared tile boundaries");
 }
 int main(void) {
     Frame f = {64, 120, 1, 0, {0}};
@@ -457,6 +511,7 @@ int main(void) {
     terrain_smooth_motion();
     terrain_fixed_geometry();
     close_ground_detail();
+    procedural_geology();
     environment_rendering();
     compact_display();
     orbital_and_radar();

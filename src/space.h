@@ -176,6 +176,10 @@ int cloud_density(const Planet *p, Vec local, uint32_t tick);
 int precipitation(const Planet *p, Vec local, uint32_t tick);
 int terrain_elevation(const Planet *p, Vec relative_metres);
 int terrain_material(const Planet *p, Vec relative_metres);
+/* Signed reflectance detail at a body-fixed direction; independent of time,
+   camera and cube face. Geometry/collision heights are unaffected. */
+int terrain_albedo(const Planet *p, Vec fixed_direction, int material);
+int terrain_regional_albedo(const Planet *p, Vec fixed_direction, int material);
 /* The anchor is a full-precision body-relative direction; tangent axes are Q14. */
 Vec terrain_vertex(const Planet *p, Vec anchor, Vec right, Vec front, int x, int y);
 extern const char *body_names[BODY_TYPES];

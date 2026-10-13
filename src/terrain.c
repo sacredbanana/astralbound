@@ -92,6 +92,70 @@ int terrain_material(const Planet *p, Vec relative) {
         return 2;
     return 1;
 }
+/* Orbital deposits use angular scales, so small moons and large planets both
+   have recognisable large regions. This same field underlies local geology. */
+int terrain_regional_albedo(const Planet *p, Vec fixed_direction, int material) {
+    Vec n = unit(fixed_direction, 65536);
+    int a, b;
+    if (material == 0 || material == 5) return 0;
+    a = noise(p->seed ^ 0x434f4e54U, n, 13) - 2048;
+    b = noise(p->seed ^ 0x4445504fU, n, 11) - 2048;
+    return a / 600 + b / 1000;
+}
+/* Geological reflectance in spherical body-space metres. Sampling a 3-D
+   field avoids longitude/pole and cube-face seams. Integer coherent noise
+   supplies kilometre deposits, 256 m weathering and 64 m ground structure. */
+int terrain_albedo(const Planet *p, Vec fixed_direction, int material) {
+    if (material == 5) return 0;
+    Vec q = radial(fixed_direction, p->radius);
+    int broad = noise(p->seed ^ 0x52454749U, q, 10) - 2048;
+    int weather = noise(p->seed ^ 0x57454154U, q, 8) - 2048;
+    int fine = noise(p->seed ^ 0x534f494cU, q, 6) - 2048;
+    int detail = broad / 480 + weather / 640 + fine / 900;
+    if (material == 0) {
+        /* Broad depth/current variation beneath the filtered small waves. */
+        detail = broad / 800 + weather / 800 + fine / 220;
+    } else if (p->type == MOON) {
+        /* Jittered 512 m impact centres. A section through spherical 3-D
+           shells produces dark bowls and bright ejecta rims, without a
+           repeated screen-space stamp or additional collision geometry. */
+        int x = (int)q.x >> 9, y = (int)q.y >> 9, z = (int)q.z >> 9;
+        int i;
+        for (i = 0; i < 8; i++) {
+            int cx = x + (i & 1), cy = y + ((i >> 1) & 1), cz = z + (i >> 2);
+            uint32_t h = hash32(p->seed ^ hash32((unsigned)cx) ^
+                hash32((unsigned)cy + 173U) ^ hash32((unsigned)cz + 7919U));
+            int dx = (int)q.x - (cx * 512 + (int)(h & 127) - 64);
+            int dy = (int)q.y - (cy * 512 + (int)((h >> 7) & 127) - 64);
+            int dz = (int)q.z - (cz * 512 + (int)((h >> 14) & 127) - 64);
+            int d = dx*dx + dy*dy + dz*dz, r = 160 + (int)((h >> 21) & 127);
+            if (d < r*r/2) detail -= 5;
+            else if (d < r*r) detail -= 2;
+            else if (d < r*r*5/4) detail += 6;
+        }
+    } else if (material == 4) {
+        /* Distorted fracture veins cut through broad glacial deposits. */
+        int vein = abs(weather);
+        detail = broad / 600 + fine / 1000;
+        if (vein < 240) detail -= (240 - vein) / 30;
+    } else if (p->type == DESERT) {
+        /* Wind-aligned dune crests, slowly bent by the deposit field. */
+        int phase = (int)((q.x + q.y / 3 + broad / 12) & 511);
+        int ridge = phase < 256 ? phase : 511 - phase;
+        detail = broad / 700 + weather / 1100 + (ridge - 128) / 24;
+    } else if (material == 3) {
+        /* Folded strata with mineral veins and weathered scree. */
+        int phase = (int)((q.z + broad / 8 + weather / 16) & 255);
+        detail += phase < 40 ? 4 : phase > 200 ? -3 : 0;
+    } else if (material == 2) {
+        /* Moisture produces continuous vegetation clearings and soil. */
+        detail = broad / 650 + weather / 380 + fine / 850;
+    }
+    detail += terrain_regional_albedo(p, fixed_direction, material);
+    if (detail < -10) detail = -10;
+    if (detail > 10) detail = 10;
+    return detail;
+}
 Vec terrain_vertex(const Planet *p, Vec anchor, Vec right, Vec front, int x, int y) {
     Vec v = add(radial(anchor, p->radius), add(scale(right, x, 16384), scale(front, y, 16384)));
     return add(p->center, radial(v, p->radius + terrain_height(p, v)));

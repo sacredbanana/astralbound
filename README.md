@@ -222,3 +222,18 @@ approximation. Temperate/frozen weather provides curved cloud decks, entry/exit 
 rain and snow; gas giants have cloud layers, multiple moons and equatorial ring bands.
 Weather and vegetation are bounded prototype models. `make environment-preview`
 produces reproducible host frames and portable commander fixtures under `build/evidence`.
+
+Solid bodies also have seeded procedural reflectance: regional mineral deposits,
+folded rock strata, weathering, wind-bent desert dunes, glacial fracture veins,
+vegetation clearings and lunar impact bowls/ejecta. Water has current/depth patches
+and small waves. The spherical body-space fields stay fixed through flight and
+rotation and cross cube-face boundaries without texture seams. Local 64 m samples
+share tile boundaries and interpolate smoothly; finer inclusions and slope lighting
+fade before minification. ECS uses its existing ground tones; AGA/RTG use full
+material ramps. The tile cache adds 48 KiB over the previous four-corner cache,
+plus about 7 KiB for orbital reflectance. Generation uses integer math and
+requires no external textures. These are visual
+surface features; terrain geometry, landing pads, collision heights and commander
+saves retain their existing behaviour. `make surface-preview` renders matched
+rock/desert/ice/moon fixtures in ECS/AGA; `make terrain-detail-preview` measures the
+close-approach renderer at ECS/AGA/RTG resolutions.

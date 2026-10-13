@@ -411,3 +411,24 @@ new AGA/RTG weather runtime checks are not claimed. They retain build/host cover
 and the earlier presentation evidence above. Physical hardware, stock 68000 weather
 frame rates and long-duration runtime stress remain unverified. The previously
 recorded direct bare-CLI stack-swap exit fault remains toolchain QA.
+
+
+## Procedural surface reflectance (13 October 2026)
+
+- `make test` and `make sanitize` pass, including new geology diversity,
+  body-space scale invariance, shared cache boundaries, face-edge continuity and
+  radius/type invalidation checks. Existing coastline, camera-motion, collision,
+  navigation, golden generation and save regressions remain intact.
+- `./build-amiga.sh` builds SDL/OpenGL-free soft-float 68000 and 68020 executables.
+- `make surface-preview` produces matched ECS/AGA rock, dune, ice and crater
+  frames under `build/evidence/surface-*`. Daylight AGA dune/crater/ice frames
+  were visually inspected. These body-type fixtures intentionally disable weather.
+- `make terrain-detail-preview` measures warmed host frames: ECS 4.81–5.90 ms,
+  AGA 5.33–6.44 ms and 640 x 480 RTG 14.53–17.27 ms, at 30/120/500/1500 m.
+  Measurements are host CPU timings, not target frame rates.
+- Local reflectance is generated lazily into 64 m bilinear samples only when
+  visible/resolved. The cache grows by 48 KiB, with another 6732 bytes for
+  orbital deposits. Features modify reflectance, not collision geometry.
+
+New native emulator/hardware runtime and performance have not been tested for
+this surface change. Earlier native evidence above does not validate this revision.
