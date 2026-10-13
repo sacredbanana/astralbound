@@ -329,10 +329,24 @@ void game_tick(Game *g, Controls c) {
             g->pitch = clamp(g->pitch + clamp(pitch - g->pitch, -12, 12), -250, 250);
         }
         Vec relative_vel = g->vel;
-        if ((g->target < 0 || g->ports[g->target].surface || alt > planet->atmosphere + 50000) &&
-            length(sub(target, navigation_position(g))) < 5000 * FP &&
-            length(sub(navigation_position(g), g->pos)) < 10000000LL * FP) {
+        int destination_body = g->target >= 0 ? g->ports[g->target].body : g->target_body;
+        if ((g->frame_body < 0 || g->frame_body == destination_body) &&
+            (g->target < 0 || g->ports[g->target].surface || alt > planet->atmosphere + 50000) &&
+            length(sub(target, navigation_position(g))) < 5000 * FP) {
             Vec motion = navigation_velocity(g);
+            if (g->frame_body < 0 &&
+                length(sub(navigation_position(g), g->pos)) > 10000000LL * FP) {
+                /* One-second orbit samples contain metre-scale rounding
+                   noise at AU distances. Cruise follows the body's averaged
+                   motion; chasing that noise (or a distant station's local
+                   orbit) every tick would burn the entire fuel reserve. */
+                motion = g->system.planets[destination_body].cruise_velocity;
+            }
+            /* Apply approach/braking limits to closing speed, not system
+               speed: even a slow approach must keep up with orbital motion.
+               Waiting until 10,000 km can strand the ship outside that range.
+               Leave the departure frame before matching a remote body's
+               motion, so escape guidance retains its local thrust authority. */
             relative_vel = sub(g->vel, motion);
             /* Guidance samples the ship before integration. Evaluate the
                moving target at that same instant, avoiding a one-tick

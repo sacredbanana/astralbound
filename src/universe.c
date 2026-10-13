@@ -248,6 +248,17 @@ void update_world(Game *g) {
             p->orbit_start = body_position(&g->system, i, epoch);
             p->orbit_end = body_position(&g->system, i, epoch + HZ);
             p->velocity = scale(sub(p->orbit_end, p->orbit_start), FP, 1);
+            /* Cruise guidance needs stable orbital feed-forward. Average a
+               two-minute interval and refresh once per simulated second so
+               AU-scale position rounding cannot trigger tick-rate thrust. */
+            {
+                uint32_t span = 60U * HZ;
+                uint32_t before = epoch > span ? epoch - span : 0;
+                p->cruise_velocity = scale(
+                    sub(body_position(&g->system, i, epoch + span),
+                        body_position(&g->system, i, before)),
+                    FP * HZ, epoch + span - before);
+            }
         }
         p->center = add(p->orbit_start, scale(sub(p->orbit_end, p->orbit_start), g->tick % HZ, HZ));
     }

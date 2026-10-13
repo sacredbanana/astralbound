@@ -44,6 +44,7 @@ typedef struct {
     int64_t orbit, influence;
     uint32_t period;
     Vec orbit_start, orbit_end, velocity;
+    Vec cruise_velocity; /* transient averaged Q8 system velocity */
     int32_t spin_sin, spin_cos; /* transient Q30 rotation about body Z */
     Vec center; /* metres in the system frame; ship coordinates are Q8 metres */
     char name[24];
