@@ -91,7 +91,12 @@ Orbital stations rotate and move: autopilot matches port velocity, waits for cle
 and enters through the marked corridor. **D** requests clearance for manual docking.
 Request time compression with **]**, up to **4,096x** (1, 4, 16, 64, 256, 1,024, 4,096);
 **[** lowers the requested rate; the safety controller reduces the effective rate near
-terrain, a port, a braking limit or another ship. It never enlarges a physics tick.
+terrain, a port, a braking limit or another ship. Remote, unobstructed interplanetary
+cruise uses bounded intervals of up to 128 simulated seconds, with orbital-motion,
+travel and braking checks before each interval. Departure, approach, docking and
+combat retain 1/32-second physics ticks. Simulation work is capped at 128 steps per
+rendered frame; the HUD shows the actual compression delivered when local flight
+cannot sustain the requested rate.
 
 For manual flight, hold the **right mouse button** and drag to steer. Drag right/left
 for yaw and up/down for pitch; the mouse acts as a virtual stick with a small dead
@@ -115,7 +120,8 @@ markets or contract boards. The commander journal preserves up to 128 systems wi
 visited/surveyed body masks. Close approaches below 100 km mark a body surveyed.
 
 Distances are metres, radii are kilometres, and planetary spacing is in AU. Journeys
-can take hours or days of simulated time; compression repeats fixed physics ticks.
+can take hours or days of simulated time; remote cruise batches this time without
+running thousands of local physics ticks between rendered frames.
 Fuel follows engine impulse, so small cruise corrections cost less than full thrust.
 Delivery deadlines allow six to eight simulated hours for the longer local journeys.
 

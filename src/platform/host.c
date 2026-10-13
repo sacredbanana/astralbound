@@ -235,9 +235,10 @@ int main(int argc, char **argv) {
         last = now;
         if (accumulator > freq * 8)
             accumulator = freq * 8;
-        while (accumulator >= freq) {
-            game_frame(&g, c, 1);
-            accumulator -= freq;
+        {
+            int due = (int)(accumulator / freq);
+            accumulator -= (uint64_t)due * freq;
+            game_frame(&g, c, due);
         }
         if (audio_device) SDL_LockAudioDevice(audio_device);
         audio_observe(&sound, &g);

@@ -563,18 +563,151 @@ void game_tick(Game *g, Controls c) {
             say(g, "SHIP LOST - R TO RESTART");
     }
 }
+/* Only remote, unobstructed system-frame flight may use cruise integration.
+   Bound the entire interval by travel, orbital motion and braking room, then
+   halve it until safe. Local physics, combat and capture always use game_tick. */
+static int cruise_interval(const Game *g, Controls c, int remaining) {
+    int i, step = remaining;
+    Vec dest, target;
+    int64_t speed, route, closing;
+    if (step < HZ || g->frame_body != -1 || g->paused || g->dead || !g->fuel ||
+        !g->autopilot || g->docked != -1 || g->laser || c.fire || c.thrust ||
+        c.yaw || c.pitch || c.axis_yaw || c.axis_pitch ||
+        (g->target < 0 && g->target_body < 0))
+        return 1;
+    for (i = 0; i < MAX_NPC; i++)
+        if (g->npc[i].active)
+            return 1;
+    for (i = 0; i < MAX_MISSIONS; i++) {
+        const Mission *m = &g->contracts[i];
+        if (m->state != ACTIVE)
+            continue;
+        if (m->type != COURIER && m->type != FREIGHT)
+            return 1; /* Patrol spawn and survey progress are tick events. */
+        if (m->deadline >= g->tick && m->deadline - g->tick < (uint32_t)step)
+            step = (int)(m->deadline - g->tick) + 1;
+    }
+    if (UINT32_MAX - g->tick < (uint32_t)step)
+        return 1;
+    dest = navigation_position(g);
+    target = autopilot_target(g);
+    if (length(sub(target, dest)) > 5000 * FP)
+        return 1;
+    speed = length(g->vel) / FP;
+    route = length(sub(dest, g->pos)) / FP;
+    closing = length(sub(g->vel, navigation_velocity(g))) / FP;
+    while (step >= HZ) {
+        int safe = 1;
+        int64_t seconds = (step + HZ - 1) / HZ;
+        int64_t travel = speed * seconds + 60 * seconds * seconds;
+        /* Return well before the 10,000 km approach-speed boundary. */
+        int64_t future_closing = closing + 60 * seconds;
+        if (route < 20000000LL + future_closing * future_closing / 60 +
+                    closing * seconds + 60 * seconds * seconds)
+            safe = 0;
+        for (i = 0; i < g->system.count && safe; i++) {
+            const Planet *p = &g->system.planets[i];
+            int64_t motion = length(p->cruise_velocity) / FP;
+            int64_t relative = speed + motion + 60 * seconds;
+            int64_t shell = p->radius + p->atmosphere + 200000LL +
+                            relative * relative / 60;
+            if (shell < p->influence + 200000LL)
+                shell = p->influence + 200000LL;
+            if (length(sub(scale(g->pos, 1, FP), p->center)) <=
+                shell + travel + 2 * motion * seconds)
+                safe = 0;
+        }
+        for (i = 0; i < g->system.stars && safe; i++) {
+            const Star *star = &g->system.star[i];
+            int64_t motion = star->period ? star->orbit * 7 / star->period : 0;
+            if (length(sub(scale(g->pos, 1, FP), star->center)) <=
+                star->radius + 2000000000LL + travel + 2 * motion * seconds)
+                safe = 0;
+        }
+        if (safe)
+            return step;
+        step /= 2;
+    }
+    return 1;
+}
+static void cruise_step(Game *g, int ticks) {
+    int destination = g->target >= 0 ? g->ports[g->target].body : g->target_body;
+    Vec motion = g->system.planets[destination].cruise_velocity;
+    int64_t room = altitude_at(g, g->pos) -
+                   g->system.planets[nearest_body(g, g->pos)].atmosphere - 20000;
+    int maxspeed = room > 0 ? (int)isqrt64((uint64_t)room * 60) : 600;
+    Vec acceleration = guidance_step(g->pos, sub(g->vel, motion), navigation_position(g),
+                                     45 * FP, clamp(maxspeed, 600, 1000000) * FP, ticks);
+    const Planet *planet = &g->system.planets[nearest_body(g, g->pos)];
+    Vec local = sub(g->pos, scale(planet->center, FP, 1));
+    int64_t radius = (int64_t)planet->radius * FP, dist = length(local);
+    Vec gravity = unit(local, -planet->gravity * FP), engine;
+    Vec solar = sub(g->pos, scale(g->system.star[0].center, FP, 1));
+    int64_t solar_r = length(solar) / FP;
+    uint32_t before = g->tick;
+    if (dist > radius)
+        gravity = scale(scale(gravity, radius, dist), radius, dist);
+    if (solar_r > 1000000000LL) {
+        int64_t a = 132712440000000LL / (solar_r / 1000) * FP / (solar_r / 1000);
+        gravity = add(gravity, unit(solar, -(int)(a > 100 * FP ? 100 * FP : a)));
+    }
+    engine = sub(acceleration, gravity);
+    if (length(engine) > 60 * FP)
+        engine = unit(engine, 60 * FP);
+    acceleration = add(engine, gravity);
+    /* Constant-acceleration displacement uses the mean velocity, avoiding
+       the large forward-Euler position error of a compressed interval. */
+    Vec delta = scale(acceleration, ticks, HZ);
+    g->pos = add(g->pos, scale(add(g->vel, scale(delta, 1, 2)), ticks, HZ));
+    g->vel = add(g->vel, delta);
+    g->fuel_burn += (uint32_t)(length(engine) * ticks / HZ);
+    while (g->fuel_burn >= 50000U * FP) {
+        g->fuel_burn -= 50000U * FP;
+        if (g->fuel > 0)
+            g->fuel--;
+    }
+    g->tick += ticks;
+    g->heat = clamp(g->heat - (int)(g->tick / 8 - before / 8), 0, 100);
+    g->shield = clamp(g->shield + (int)(g->tick / HZ - before / HZ), 0, 100);
+    update_world(g);
+    g->body = nearest_body(g, g->pos);
+    record_exploration(g);
+    {
+        int yaw = g->yaw, pitch = g->pitch;
+        int turns = (int)(g->tick / 4 - before / 4) * 12;
+        aim_angles(sub(navigation_position(g), g->pos), &yaw, &pitch);
+        g->yaw = (g->yaw + clamp(((yaw - g->yaw + 1536) & 1023) - 512,
+                                -turns, turns)) & 1023;
+        g->pitch = clamp(g->pitch + clamp(pitch - g->pitch, -turns, turns), -250, 250);
+    }
+    missions(g);
+}
 void game_frame(Game *g, Controls c, int ticks) {
-    int i, j;
-    for (i = 0; i < ticks; i++) {
-        int w = safe_warp(g);
-        g->effective_warp = w;
-        for (j = 0; j < w; j++) {
-            if (j >= safe_warp(g))
+    uint32_t before = g->tick;
+    int i, steps = 0;
+    if (ticks <= 0 || g->paused || g->dead)
+        return;
+    for (i = 0; i < ticks && steps < MAX_FRAME_STEPS; i++) {
+        int w = safe_warp(g), advanced = 0;
+        while (advanced < w && steps < MAX_FRAME_STEPS) {
+            int step, safe = safe_warp(g);
+            if (advanced >= safe)
                 break;
-            game_tick(g, c);
+            step = cruise_interval(g, c, (safe < w ? safe : w) - advanced);
+            if (step > 1)
+                cruise_step(g, step);
+            else
+                game_tick(g, c);
+            advanced += step;
+            steps++;
         }
     }
+    /* Warp is a requested rate; bounded local work may deliver less. */
+    g->effective_warp = (int)((g->tick - before) / (uint32_t)ticks);
+    if (g->effective_warp < 1)
+        g->effective_warp = 1;
 }
+
 int jump(Game *g, Sector d) {
     Vec delta = vec((int64_t)d.x - g->system.sector.x, (int64_t)d.y - g->system.sector.y,
                     (int64_t)d.z - g->system.sector.z);

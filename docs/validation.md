@@ -1,3 +1,26 @@
+# Autopilot time-compression performance - 13 October 2026
+
+- Clear system-frame cruise uses bounded constant-acceleration intervals, up to
+  128 simulated seconds at 4096x, with interval-aware guidance and impulse fuel.
+  Eligibility checks cover every body's influence/braking region, stellar
+  clearance, orbital motion, target approach, NPCs, controls and mission events.
+  Local flight keeps the original fixed-tick trajectory and swept collisions.
+- At most 128 simulation integrations run per displayed frame. Host and native
+  loops submit elapsed ticks together so catch-up cannot multiply that budget.
+  The HUD effective rate reflects elapsed simulation time actually delivered.
+- The remote-cruise host regression measured approximately 0.033 ms for 4096x
+  versus 30.4 ms for 4096 full ticks at the same initial state: about 900x less
+  simulation CPU work in that sample. After 128 simulated seconds, position
+  differed by 683 m and velocity by less than 100 m/s; cruise integration is an
+  approximation rather than bit-for-bit fixed-tick equivalence.
+- End-to-end AU-scale flight reached the moving body waypoint after 8,558,417
+  simulated ticks with 69 percent fuel remaining and 4 m arrival error. Tests
+  cover timer updates, delivery expiration, pause, NPC/input/patrol fixed-tick
+  fallback and a shared frame budget during eight elapsed normal ticks.
+- Native frame rates and physical hardware performance have not been measured
+  for this change. The timing above is a host simulation benchmark, excluding
+  rendering and audio.
+
 # Presentation and hardware completion work - 13 October 2026
 
 The remaining implementation items in this section are now present. Physical

@@ -199,7 +199,7 @@ int swept_sphere(Vec start, Vec end, Vec center, int radius) {
         t = l;
     return length(sub(r, scale(n, t, 16384))) <= radius;
 }
-Vec guidance(Vec p, Vec v, Vec target, int accel, int maxspeed) {
+Vec guidance_step(Vec p, Vec v, Vec target, int accel, int maxspeed, int ticks) {
     Vec delta = sub(target, p), desired;
     int64_t d = length(delta), speed;
     int64_t envelope = (int64_t)maxspeed * maxspeed / (2 * (accel ? accel : 1));
@@ -210,8 +210,11 @@ Vec guidance(Vec p, Vec v, Vec target, int accel, int maxspeed) {
     if (speed > maxspeed)
         speed = maxspeed; /* Conservative braking envelope, with a four-metre capture zone. */
     speed = speed * 3 / 4;
-    desired = scale(sub(unit(delta, (int)speed), v), HZ, 1);
+    desired = scale(sub(unit(delta, (int)speed), v), HZ, ticks);
     return length(desired) > accel ? unit(desired, accel) : desired;
+}
+Vec guidance(Vec p, Vec v, Vec target, int accel, int maxspeed) {
+    return guidance_step(p, v, target, accel, maxspeed, 1);
 }
 Vec avoidance(Vec r, Vec v, int accel, int radius) {
     int64_t dot, t = 0, closing;

@@ -674,13 +674,14 @@ int main(int argc, char **argv) {
             uint64_t now = clock_now(),
                      elapsed = rtg ? now - last_time : (now - last_time) & 0xffffffU;
             last_time = now;
-            /* Never replace missed frames with a single large integration step. */
+            /* Gather elapsed ticks so simulation work is bounded per display frame. */
             if (elapsed > clock_rate / 4)
                 elapsed = clock_rate / 4;
             accumulator += elapsed * HZ;
-            while (accumulator >= clock_rate) {
-                game_frame(&g, c, 1);
-                accumulator -= clock_rate;
+            {
+                int due = (int)(accumulator / clock_rate);
+                accumulator -= (uint64_t)due * clock_rate;
+                game_frame(&g, c, due);
             }
         }
         sound_update();

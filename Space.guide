@@ -120,7 +120,11 @@
   The HUD shows effective rate / requested rate.
   Guidance lowers the effective rate near terrain, traffic, the
   destination and braking limits. Manual flight stays at normal speed.
-  Compression uses repeated 1/32-second physics ticks.
+  Remote clear-space cruise advances in bounded intervals up to 128 seconds.
+  Travel, moving bodies and braking room are checked before each interval.
+  Departure, approach, docking and combat use 1/32-second physics ticks.
+  Work is limited to 128 simulation steps per displayed frame. The HUD
+  shows the delivered rate, which may be below the requested compression.
 
   G opens the galaxy map. Arrows select a sector. C centres on the
   current system. X jumps when above 12 km with sufficient fuel,

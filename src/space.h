@@ -6,6 +6,7 @@
 #define FP 256
 #define HZ 32
 #define MAX_WARP 4096
+#define MAX_FRAME_STEPS 128
 #define ANGLE 1024
 #define MAX_NPC 12
 #define MAX_MISSIONS 8
@@ -198,6 +199,7 @@ int combat_target(const Game *g);
 int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int acceleration, int radius);
 Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int maxspeed);
+Vec guidance_step(Vec pos, Vec velocity, Vec target, int acceleration, int maxspeed, int ticks);
 int swept_sphere(Vec start, Vec end, Vec center, int radius);
 int market_stock(const Game *g, int good);
 int market_index(const Game *g, Sector sector, int port);

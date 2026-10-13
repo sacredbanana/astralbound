@@ -543,7 +543,8 @@ static void test_safety(void) {
     g.warp = 1;
     h.warp = MAX_WARP;
     game_frame(&h, c, 1);
-    assert(h.tick > g.tick + 1);
+    assert(h.tick > g.tick + 1 && h.tick - g.tick <= MAX_FRAME_STEPS);
+    assert(h.effective_warp == (int)(h.tick - g.tick));
     while (g.tick < h.tick)
         game_frame(&g, c, 1);
     assert(g.pos.x == h.pos.x && g.pos.y == h.pos.y && g.pos.z == h.pos.z);
