@@ -3,6 +3,9 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+static int ground_color(const Planet *p, Vec local) {
+    return material_color(p,local,terrain_material(p,local));
+}
 
 static void compact_display(void) {
     static Game g;
@@ -278,6 +281,8 @@ static void terrain_smooth_motion(void) {
                 /* One metre projects to roughly 0.03 pixels here. The coast
                    moves monotonically; polygon rounding used to make it jump
                    two pixels at once or even shift in the opposite direction. */
+                if (!(edge <= last && last - edge <= 1))
+                    fprintf(stderr,"motion step %d mode %d edge %d previous %d\n",step,enhanced,edge,last);
                 assert(edge <= last && last - edge <= 1);
                 moved += last - edge;
             }
@@ -287,6 +292,70 @@ static void terrain_smooth_motion(void) {
     }
     free(f.pixels); render_shutdown();
     puts("PASS smooth monotonic terrain boundaries over 1000 one-metre steps in ECS/AGA");
+}
+static void terrain_fixed_geometry(void) {
+    Game g;
+    Frame f = {320,256,0,0,{0}};
+    const Planet *p;
+    int step, camera_u, j, u, jump_u = 0, biggest = 0, previous = 0;
+    int64_t last_height = 0;
+    game_init(&g,0x53504143); p = &g.system.planets[0]; g.docked = -1;
+    /* Check every fine/coarse seam vertex, including negative coordinates and
+       both sides of a clipmap recenter. Midpoints lie on the coarse edge. */
+    for (step = 256; step <= 1024; step *= 2)
+        for (camera_u = -513; camera_u <= 1025; camera_u += 1) {
+            int camera_v = 37;
+            int edge_u = terrain_floor(camera_u,step*2)*step*2 - TERRAIN_GRID*step;
+            int v0 = terrain_floor(camera_v,step*2)*step*2 - TERRAIN_GRID*step;
+            for (j = 1; j < TERRAIN_GRID*2; j++) {
+                int v = v0 + j*step, pv = terrain_floor(v,step*2)*step*2;
+                Vec fine = terrain_grid_vertex(p,2,edge_u,v,step,camera_u,camera_v);
+                Vec a = terrain_grid_vertex(p,2,edge_u,pv,step*2,camera_u,camera_v);
+                Vec b = terrain_grid_vertex(p,2,edge_u,pv+step*2,step*2,camera_u,camera_v);
+                Vec coarse = add(a,scale(sub(b,a),v-pv,step*2));
+                assert(length(sub(fine,coarse)) <= 2);
+            }
+        }
+    /* A nearby world vertex stays put as the camera crosses grid boundaries. */
+    {
+        Vec reference = terrain_grid_vertex(p,2,256,0,256,0,0);
+        for (camera_u = -512; camera_u <= 1024; camera_u++)
+            assert(length(sub(reference,terrain_grid_vertex(p,2,256,0,256,camera_u,0))) == 0);
+    }
+    /* Distant morphing must also avoid large Q8 weight increments. */
+    {
+        Vec last = terrain_grid_vertex(p,2,360448,0,65536,0,0);
+        for (camera_u = 1; camera_u <= 1024; camera_u++) {
+            Vec next = terrain_grid_vertex(p,2,360448,0,65536,camera_u,0);
+            assert(length(sub(next,last)) <= 2); last = next;
+        }
+    }
+    /* Locate the steepest quantized height sample near the landing site.
+       Rendering must interpolate fixed samples rather than jumping to that
+       newly sampled height whenever the camera crosses it. */
+    for (u = 900; u <= 2200; u++) {
+        int h = terrain_height(p,vec(u,p->radius,0));
+        if (u > 900 && abs(h-previous) > biggest) { biggest=abs(h-previous); jump_u=u; }
+        previous=h;
+    }
+    assert(biggest > 20);
+    f.pixels = calloc((size_t)f.w*f.h,1); assert(f.pixels && render_init(&f));
+    game=&g; frame=&f; view_h=200; cache_globes(); camera_yaw=0; camera_pitch=-256;
+    for (u = jump_u-5; u <= jump_u+5; u++) {
+        int i;
+        int64_t height;
+        g.pos=scale(add(p->center,vec(u,p->radius+5260LL,0)),FP,1);
+        camera_position=g.pos; nt=0;
+        memset(depth_buffer,0,depth_capacity*sizeof(*depth_buffer));
+        planet_mesh(0); qsort(triangles,(size_t)nt,sizeof(Tri),sort_tri);
+        for (i=0;i<nt;i++) raster(&triangles[i]);
+        assert(depth_buffer[100*320+160] > 0);
+        height = 5260 - 1073741824LL / depth_buffer[100*320+160];
+        if (u > jump_u-5) assert(llabs(height-last_height) <= 3);
+        last_height=height;
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS fixed terrain vertices, recentering seams, continuous far LOD and steep ground motion");
 }
 int main(void) {
     Frame f = {64, 120, 1, 0, {0}};
@@ -334,6 +403,7 @@ int main(void) {
     terrain_angles();
     terrain_flight_colors();
     terrain_smooth_motion();
+    terrain_fixed_geometry();
     environment_rendering();
     compact_display();
     orbital_and_radar();

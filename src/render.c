@@ -26,13 +26,14 @@ static const Game *game;
 static int view_h;
 static Vec camera_position;
 static int camera_yaw, camera_pitch;
+/* Q4 coordinates retain fractional ray hits between fixed mesh vertices. */
 static Vec camera_to_local(const Planet *p, Vec v) {
     int sy = sini(camera_yaw), cy = cosi(camera_yaw);
     int sp = sini(camera_pitch), cp = cosi(camera_pitch);
     int64_t y = (v.y * cp + v.z * sp) / 16384;
     int64_t z = (v.z * cp - v.y * sp) / 16384;
     Vec world = vec((v.x * cy + z * sy) / 16384, y, (z * cy - v.x * sy) / 16384);
-    return body_rotate(p, add(world, sub(scale(camera_position, 1, FP), p->center)), 1);
+    return body_rotate(p, add(world, sub(scale(camera_position, 1, FP / 16), scale(p->center, 16, 1))), 1);
 }
 
 static void (*platform_pump)(void);
@@ -243,7 +244,7 @@ static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u,
    vertices must not move the colour plane independently of the camera ray. */
 static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
                            int *face, int *u, int *v) {
-    int64_t z = depth > 0 ? 274877906944LL / depth : 1;
+    int64_t z = depth > 0 ? 4398046511104LL / depth : 1;
     Vec point = vec((x - frame->w / 2) * z / (frame->w / 2),
                     (view_h / 2 - y) * z / (frame->w / 2), z);
     Vec local = camera_to_local(p, point);
@@ -321,11 +322,18 @@ static void raster(const Tri *t) {
                 /* Most distant polygons fit Q8 depth in 32 bits. Keep an
                    exact wide fallback for nearby/clipped geometry. */
                 if (t->surface) {
-                    int block;
+                    int block, left = t->x[0], right = t->x[0], block_width;
+                    for (i = 1; i < 3; i++) {
+                        if (t->x[i] < left) left = t->x[i];
+                        if (t->x[i] > right) right = t->x[i];
+                    }
+                    /* Small fixed terrain facets need exact pixel rays; a
+                       moving span endpoint would otherwise jitter a coast. */
+                    block_width = right - left <= 16 ? 1 : 8;
                     for (block = l; block <= r;) {
                         /* Fixed screen intervals keep the perspective
                            approximation from relocating with polygon edges. */
-                        int stop = ((block / 8) + 1) * 8 - 1;
+                        int stop = ((block / block_width) + 1) * block_width - 1;
                         if (stop > r) stop = r;
                         int face0, face1, u0, v0, u1, v1;
                         int visible = 0;
@@ -342,8 +350,10 @@ static void raster(const Tri *t) {
                             continue;
                         }
                         surface_ray_uv(t->surface, block, y, z, &face0, &u0, &v0);
-                        surface_ray_uv(t->surface, stop, y, z + dz * (stop - block),
-                                       &face1, &u1, &v1);
+                        if (stop > block)
+                            surface_ray_uv(t->surface, stop, y, z + dz * (stop - block),
+                                           &face1, &u1, &v1);
+                        else { face1 = face0; u1 = u0; v1 = v0; }
                         for (x = block; x <= stop; x++, pixels++, depths++, z += dz) {
                             int face = face0, u = u0, v = v0;
                             if (z < 0 || (uint32_t)(z >> 8) < *depths) continue;
@@ -409,9 +419,6 @@ static int material_color(const Planet *planet, Vec local, int material) {
         shade = shade * (12 + (int)fixed.x * 2 / 16384 + (int)fixed.y / 16384) / 15;
     }
     return frame->enhanced ? aga[material] + shade : ecs[material] + shade / 6;
-}
-static int ground_color(const Planet *planet, Vec local) {
-    return material_color(planet, local, terrain_material(planet, local));
 }
 #define SURFACE_CACHE_SIZE 4096
 #define SURFACE_TILE 256
@@ -482,6 +489,124 @@ static void cache_globes(void) {
     globe_enhanced = frame->enhanced;
     globe_ready = 1;
 }
+/* Geometry clipmaps use a fixed body-space lattice. Camera motion chooses
+   visible cells, but never relocates the terrain samples. Outer vertices
+   continuously converge on the next level's triangles before cells retire. */
+#define TERRAIN_GRID 8
+#define TERRAIN_FINE_STEP 256
+#define TERRAIN_VERTEX_CACHE 8192
+static struct {
+    int u, v, face, valid;
+    Vec point;
+} terrain_vertices[TERRAIN_VERTEX_CACHE];
+static uint32_t terrain_vertex_seed;
+static int terrain_vertex_radius, terrain_vertex_type;
+static int terrain_floor(int value, int step) {
+    return value >= 0 ? value / step : (value - step + 1) / step;
+}
+static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v) {
+    unsigned slot;
+    if (terrain_vertex_seed != p->seed || terrain_vertex_radius != p->radius ||
+        terrain_vertex_type != (int)p->type) {
+        memset(terrain_vertices, 0, sizeof(terrain_vertices));
+        terrain_vertex_seed = p->seed; terrain_vertex_radius = p->radius;
+        terrain_vertex_type = (int)p->type;
+    }
+    slot = hash32((unsigned)u ^ hash32((unsigned)v) ^ (unsigned)face * 7919U) &
+           (TERRAIN_VERTEX_CACHE - 1);
+    if (!terrain_vertices[slot].valid || terrain_vertices[slot].u != u ||
+        terrain_vertices[slot].v != v || terrain_vertices[slot].face != face) {
+        Planet fixed = *p;
+        int sign = face & 1 ? -p->radius : p->radius;
+        Vec direction = face / 2 == 0 ? vec(sign,u,v) :
+                        face / 2 == 1 ? vec(u,sign,v) : vec(u,v,sign);
+        set_rotation(&fixed, 0);
+        terrain_vertices[slot].point = radial(direction,
+            p->radius + terrain_height(&fixed, direction));
+        terrain_vertices[slot].u = u; terrain_vertices[slot].v = v;
+        terrain_vertices[slot].face = face; terrain_vertices[slot].valid = 1;
+    }
+    return terrain_vertices[slot].point;
+}
+static Vec terrain_grid_vertex(const Planet *p, int face, int u, int v, int step,
+                               int camera_u, int camera_v) {
+    Vec point = terrain_fixed_vertex(p, face, u, v);
+    int distance = abs(u - camera_u), dv = abs(v - camera_v);
+    int parent_step = step * 2, blend;
+    if (dv > distance) distance = dv;
+    blend = (int)((int64_t)(distance - (TERRAIN_GRID - 3) * step) * 65536 / step);
+    if (blend > 0) {
+        int pu = terrain_floor(u, parent_step) * parent_step;
+        int pv = terrain_floor(v, parent_step) * parent_step;
+        int du = u - pu, dv = v - pv;
+        Vec a = terrain_fixed_vertex(p, face, pu, pv);
+        Vec c = terrain_fixed_vertex(p, face, pu + parent_step, pv + parent_step);
+        Vec parent;
+        if (du >= dv) {
+            Vec b = terrain_fixed_vertex(p, face, pu + parent_step, pv);
+            parent = add(a, add(scale(sub(b,a),du,parent_step),
+                                scale(sub(c,b),dv,parent_step)));
+        } else {
+            Vec d = terrain_fixed_vertex(p, face, pu, pv + parent_step);
+            parent = add(a, add(scale(sub(c,d),du,parent_step),
+                                scale(sub(d,a),dv,parent_step)));
+        }
+        if (blend > 65536) blend = 65536;
+        /* Smoothstep keeps the slope continuous at both ends of the fade. */
+        blend = (int)((int64_t)blend * blend * (196608 - 2 * blend) / 4294967296LL);
+        point = add(point, scale(sub(parent, point), blend, 65536));
+    }
+    return add(p->center, body_rotate(p, point, 0));
+}
+static void terrain_clipmap(const Planet *p, Vec local) {
+    Vec fixed = body_rotate(p, local, 1);
+    int64_t direction[3] = {fixed.x, fixed.y, fixed.z};
+    int face, camera_u, camera_v, step, x, y;
+    int inner_u0 = 0, inner_v0 = 0, inner_u1 = 0, inner_v1 = 0;
+    int span = (int)isqrt64((uint64_t)(2LL * p->radius * 12000)) * 2;
+    Vec rows[2][TERRAIN_GRID * 2 + 1];
+    surface_uv(p, direction, &face, &camera_u, &camera_v);
+    for (step = TERRAIN_FINE_STEP;; step *= 2) {
+        int u0 = terrain_floor(camera_u, step * 2) * step * 2 - TERRAIN_GRID * step;
+        int v0 = terrain_floor(camera_v, step * 2) * step * 2 - TERRAIN_GRID * step;
+        int u1 = u0 + TERRAIN_GRID * 2 * step;
+        int v1 = v0 + TERRAIN_GRID * 2 * step;
+        for (y = 0; y <= TERRAIN_GRID * 2; y++) {
+            int v = v0 + y * step;
+            if (platform_pump) platform_pump();
+            for (x = 0; x <= TERRAIN_GRID * 2; x++) {
+                int u = u0 + x * step;
+                if (step != TERRAIN_FINE_STEP && u > inner_u0 && u < inner_u1 &&
+                    v > inner_v0 && v < inner_v1) continue;
+                rows[y % 2][x] = terrain_grid_vertex(p,face,u,v,step,camera_u,camera_v);
+            }
+            if (y) for (x = 0; x < TERRAIN_GRID * 2; x++) {
+                int u = u0 + x * step;
+                if (step != TERRAIN_FINE_STEP && u >= inner_u0 && u + step <= inner_u1 &&
+                    v - step >= inner_v0 && v <= inner_v1) continue;
+                Vec a = rows[(y - 1) % 2][x], b = rows[(y - 1) % 2][x + 1];
+                Vec c = rows[y % 2][x + 1], d = rows[y % 2][x];
+                triangle(a,b,c,0); triangle(a,c,d,0);
+            }
+        }
+        if (step * TERRAIN_GRID >= span) {
+            /* Only the distant outer perimeter descends into the fallback
+               globe. Adjacent clipmap levels share their morphed edges. */
+            for (y = 0; y < 4; y++) for (x = 0; x < TERRAIN_GRID * 2; x++) {
+                int u = y < 2 ? (y ? u1 : u0) : u0 + x * step;
+                int v = y >= 2 ? (y == 3 ? v1 : v0) : v0 + x * step;
+                int nu = y < 2 ? u : u + step, nv = y >= 2 ? v : v + step;
+                Vec a = terrain_grid_vertex(p,face,u,v,step,camera_u,camera_v);
+                Vec b = terrain_grid_vertex(p,face,nu,nv,step,camera_u,camera_v);
+                Vec c = add(p->center, radial(sub(b,p->center),p->radius * 9LL / 10));
+                Vec d = add(p->center, radial(sub(a,p->center),p->radius * 9LL / 10));
+                triangle(a,b,c,0); triangle(a,c,d,0);
+            }
+            break;
+        }
+        inner_u0 = u0; inner_v0 = v0; inner_u1 = u1; inner_v1 = v1;
+    }
+}
 static void planet_mesh(int body) {
     const Planet *p = &game->system.planets[body];
     Vec cam_local = sub(scale(game->pos, 1, FP), p->center);
@@ -508,64 +633,20 @@ static void planet_mesh(int body) {
                     Vec c2 = add(p->center, body_rotate(p, globe_vertices[body][row + step][column + step], 0)),
                         d = add(p->center, body_rotate(p, globe_vertices[body][row + step][column], 0));
                     int color = material_color(p, sub(a, p->center), globe_material[body][row][column]);
+                    if (terrain_surface) {
+                        int inset = radius * 19 / 20;
+                        a = add(p->center,radial(sub(a,p->center),inset));
+                        b = add(p->center,radial(sub(b,p->center),inset));
+                        c2 = add(p->center,radial(sub(c2,p->center),inset));
+                        d = add(p->center,radial(sub(d,p->center),inset));
+                    }
                     triangle(a, b, c2, color);
                     triangle(a, c2, d, color);
                 }
         }
     }
-    if (body == game->body && altitude < 12000) {
-        Vec up = unit(cam_local, 16384), right = unit(cross(up, vec(0, 0, 16384)), 16384), front,
-            rows[2][21];
-        int span = (int)isqrt64((uint64_t)(2LL * radius * (altitude > 20 ? altitude : 20))) * 2,
-            step;
-        if (span < 4000)
-            span = 4000;
-        if (!length(right))
-            right = vec(16384, 0, 0);
-        front = cross(right, up);
-        step = span / 10;
-        for (y = 0; y <= 20; y++) {
-            if (platform_pump)
-                platform_pump();
-            for (x = 0; x <= 20; x++) {
-                /* A continuous grid with cubic spacing: fine central cells and
-                   coarse horizon cells share exactly the same edge vertices.
-                   This has no T junctions as the LOD changes under the camera. */
-                int xx = x - 10, yy = y - 10;
-                rows[y % 2][x] =
-                    terrain_vertex(p, cam_local, right, front, step * xx * xx * xx / 100,
-                                   step * yy * yy * yy / 100);
-            }
-            if (y)
-                for (x = 0; x < 20; x++) {
-                    Vec a = rows[(y - 1) % 2][x], b = rows[(y - 1) % 2][x + 1],
-                        c2 = rows[y % 2][x + 1], d = rows[y % 2][x];
-                    /* Sample the cell centre: a corner inside a small landing
-                       area must not colour a large adjoining horizon cell. */
-                    Vec middle = scale(add(add(a, b), add(c2, d)), 1, 4);
-                    int color = ground_color(p, sub(middle, p->center));
-                    triangle(a, b, c2, color);
-                    triangle(a, c2, d, color);
-                }
-        }
-        /* Join the terrain patch to the coarse globe with an outer skirt.
-           Its top uses the same vertices as the adjacent LOD cells. */
-        for (y = 0; y < 4; y++)
-            for (x = 0; x < 20; x++) {
-                int q = x - 10, q2 = q + 1;
-                int ox = y < 2 ? (y == 0 ? -span : span) : step * q * q * q / 100;
-                int oz = y >= 2 ? (y == 2 ? -span : span) : step * q * q * q / 100;
-                int nx = y < 2 ? ox : step * q2 * q2 * q2 / 100;
-                int nz = y >= 2 ? oz : step * q2 * q2 * q2 / 100;
-                Vec a = terrain_vertex(p, cam_local, right, front, ox, oz);
-                Vec b = terrain_vertex(p, cam_local, right, front, nx, nz);
-                Vec c = add(p->center, scale(sub(b, p->center), radius - radius / 20, radius));
-                Vec d = add(p->center, scale(sub(a, p->center), radius - radius / 20, radius));
-                int color = ground_color(p, sub(a, p->center));
-                triangle(a, b, c, color);
-                triangle(a, c, d, color);
-            }
-    }
+    if (body == game->body && altitude < 12000)
+        terrain_clipmap(p, cam_local);
     terrain_surface = NULL;
 }
 /* Decorative forests use the same terrain sampler as flight collision.
