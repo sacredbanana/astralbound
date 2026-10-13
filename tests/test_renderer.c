@@ -248,10 +248,50 @@ static void terrain_flight_colors(void) {
     free(f.pixels); render_shutdown();
     puts("PASS fixed ground colours during lateral flight and altitude changes in ECS/AGA");
 }
+static void terrain_smooth_motion(void) {
+    Game g;
+    Frame f = {320,256,0,0,{0}};
+    int enhanced, step, i, last, moved;
+    game_init(&g, 0x53504143); g.docked = -1;
+    f.pixels = calloc((size_t)f.w * f.h, 1);
+    assert(f.pixels && render_init(&f));
+    game = &g; frame = &f; view_h = 200; cache_globes();
+    camera_yaw = 0; camera_pitch = -256;
+    for (enhanced = 0; enhanced < 2; enhanced++) {
+        f.enhanced = enhanced; last = -1; moved = 0;
+        for (step = 0; step <= 1000; step++) {
+            int edge = -1;
+            g.pos = add(g.ports[0].pos, vec((int64_t)step * FP, 5260LL * FP, 0));
+            camera_position = g.pos; nt = 0;
+            memset(f.pixels, 0, (size_t)f.w * f.h);
+            memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
+            planet_mesh(0);
+            qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
+            for (i = 0; i < nt; i++) raster(&triangles[i]);
+            for (i = 0; i < f.w; i++) {
+                int color = f.pixels[100 * f.w + i];
+                if (enhanced ? color >= 80 && color <= 94 : color >= 25 && color <= 27)
+                    edge = i;
+            }
+            assert(edge >= 0);
+            if (last >= 0) {
+                /* One metre projects to roughly 0.03 pixels here. The coast
+                   moves monotonically; polygon rounding used to make it jump
+                   two pixels at once or even shift in the opposite direction. */
+                assert(edge <= last && last - edge <= 1);
+                moved += last - edge;
+            }
+            last = edge;
+        }
+        assert(moved >= 25 && moved <= 35);
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS smooth monotonic terrain boundaries over 1000 one-metre steps in ECS/AGA");
+}
 int main(void) {
     Frame f = {64, 120, 1, 0, {0}};
-    Tri ground = {{0, 64, 0}, {0, 0, 64}, {1000, 1000, 1000}, 1000, 8, NULL, {{0}}};
-    Tri wall = {{0, 64, 0}, {0, 0, 64}, {400, 2000, 400}, 1200, 16, NULL, {{0}}};
+    Tri ground = {{0, 64, 0}, {0, 0, 64}, {1000, 1000, 1000}, 1000, 8, NULL, {0}, {0}, {0}};
+    Tri wall = {{0, 64, 0}, {0, 0, 64}, {400, 2000, 400}, 1200, 16, NULL, {0}, {0}, {0}};
     uint8_t reference[64 * 64];
     int order;
     assert(render_init(&f));
@@ -293,6 +333,7 @@ int main(void) {
     assert(!render_init(&(Frame){64, 56, 0, 0, {0}}));
     terrain_angles();
     terrain_flight_colors();
+    terrain_smooth_motion();
     environment_rendering();
     compact_display();
     orbital_and_radar();

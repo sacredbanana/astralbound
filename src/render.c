@@ -10,7 +10,8 @@ typedef struct {
     int64_t z;
     uint8_t color;
     const Planet *surface;
-    int64_t local_z[3][3]; /* body-fixed direction / camera depth */
+    int64_t surface_depth[3];
+    int surface_x[3], surface_y[3]; /* Q8 projected vertices for colour mapping */
 } Tri;
 static Tri triangles[TRI_MAX];
 static int nt;
@@ -171,10 +172,9 @@ static void emit(Vec a, Vec b, Vec c, int color) {
         t->x[i] = screen_coord(frame->w / 2 + v[i].x * (frame->w / 2) / v[i].z);
         t->y[i] = screen_coord(view_h / 2 - v[i].y * (frame->w / 2) / v[i].z);
         if (t->surface) {
-            Vec local = camera_to_local(t->surface, v[i]);
-            t->local_z[i][0] = local.x * t->inverse_z[i] / t->surface->radius;
-            t->local_z[i][1] = local.y * t->inverse_z[i] / t->surface->radius;
-            t->local_z[i][2] = local.z * t->inverse_z[i] / t->surface->radius;
+            t->surface_depth[i] = 274877906944LL / v[i].z;
+            t->surface_x[i] = frame->w * 128 + (int)(v[i].x * (frame->w * 128) / v[i].z);
+            t->surface_y[i] = (view_h / 2) * 256 - (int)(v[i].y * (frame->w * 128) / v[i].z);
         }
     }
     if ((t->x[0] < 0 && t->x[1] < 0 && t->x[2] < 0) ||
@@ -226,9 +226,7 @@ static int sort_tri(const void *a, const void *b) {
        lookups for the coarse globe and far faces hidden by local terrain. */
     return x->z < y->z ? -1 : x->z > y->z ? 1 : 0;
 }
-/* Perspective-correct body coordinates decouple surface colour from the
-   camera-centred mesh and its altitude-dependent cell sizes. Ratios cancel
-   reciprocal depth, giving a fixed metre lattice on the planet's cube faces. */
+/* Map a body-fixed surface point to the planet's fixed metre lattice. */
 static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u, int *v) {
     Vec q = vec(value[0], value[1], value[2]);
     int axis = 0;
@@ -241,6 +239,17 @@ static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u,
     *u = (int)(axis == 0 ? q.y : q.x);
     *v = (int)(axis == 2 ? q.y : q.z);
 }
+/* Reconstruct the hit from the pixel ray and subpixel depth. Rounded polygon
+   vertices must not move the colour plane independently of the camera ray. */
+static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
+                           int *face, int *u, int *v) {
+    int64_t z = depth > 0 ? 274877906944LL / depth : 1;
+    Vec point = vec((x - frame->w / 2) * z / (frame->w / 2),
+                    (view_h / 2 - y) * z / (frame->w / 2), z);
+    Vec local = camera_to_local(p, point);
+    int64_t value[3] = {local.x, local.y, local.z};
+    surface_uv(p, value, face, u, v);
+}
 static void raster(const Tri *t) {
     int y, miny = t->y[0], maxy = t->y[0], i;
     int64_t ax = t->x[1] - t->x[0], ay = t->y[1] - t->y[0];
@@ -250,16 +259,23 @@ static void raster(const Tri *t) {
     int64_t area = ax * by - bx * ay;
     int64_t zx = az * by - bz * ay, zy = ax * bz - bx * az;
     int64_t dz;
-    int64_t sx[3] = {0}, sy[3] = {0};
+    int64_t depth_x = 0, depth_y = 0;
     if (!area)
         return;
     dz = zx * 256 / area;
     if (t->surface) {
-        for (i = 0; i < 3; i++) {
-            int64_t a = t->local_z[1][i] - t->local_z[0][i];
-            int64_t b = t->local_z[2][i] - t->local_z[0][i];
-            sx[i] = a * by - b * ay;
-            sy[i] = ax * b - bx * a;
+        int64_t ax = t->surface_x[1] - t->surface_x[0];
+        int64_t ay = t->surface_y[1] - t->surface_y[0];
+        int64_t bx = t->surface_x[2] - t->surface_x[0];
+        int64_t by = t->surface_y[2] - t->surface_y[0];
+        int64_t surface_area = ax * by - bx * ay;
+        if (!surface_area) return;
+        {
+            int64_t a = t->surface_depth[1] - t->surface_depth[0];
+            int64_t b = t->surface_depth[2] - t->surface_depth[0];
+            depth_x = (a * by - b * ay) * 256 / surface_area;
+            depth_y = (ax * b - bx * a) * 256 / surface_area;
+            dz = depth_x;
         }
     }
     for (i = 1; i < 3; i++) {
@@ -291,6 +307,10 @@ static void raster(const Tri *t) {
                at a rounded scanline edge. This keeps shared faces coherent. */
             z = ((int64_t)t->inverse_z[0] +
                 (zx * (l - t->x[0]) + zy * (y - t->y[0])) / area) * 256;
+            if (t->surface)
+                z = t->surface_depth[0] +
+                    (depth_x * (l * 256 - t->surface_x[0]) +
+                     depth_y * (y * 256 - t->surface_y[0])) / 256;
             if (r >= frame->w)
                 r = frame->w - 1;
             if (r >= l) {
@@ -302,10 +322,12 @@ static void raster(const Tri *t) {
                    exact wide fallback for nearby/clipped geometry. */
                 if (t->surface) {
                     int block;
-                    for (block = l; block <= r; block += 8) {
-                        int stop = block + 7 < r ? block + 7 : r;
-                        int face0, face1, u0, v0, u1, v1, component;
-                        int64_t start[3], finish[3];
+                    for (block = l; block <= r;) {
+                        /* Fixed screen intervals keep the perspective
+                           approximation from relocating with polygon edges. */
+                        int stop = ((block / 8) + 1) * 8 - 1;
+                        if (stop > r) stop = r;
+                        int face0, face1, u0, v0, u1, v1;
                         int visible = 0;
                         for (x = block; x <= stop; x++) {
                             int64_t candidate = z + dz * (x - block);
@@ -316,28 +338,17 @@ static void raster(const Tri *t) {
                         if (!visible) {
                             int count = stop - block + 1;
                             pixels += count; depths += count; z += dz * count;
+                            block = stop + 1;
                             continue;
                         }
-                        for (component = 0; component < 3; component++) {
-                            start[component] = t->local_z[0][component] +
-                                (sx[component] * (block - t->x[0]) +
-                                 sy[component] * (y - t->y[0])) / area;
-                            finish[component] = t->local_z[0][component] +
-                                (sx[component] * (stop - t->x[0]) +
-                                 sy[component] * (y - t->y[0])) / area;
-                        }
-                        surface_uv(t->surface, start, &face0, &u0, &v0);
-                        surface_uv(t->surface, finish, &face1, &u1, &v1);
+                        surface_ray_uv(t->surface, block, y, z, &face0, &u0, &v0);
+                        surface_ray_uv(t->surface, stop, y, z + dz * (stop - block),
+                                       &face1, &u1, &v1);
                         for (x = block; x <= stop; x++, pixels++, depths++, z += dz) {
                             int face = face0, u = u0, v = v0;
                             if (z < 0 || (uint32_t)(z >> 8) < *depths) continue;
                             if (face0 != face1) {
-                                int64_t value[3];
-                                for (component = 0; component < 3; component++)
-                                    value[component] = t->local_z[0][component] +
-                                        (sx[component] * (x - t->x[0]) +
-                                         sy[component] * (y - t->y[0])) / area;
-                                surface_uv(t->surface, value, &face, &u, &v);
+                                surface_ray_uv(t->surface, x, y, z, &face, &u, &v);
                             } else if (stop > block) {
                                 u += (int)((int64_t)(u1 - u0) * (x - block) / (stop - block));
                                 v += (int)((int64_t)(v1 - v0) * (x - block) / (stop - block));
@@ -345,6 +356,7 @@ static void raster(const Tri *t) {
                             *depths = (uint32_t)(z >> 8);
                             *pixels = (uint8_t)surface_color(t->surface, face, u, v);
                         }
+                        block = stop + 1;
                     }
                 } else if (z >= 0 && end >= 0 && z <= INT32_MAX && end <= INT32_MAX &&
                     dz >= INT32_MIN && dz <= INT32_MAX) {
