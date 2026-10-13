@@ -98,6 +98,18 @@ combat retain 1/32-second physics ticks. Simulation work is capped at 128 steps 
 rendered frame; the HUD shows the actual compression delivered when local flight
 cannot sustain the requested rate.
 
+Every ship carries a **System Drive** for fast travel within a system. Press **A**
+to engage manual cruise at full set speed; W/S adjusts the cruise setting. Press
+**A** again to brake to a stop. The drive provides up to 4,000,000 m/s² acceleration
+and braking, with a 200,000,000 m/s cruise ceiling. Gravity wells, atmospheres,
+stations and nearby ships reduce the permitted speed. The HUD shows DRIVE,
+AUTO DRIVE, or DRIVE LOCK when manual cruise is armed near an exclusion zone.
+Autopilot uses the drive on clear routes, brakes for arrival, and uses ordinary
+engines for terrain/star detours, atmospheric flight and docking. Time warp still
+works with autopilot; drive cruise batches are limited to one simulated second.
+Drive settings reset on loading, while saved velocity is preserved and fast
+cruise momentum retains powerful braking. All existing commander formats still load.
+
 For manual flight, hold the **right mouse button** and drag to steer. Drag right/left
 for yaw and up/down for pitch; the mouse acts as a virtual stick with a small dead
 zone. Release the right button to recenter. **Left mouse button** fires. On Amiga,
@@ -119,9 +131,9 @@ map markers identify visited systems. Unsettled systems have body targets and no
 markets or contract boards. The commander journal preserves up to 128 systems with
 visited/surveyed body masks. Close approaches below 100 km mark a body surveyed.
 
-Distances are metres, radii are kilometres, and planetary spacing is in AU. Journeys
-can take hours or days of simulated time; remote cruise batches this time without
-running thousands of local physics ticks between rendered frames.
+Distances are metres, radii are kilometres, and planetary spacing is in AU. System Drive greatly shortens interplanetary journeys; local atmospheric
+and docking legs retain ordinary flight speeds. Remote cruise batches time
+without running thousands of local physics ticks between rendered frames.
 Fuel follows engine impulse, so small cruise corrections cost less than full thrust.
 Delivery deadlines allow six to eight simulated hours for the longer local journeys.
 

@@ -1026,11 +1026,23 @@ static void hud(void) {
     text(7, h + 6, 13, "SPACE");
     snprintf(s, sizeof(s), "%s / %s", game->system.name,
              game->docked >= 0 ? "DOCKED"
-             : game->autopilot ? "AUTO"
-                               : "MANUAL");
+             : game->autopilot ? (game->drive_active ? "AUTO DRIVE" : "AUTO")
+                               : game->drive_active ? "DRIVE" : game->drive_manual ? "DRIVE LOCK" : "MANUAL");
     text(49, h + 6, 15, s);
-    snprintf(s, sizeof(s), "ALT %ld M  V %ld M/S", (long)(altitude_at(game, game->pos)),
-             (long)(length(game->vel) / FP));
+    {
+        int64_t alt = altitude_at(game, game->pos), speed = length(game->vel) / FP;
+        char altitude[32];
+        if (alt >= AU_METRES / 10)
+            snprintf(altitude, sizeof(altitude), "%ld.%02ld AU", (long)(alt / AU_METRES),
+                     (long)((alt % AU_METRES) * 100 / AU_METRES));
+        else if (alt >= 1000000)
+            snprintf(altitude, sizeof(altitude), "%ld KM", (long)(alt / 1000));
+        else
+            snprintf(altitude, sizeof(altitude), "%ld M", (long)alt);
+        snprintf(s, sizeof(s), "ALT %s  V %ld %s", altitude,
+                 (long)(speed >= 100000 ? speed / 1000 : speed),
+                 speed >= 100000 ? "KM/S" : "M/S");
+    }
     text(7, h + 18, 15, s);
     snprintf(s, sizeof(s), "%d CR  %dX/%dX", game->credits, game->effective_warp, game->warp);
     text(7, h + 30, 12, s);
@@ -1369,7 +1381,7 @@ static void menus(void) {
         panel("SPACE / FLIGHT MANUAL");
         {
             const char *help[] = {
-                "ARROWS STEER / W S CHANGE SET SPEED",  "CTRL FIRE / E TOGGLE FLIGHT ASSIST",
+                "ARROWS STEER / W S CHANGE SET SPEED",  "CTRL FIRE / E ASSIST / A DRIVE",
                 "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
                 "[ ] TIME TO 4096X / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
                 "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",

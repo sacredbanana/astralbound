@@ -33,7 +33,13 @@ static void remote_cruise(void) {
     assert(g.tick == MAX_WARP && g.tick == h.tick);
     assert(!g.dead && g.frame_body == -1 && g.fuel == h.fuel);
     assert(g.heat == h.heat && g.shield == h.shield);
-    assert(length(sub(g.pos, h.pos)) < 50000LL * FP);
+    printf("drive cruise comparison: position %lld m, velocity %lld m/s\n",
+           (long long)(length(sub(g.pos, h.pos)) / FP),
+           (long long)(length(sub(g.vel, h.vel)) / FP));
+    fflush(stdout);
+    /* Batched cruise uses mean velocity; fixed ticks use end velocity. Bound
+       their accumulated integration difference by a*duration/(2*HZ). */
+    assert(length(sub(g.pos, h.pos)) < SYSTEM_DRIVE_ACCEL * 128LL * FP / (2 * HZ));
     assert(length(sub(g.vel, h.vel)) < 100 * FP);
     printf("remote 4096x: %.3f ms cruise, %.3f ms fixed ticks, error %ld m\n",
            fast * 1000, reference * 1000, (long)(length(sub(g.pos, h.pos)) / FP));
@@ -67,7 +73,7 @@ static void remote_cruise(void) {
     g.contracts[0].type = COURIER;
     g.contracts[0].deadline = 100;
     game_frame(&g, c, 1);
-    assert(g.contracts[0].state == FAILED && g.tick == MAX_WARP);
+    assert(g.contracts[0].state == FAILED && g.tick > 100 && g.tick <= MAX_WARP);
     g = initial;
     g.paused = 1;
     game_frame(&g, c, 1);

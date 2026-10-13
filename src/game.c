@@ -17,6 +17,7 @@ int port_count(const Game *g) {
 }
 void setup_system(Game *g, Sector sector) {
     int i, b;
+    g->drive_manual = g->drive_active = 0;
     generate_system(g->seed, sector, &g->system);
     memset(g->ports, 0, sizeof(g->ports));
     g->nports = 0;
@@ -88,6 +89,73 @@ int combat_target(const Game *g) {
     return i >= 0 && i < MAX_NPC && g->npc[i].active &&
                    length(sub(g->npc[i].pos, g->pos)) <= 10000LL * FP ? i : -1;
 }
+/* System Drive is available to every hull. The nearest safety shell, rather
+   than the selected target alone, limits cruise speed. Four seconds of room
+   and a conservative braking envelope leave time for frame/route changes. */
+static int64_t drive_limit(const Game *g) {
+    int i;
+    int64_t room = SYSTEM_DRIVE_SPEED * SYSTEM_DRIVE_SPEED / SYSTEM_DRIVE_ACCEL;
+    for (i = 0; i < g->system.count; i++) {
+        const Planet *p = &g->system.planets[i];
+        int64_t r = length(sub(scale(g->pos, 1, FP), p->center)) -
+                    p->radius - p->atmosphere - 30000LL;
+        if (r < room) room = r;
+    }
+    for (i = 0; i < g->system.stars; i++) {
+        const Star *s = &g->system.star[i];
+        int64_t r = length(sub(scale(g->pos, 1, FP), s->center)) -
+                    s->radius - 1000000000LL;
+        if (r < room) room = r;
+    }
+    for (i = 0; i < g->nports; i++) {
+        int64_t r = length(sub(g->pos, g->ports[i].pos)) / FP - 10000;
+        if (r < room) room = r;
+    }
+    for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active) {
+        int64_t r = length(sub(g->pos, g->npc[i].pos)) / FP - 20000;
+        if (r < room) room = r;
+    }
+    if (room <= 0) return 0;
+    {
+        int64_t limit = 600 + room / 4;
+        int64_t brake = (int64_t)isqrt64((uint64_t)room * SYSTEM_DRIVE_ACCEL);
+        if (limit > brake) limit = brake;
+        return limit < SYSTEM_DRIVE_SPEED ? limit : SYSTEM_DRIVE_SPEED;
+    }
+}
+static Vec autopilot_target(const Game *g);
+static int drive_requested(const Game *g) {
+    if (g->autopilot &&
+        (length(sub(autopilot_target(g), navigation_position(g))) > 5000 * FP ||
+         length(sub(g->pos, navigation_position(g))) < 20000000LL * FP))
+        return 0; /* Ordinary authority for detours and terminal approaches. */
+    return g->docked == -1 && g->fuel > 0 && !g->dead && !g->laser &&
+           (g->autopilot || g->drive_manual);
+}
+static int drive_thrust(const Game *g) {
+    /* Retain powerful brakes after disengaging, including a restored save
+       with cruise momentum. Never clamp or teleport the ship's velocity. */
+    int64_t speed = length(g->vel);
+    if (g->autopilot && (g->target >= 0 || g->target_body >= 0))
+        speed = length(sub(g->vel, navigation_velocity(g)));
+    return g->fuel > 0 && g->docked == -1 &&
+        ((drive_requested(g) && drive_limit(g) > 4000) ||
+         length(g->vel) > 2000000LL * FP ||
+         (g->drive_active && speed > (g->autopilot ? 4000LL : 8LL) * FP))
+        ? SYSTEM_DRIVE_ACCEL * FP : 60 * FP;
+}
+static void burn_fuel(Game *g, Vec engine, int ticks, int drive) {
+    uint64_t impulse = (uint64_t)length(engine) * ticks / HZ;
+    /* Field drive impulse costs the same as ordinary engines at the same
+       fraction of output; huge cruise acceleration does not empty the tank. */
+    if (drive) impulse = impulse * 60 / SYSTEM_DRIVE_ACCEL;
+    impulse += g->fuel_burn;
+    while (impulse >= 50000U * FP) {
+        impulse -= 50000U * FP;
+        if (g->fuel > 0) g->fuel--;
+    }
+    g->fuel_burn = (uint32_t)impulse;
+}
 int safe_warp(const Game *g) {
     int i, w = clamp(g->warp, 1, MAX_WARP);
     int64_t alt = altitude_at(g, g->pos), speed = length(g->vel) / FP;
@@ -95,7 +163,7 @@ int safe_warp(const Game *g) {
         return 1;
     if (!g->autopilot)
         return 1; /* Compression is a privilege of monitored guidance. */
-    if (alt < 3000 || alt < speed * speed / 80 + 2000)
+    if (alt < 3000 || alt < speed * speed / (g->drive_active ? SYSTEM_DRIVE_ACCEL : 80) + 2000)
         w = 1;
     else if (alt < 12000 && w > 4)
         w = 4;
@@ -260,6 +328,7 @@ void game_tick(Game *g, Controls c) {
         c.yaw = c.pitch = c.axis_yaw = c.axis_pitch = 0;
     }
     if (g->docked != -1) {
+        g->drive_manual = g->drive_active = 0;
         if (g->docked == -2) {
             const Planet *p = &g->system.planets[g->body];
             Vec local_ground;
@@ -318,6 +387,8 @@ void game_tick(Game *g, Controls c) {
             gravity = add(gravity, unit(solar, -(int)(a > 100 * FP ? 100 * FP : a)));
         }
     }
+    thrust = drive_thrust(g);
+    g->drive_active = thrust > 60 * FP;
     if (g->autopilot) {
         Vec target;
         if (g->target >= 0 && g->clearance == g->target) {
@@ -362,7 +433,7 @@ void game_tick(Game *g, Controls c) {
             target = sub(target, scale(motion, 1, HZ));
         }
         int64_t route = length(sub(target, g->pos)) / FP;
-        int maxspeed = alt < planet->atmosphere + 8000 ? 600 : route > 10000000 ? 1000000 : 4000;
+        int64_t maxspeed = alt < planet->atmosphere + 8000 ? 600 : route > 10000000 ? 1000000 : 4000;
         if (g->target >= 0 && length(sub(g->ports[g->target].pos, g->pos)) < 10000 * FP &&
             !request_clearance(g, g->target))
             say(g, "CLEARANCE QUEUE - HOLDING OUTSIDE CORRIDOR");
@@ -381,9 +452,14 @@ void game_tick(Game *g, Controls c) {
             if (maxspeed > limit)
                 maxspeed = limit;
         }
+        if (g->drive_active && drive_requested(g) && drive_limit(g) > 4000) {
+            int64_t limit = drive_limit(g);
+            int64_t approach = 600 + route / 4;
+            maxspeed = limit < approach ? limit : approach;
+        }
         if (g->dock_stage && g->target >= 0)
             maxspeed = 40;
-        acceleration = guidance(g->pos, relative_vel, target, thrust * 3 / 4, maxspeed * FP);
+        acceleration = guidance(g->pos, relative_vel, target, thrust / 4 * 3, maxspeed * FP);
         if (g->target < 0 && length(sub(g->pos, navigation_position(g))) < 100 * FP &&
             length(relative_vel) < 8 * FP) {
             g->autopilot = 0;
@@ -400,8 +476,12 @@ void game_tick(Game *g, Controls c) {
         g->pitch = clamp(g->pitch + c.axis_pitch, -250, 250);
         if (c.thrust)
             g->throttle = clamp(g->throttle + c.thrust * 3, 0, 4000);
-        if (g->assist) {
-            Vec desired = scale(forward(g->yaw, g->pitch), g->throttle * FP, 16384);
+        if (g->assist || g->drive_active) {
+            int64_t set_speed = g->throttle;
+            if (g->drive_manual)
+                set_speed = (g->drive_active && drive_requested(g) ? drive_limit(g) : 600) *
+                            g->throttle / 4000;
+            Vec desired = scale(forward(g->yaw, g->pitch), set_speed * FP, 16384);
             if (alt < planet->atmosphere)
                 desired = add(desired, surface_velocity(planet, scale(local, 1, FP)));
             Vec error = sub(desired, g->vel);
@@ -416,12 +496,7 @@ void game_tick(Game *g, Controls c) {
         acceleration = vec(0, 0, 0);
     /* Fuel follows delivered impulse, so small cruise corrections do not
        consume the same fuel as sustained full thrust on AU-scale journeys. */
-    g->fuel_burn += (uint32_t)(length(acceleration) / HZ);
-    if (g->fuel_burn >= 50000U * FP) {
-        g->fuel_burn -= 50000U * FP;
-        if (g->fuel > 0)
-            g->fuel--;
-    }
+    burn_fuel(g, acceleration, 1, g->drive_active);
     old = g->pos;
     g->vel = add(g->vel, scale(add(acceleration, gravity), 1, HZ));
     g->pos = add(g->pos, scale(g->vel, 1, HZ));
@@ -576,6 +651,9 @@ void game_tick(Game *g, Controls c) {
    halve it until safe. Local physics, combat and capture always use game_tick. */
 static int cruise_interval(const Game *g, Controls c, int remaining) {
     int i, step = remaining;
+    int accel = drive_thrust(g) / FP;
+    /* Rapid drive changes use short bounded cruise steps. */
+    if (accel > 60 && step > HZ) step = HZ;
     Vec dest, target;
     int64_t speed, route, closing;
     if (step < HZ || g->frame_body != -1 || g->paused || g->dead || !g->fuel ||
@@ -607,18 +685,18 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     while (step >= HZ) {
         int safe = 1;
         int64_t seconds = (step + HZ - 1) / HZ;
-        int64_t travel = speed * seconds + 60 * seconds * seconds;
+        int64_t travel = speed * seconds + (int64_t)accel * seconds * seconds;
         /* Return well before the 10,000 km approach-speed boundary. */
-        int64_t future_closing = closing + 60 * seconds;
-        if (route < 20000000LL + future_closing * future_closing / 60 +
-                    closing * seconds + 60 * seconds * seconds)
+        int64_t future_closing = closing + (int64_t)accel * seconds;
+        if (route < 20000000LL + future_closing * future_closing / accel +
+                    closing * seconds + (int64_t)accel * seconds * seconds)
             safe = 0;
         for (i = 0; i < g->system.count && safe; i++) {
             const Planet *p = &g->system.planets[i];
             int64_t motion = length(p->cruise_velocity) / FP;
-            int64_t relative = speed + motion + 60 * seconds;
+            int64_t relative = speed + motion + (int64_t)accel * seconds;
             int64_t shell = p->radius + p->atmosphere + 200000LL +
-                            relative * relative / 60;
+                            relative * relative / accel;
             if (shell < p->influence + 200000LL)
                 shell = p->influence + 200000LL;
             if (length(sub(scale(g->pos, 1, FP), p->center)) <=
@@ -641,11 +719,15 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
 static void cruise_step(Game *g, int ticks) {
     int destination = g->target >= 0 ? g->ports[g->target].body : g->target_body;
     Vec motion = g->system.planets[destination].cruise_velocity;
+    int thrust = drive_thrust(g);
     int64_t room = altitude_at(g, g->pos) -
                    g->system.planets[nearest_body(g, g->pos)].atmosphere - 20000;
-    int maxspeed = room > 0 ? (int)isqrt64((uint64_t)room * 60) : 600;
+    int64_t maxspeed = room > 0 ? (int64_t)isqrt64((uint64_t)room * 60) : 600;
+    g->drive_active = thrust > 60 * FP;
+    if (g->drive_active) maxspeed = drive_limit(g);
+    else maxspeed = clamp((int)maxspeed, 600, 1000000);
     Vec acceleration = guidance_step(g->pos, sub(g->vel, motion), navigation_position(g),
-                                     45 * FP, clamp(maxspeed, 600, 1000000) * FP, ticks);
+                                     thrust / 4 * 3, maxspeed * FP, ticks);
     const Planet *planet = &g->system.planets[nearest_body(g, g->pos)];
     Vec local = sub(g->pos, scale(planet->center, FP, 1));
     int64_t radius = (int64_t)planet->radius * FP, dist = length(local);
@@ -660,20 +742,15 @@ static void cruise_step(Game *g, int ticks) {
         gravity = add(gravity, unit(solar, -(int)(a > 100 * FP ? 100 * FP : a)));
     }
     engine = sub(acceleration, gravity);
-    if (length(engine) > 60 * FP)
-        engine = unit(engine, 60 * FP);
+    if (length(engine) > thrust)
+        engine = unit(engine, thrust);
     acceleration = add(engine, gravity);
     /* Constant-acceleration displacement uses the mean velocity, avoiding
        the large forward-Euler position error of a compressed interval. */
     Vec delta = scale(acceleration, ticks, HZ);
     g->pos = add(g->pos, scale(add(g->vel, scale(delta, 1, 2)), ticks, HZ));
     g->vel = add(g->vel, delta);
-    g->fuel_burn += (uint32_t)(length(engine) * ticks / HZ);
-    while (g->fuel_burn >= 50000U * FP) {
-        g->fuel_burn -= 50000U * FP;
-        if (g->fuel > 0)
-            g->fuel--;
-    }
+    burn_fuel(g, engine, ticks, g->drive_active);
     g->tick += ticks;
     g->heat = clamp(g->heat - (int)(g->tick / 8 - before / 8), 0, 100);
     g->shield = clamp(g->shield + (int)(g->tick / HZ - before / HZ), 0, 100);
@@ -835,15 +912,30 @@ void game_action(Game *g, int k) {
         break;
     case 'p':
         if (g->docked == -1 && (g->target >= 0 || g->target_body >= 0)) {
+            if (g->drive_manual || g->drive_active) g->throttle = 0;
+            g->drive_manual = 0;
             g->autopilot = !g->autopilot;
             g->dock_stage = 0;
             g->warp = 1;
+        }
+        break;
+    case 'a':
+        if (g->docked == -1) {
+            g->drive_manual = !g->drive_manual;
+            g->autopilot = 0;
+            g->warp = 1;
+            g->assist = 1;
+            g->throttle = g->drive_manual ? 4000 : 0;
+            say(g, g->drive_manual ? "SYSTEM DRIVE ARMED - W/S CRUISE SPEED"
+                                  : "SYSTEM DRIVE DISENGAGED - BRAKING");
         }
         break;
     case 'd':
         say(g, request_clearance(g, g->target) ? "DOCKING CLEARANCE GRANTED" : "CLEARANCE QUEUED");
         break;
     case 'e':
+        if (g->drive_manual || g->drive_active) g->throttle = 0;
+        g->drive_manual = 0;
         g->assist = !g->assist;
         g->autopilot = 0;
         break;

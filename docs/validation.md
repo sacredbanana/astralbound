@@ -455,3 +455,41 @@ recorded direct bare-CLI stack-swap exit fault remains toolchain QA.
 
 New native emulator/hardware runtime and performance have not been tested for
 this surface change. Earlier native evidence above does not validate this revision.
+
+## System Drive (2026-10-13)
+
+All hulls now have a field drive with 4,000,000 m/s² acceleration/braking and
+200,000,000 m/s maximum commanded cruise speed. A engages manual cruise at full
+set speed; W/S adjusts it, and A again commands a stop. Autopilot selects it for
+clear legs beyond 20,000 km, retaining ordinary engines for terminal approaches,
+atmospheric departure, terrain/star detours and docking. Safety shells around all
+bodies, stars, ports and active ships reduce cruise speed continuously. Warp remains
+separate; drive cruise uses at most one-second intervals with bounded travel,
+orbit-motion and braking checks. Local physics and collision sweeps remain fixed
+at 1/32 second. The HUD identifies manual/automatic drive operation and uses AU,
+km and km/s where large cruise values would overflow a native 32-bit display value.
+
+- `make test navigation-test`: full core/presentation/renderer suites pass, including
+  58 generated port arrivals and all body types. New tests cover rapid manual
+  acceleration, disengagement braking, docked/atmospheric/traffic locks, high-speed
+  AI avoidance arithmetic and cruise-velocity save/load without changing format 5.
+- The same AU-scale route now arrives in 166,604 ticks (86.77 simulated minutes),
+  with 100% displayed fuel, full hull and 4 m waypoint error, versus the previously
+  recorded 8,492,040 ticks: about 51 times fewer simulation ticks. Atmospheric and
+  terminal legs still use ordinary engines. This is not a native wall-time speedup.
+- At 4096x, remote drive cruise differs from fixed ticks by 2,343,648 m in position
+  and about 1 m/s in velocity after 128 simulated seconds. The position bound is
+  derived from the end-velocity versus mean-velocity integration difference at the
+  drive's acceleration; conservative cruise safety bounds cover that difference.
+- `make sanitize`: full core, presentation, renderer and astronomical navigation
+  suites pass with AddressSanitizer/UndefinedBehaviorSanitizer.
+- `./build-amiga.sh -j4 all variants tests`: 68000/020/030/040/060 soft-float games
+  and native tests build. The guide checker reports zero errors or warnings.
+- Isolated PAL 68020 Amiberry: native presentation and core quick suites pass,
+  including System Drive tests. Live ECS low-resolution flight shows A activating
+  DRIVE and acceleration above 8,000 km/s; A again reduces velocity through drive
+  braking. Escape restores the CLI and DMA `03F0`. The user's AmiKit instance was
+  preserved. Logs/screenshots are `build/evidence/system-drive-*`.
+
+Physical hardware, live AGA/RTG drive flight and a complete interplanetary journey
+under native emulation remain untested; those routes have host simulation evidence.

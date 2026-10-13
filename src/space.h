@@ -6,6 +6,8 @@
 #define FP 256
 #define HZ 32
 #define MAX_WARP 4096
+#define SYSTEM_DRIVE_ACCEL 4000000
+#define SYSTEM_DRIVE_SPEED 200000000LL
 #define MAX_FRAME_STEPS 128
 #define ANGLE 1024
 #define MAX_NPC 12
@@ -122,6 +124,7 @@ typedef struct {
     /* Presentation state is transient; version 3/4 commander payloads stay compatible. */
     int turret_yaw, turret_pitch, combat_target, system_display, map_local;
     int yaw_fraction, pitch_fraction;
+    int drive_manual, drive_active; /* transient; speed/thrust scale, not time warp */
     Vec ground_anchor; /* transient body-fixed Q8 landed position */
     uint32_t shots, fuel_burn;
     char message[80];
@@ -198,8 +201,8 @@ void view_angles(const Game *g, int *yaw, int *pitch);
 int combat_target(const Game *g);
 int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int acceleration, int radius);
-Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int maxspeed);
-Vec guidance_step(Vec pos, Vec velocity, Vec target, int acceleration, int maxspeed, int ticks);
+Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed);
+Vec guidance_step(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed, int ticks);
 int swept_sphere(Vec start, Vec end, Vec center, int radius);
 int market_stock(const Game *g, int good);
 int market_index(const Game *g, Sector sector, int port);

@@ -224,21 +224,26 @@ int swept_sphere(Vec start, Vec end, Vec center, int radius) {
         t = l;
     return length(sub(r, scale(n, t, 16384))) <= radius;
 }
-Vec guidance_step(Vec p, Vec v, Vec target, int accel, int maxspeed, int ticks) {
+Vec guidance_step(Vec p, Vec v, Vec target, int accel, int64_t maxspeed, int ticks) {
     Vec delta = sub(target, p), desired;
     int64_t d = length(delta), speed;
-    int64_t envelope = (int64_t)maxspeed * maxspeed / (2 * (accel ? accel : 1));
+    int64_t envelope = maxspeed <= INT32_MAX
+        ? maxspeed * maxspeed / (2 * (accel ? accel : 1))
+        : (maxspeed / FP) * (maxspeed / FP) / (2 * (accel / FP)) * FP;
     if (d > envelope + 4 * FP)
         speed = maxspeed;
+    else if (maxspeed > INT32_MAX)
+        speed = (int64_t)isqrt64(2ULL * (accel / FP) *
+            (uint64_t)(d > 4 * FP ? (d - 4 * FP) / FP : 0)) * FP;
     else
         speed = isqrt64((uint64_t)(2LL * accel * (d > 4 * FP ? d - 4 * FP : 0)));
     if (speed > maxspeed)
         speed = maxspeed; /* Conservative braking envelope, with a four-metre capture zone. */
     speed = speed * 3 / 4;
-    desired = scale(sub(unit(delta, (int)speed), v), HZ, ticks);
+    desired = scale(sub(speed <= INT32_MAX ? unit(delta, (int)speed) : radial(delta, speed), v), HZ, ticks);
     return length(desired) > accel ? unit(desired, accel) : desired;
 }
-Vec guidance(Vec p, Vec v, Vec target, int accel, int maxspeed) {
+Vec guidance(Vec p, Vec v, Vec target, int accel, int64_t maxspeed) {
     return guidance_step(p, v, target, accel, maxspeed, 1);
 }
 Vec avoidance(Vec r, Vec v, int accel, int radius) {
@@ -256,7 +261,7 @@ Vec avoidance(Vec r, Vec v, int accel, int radius) {
         t = 12 * HZ;
     closest = add(r, scale(v, t, HZ));
     closing = length(v);
-    if (length(closest) > radius + closing * closing / (2 * (accel ? accel : 1)))
+    if (length(closest) > radius + muldiv(closing, closing, 2 * (accel ? accel : 1)))
         return vec(0, 0, 0);
     if (dot >= 0 && length(r) > radius)
         return vec(0, 0, 0); /* Deterministic lateral break for a perfectly head-on approach. */

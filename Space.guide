@@ -53,6 +53,7 @@
   Joystick  Port 2 directions steer; fire button shoots.
   W / S     Increase or decrease set speed.
   E         Toggle flight assist / direct thrust.
+  A         Engage System Drive cruise / disengage and brake.
   Ctrl      Fire forward laser, or the aimed turret in turret views.
   K         Raise/lower landing gear while flying.
   P         Toggle autopilot to the selected port.
@@ -113,14 +114,23 @@
   Planets have realistic radii and astronomical orbital separations.
   Stars, planets, moons and stations move in analytic circular orbits.
   Flight velocities are relative to the current translated local frame.
-  Journeys may take hours or days of simulated time. Fuel use follows
-  engine impulse; small cruise corrections cost less than full thrust.
+  Every hull has a System Drive for rapid in-system acceleration/braking.
+  A engages manual cruise; W/S adjusts speed. A again brakes to a stop.
+  Maximum acceleration is 4,000,000 m/s/s; cruise cap is 200,000,000 m/s.
+  Bodies, atmosphere, stars, stations and traffic lower the speed limit.
+  DRIVE / AUTO DRIVE identifies operation; DRIVE LOCK means manual cruise
+  is armed inside an exclusion zone. Local flight uses ordinary engines.
+  Autopilot uses the drive on clear legs and brakes for arrival; terrain
+  and star detours, atmospheric flight and docking use ordinary engines.
+  Fuel scales with engine output fraction, including drive operation.
+  Loading resets drive controls but preserves velocity and cruise braking.
 
   ] raises requested time compression; [ reduces it.
   The HUD shows effective rate / requested rate.
   Guidance lowers the effective rate near terrain, traffic, the
   destination and braking limits. Manual flight stays at normal speed.
-  Remote clear-space cruise advances in bounded intervals up to 128 seconds.
+  Remote ordinary cruise uses bounded intervals up to 128 seconds.
+  System Drive cruise intervals are capped at one simulated second.
   Travel, moving bodies and braking room are checked before each interval.
   Departure, approach, docking and combat use 1/32-second physics ticks.
   Work is limited to 128 simulation steps per displayed frame. The HUD

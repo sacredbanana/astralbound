@@ -551,6 +551,50 @@ static void test_missions(void) {
     }
     puts("PASS all six contract types complete through flight/combat and pay once");
 }
+static void test_system_drive(void) {
+    Game g, h;
+    Controls c = {0};
+    int i;
+    assert(length(avoidance(vec(1000000 * FP, 0, 0),
+        vec(-SYSTEM_DRIVE_SPEED * FP, 0, 0), 50 * FP, 300 * FP)) > 0);
+    game_init(&g, 1);
+    game_action(&g, 'a');
+    assert(!g.drive_manual); /* Docked lockout. */
+    g.docked = -1;
+    g.frame_body = -1;
+    g.pos = vec(0, AU_METRES * FP, 0);
+    g.vel = vec(0, 0, 0);
+    game_action(&g, 'a');
+    assert(g.drive_manual && g.throttle == 4000 && g.assist);
+    for (i = 0; i < 5 * HZ; i++) game_tick(&g, c);
+    assert(g.drive_active && length(g.vel) > 10000000LL * FP);
+    assert(g.fuel >= 99 && !g.dead && safe_warp(&g) == 1);
+    assert(save_game(&g, TEST_SAVE) && load_game(&h, TEST_SAVE));
+    assert(!h.drive_manual && !h.drive_active && !memcmp(&g.vel, &h.vel, sizeof(Vec)));
+    game_tick(&h, c);
+    assert(h.drive_active); /* Restored momentum retains drive braking. */
+    game_action(&g, 'a');
+    for (i = 0; i < 25 * HZ; i++) game_tick(&g, c);
+    assert(!g.drive_manual && !g.drive_active && length(g.vel) < 8 * FP);
+    /* Atmospheric and nearby-traffic locks retain ordinary local engines. */
+    game_init(&g, 1);
+    game_action(&g, 'l');
+    game_action(&g, 'a');
+    game_tick(&g, c);
+    assert(!g.drive_active && !g.dead);
+    g.frame_body = -1;
+    g.pos = vec(0, AU_METRES * FP, 0);
+    g.vel = vec(0, 0, 0);
+    g.npc[0].active = 1;
+    g.npc[0].mission = -1;
+    g.npc[0].pos = add(g.pos, vec(0, 0, 1000 * FP));
+    g.npc[0].vel = vec(0, 0, 0);
+    game_tick(&g, c);
+    assert(!g.drive_active && length(g.vel) < 100 * FP);
+    remove(TEST_SAVE);
+    remove(TEST_SAVE ".bak");
+    puts("PASS System Drive acceleration, braking, cruise saves and mass/traffic locks");
+}
 static void test_safety(void) {
     Game g, h;
     Controls c = {0};
@@ -792,6 +836,7 @@ int main(int argc, char **argv) {
     test_routes();
     if (!quick)
         test_missions();
+    test_system_drive();
     test_safety();
     test_flight_input();
     puts(quick ? "All Space quick smoke tests passed." : "All Space tests passed.");

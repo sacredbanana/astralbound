@@ -170,7 +170,7 @@ static int good_vec(Vec v, int64_t bound) {
 static int valid(const Game *g) {
     int i;
     if (!g->system.count || !good_sector(g->system.sector) || !good_sector(g->selected) ||
-        !good_vec(g->pos, 2000000000000000LL) || !good_vec(g->vel, 512000000) || g->ship < 0 ||
+        !good_vec(g->pos, 2000000000000000LL) || !good_vec(g->vel, (SYSTEM_DRIVE_SPEED + 1000000) * FP) || g->ship < 0 ||
         g->ship > 2 ||
         (g->target < -1 || g->target >= g->nports ||
          (g->target < 0 && (g->target_body < 0 || g->target_body >= g->system.count))) ||
@@ -333,6 +333,7 @@ int load_game(Game *g, const char *path) {
     copy.turret_pitch = copy.pitch;
     copy.combat_target = -1;
     copy.yaw_fraction = copy.pitch_fraction = 0;
+    copy.drive_manual = copy.drive_active = 0;
     copy.effective_warp = 1;
     *g = copy;
     snprintf(g->message, sizeof(g->message), "COMMANDER RESTORED");
