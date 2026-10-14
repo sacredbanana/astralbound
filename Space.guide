@@ -50,7 +50,7 @@
   L         Launch from a port or open ground.
   Arrows    Pitch and yaw.
   RMouse    Hold and drag as a virtual stick; release to recenter.
-  LMouse    Fire laser or turret.
+  LMouse    Operate console; fire only in the flight viewport.
   Joystick  Port 2 directions steer; fire button shoots.
   W / S     Increase or decrease set speed.
   E         Toggle flight assist / direct thrust.
@@ -67,6 +67,21 @@
   Space     Pause/resume simulation.
   H         Show on-screen help.
   Escape    Exit and restore Workbench.
+
+  Mouse console: FLY returns to flight; VIEW cycles the camera. GAL opens
+  galaxy tiles; NAV lists destinations; SYS shows clickable orbital markers.
+  PORT opens Contracts/Market/Shipyard tabs. LOG, KIT, CREW and HLP open
+  the other panels. Select a row, then click its action button. Dim controls
+  are unavailable. Release inside the pressed control to activate it; drag
+  away to cancel. GUI clicks never fire the laser.
+
+  The cockpit has launch, autopilot, drive, assist, gear, docking and contact
+  buttons. Drag the cyan throttle strip; STOP commands zero speed. Click
+  a time factor for 1 through 4096x; safety limits still apply. PAUSE/PLAY
+  halts/resumes flight. Click the scanner for missile/decoy controls; click
+  its background again to return. SAVE, LOAD and EXIT are in the panels.
+  Overlapping orbital markers can be selected through NAV's destination
+  list and BODY/PORT/PAGE buttons. Keyboard shortcuts remain available.
 
   Mouse: drag right/left for yaw, up/down for pitch, with a small dead zone.
   Use the mouse port and a digital joystick in port 2. On the host preview,

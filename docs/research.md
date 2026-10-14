@@ -60,3 +60,11 @@ and [CyberGraphX autodocs](https://github.com/sacredbanana/AmigaSDK-gcc/blob/mas
 The [Commodore hardware manual's CIA register map](https://amigadev.elowar.com/read/ADCD_2.1/Hardware_Manual_guide/node012E.html)
 identifies the vertical-sync event counter used for native timing. AGA fetch setup
 is verified through emulator output, including the 320-pixel row layout.
+
+## Mouse console reference
+
+The original control layout follows the interaction described in the
+[Frontier: Elite II manual](https://www.lemonamiga.com/doc/frontier-elite-2/679):
+a persistent console, display selectors, contextual controls, a scanner that
+opens weapon controls, and mouse-operated time compression. Space uses its own
+labels, geometry, palette, code and existing game rules; no game artwork is used.

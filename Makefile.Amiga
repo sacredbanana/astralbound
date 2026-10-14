@@ -1,7 +1,7 @@
 AMIGA_CC ?= m68k-amigaos-gcc
 # Pull in libnix stack swapping so the executables honour their 128 KiB __stack.
 AMIGA_LDFLAGS = -Wl,-u,___stkinit
-CORE = src/audio.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/render.c
+CORE = src/audio.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/ui.c src/render.c
 SOURCES = $(CORE) src/platform/amiga.c
 CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -msoft-float -D__AMIGAOS3__ -MMD -MP
 ifeq ($(DEBUG),1)
@@ -12,7 +12,7 @@ OBJECTS_000 = $(patsubst %.c,build/amiga/000/%.o,$(SOURCES))
 TEST_OBJECTS = $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_space.o
 .PHONY: all clean tests variants release-tools benchmarks
 all: dist/amiga/Space.020 dist/amiga/Space.000
-tests: dist/amiga/Space-career-tests.020 dist/amiga/Space-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-RunTests
+tests: dist/amiga/Space-ui-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-RunTests
 variants: dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060
 benchmarks: dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020
 release-tools: dist/amiga/Space-Icons
@@ -33,7 +33,7 @@ dist/amiga/Space-tests.020: $(TEST_OBJECTS)
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
 clean:
 	rm -rf build/amiga
-	rm -f dist/amiga/Space.000 dist/amiga/Space.020 dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060 dist/amiga/Space-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020 dist/amiga/Space-Icons dist/amiga/Space-RunTests
+	rm -f dist/amiga/Space-ui-tests.020 dist/amiga/Space.000 dist/amiga/Space.020 dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060 dist/amiga/Space-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020 dist/amiga/Space-Icons dist/amiga/Space-RunTests
 -include $(OBJECTS_020:.o=.d) $(OBJECTS_000:.o=.d) build/amiga/020/tests/test_space.d
 
 dist/amiga/Space-presentation-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_presentation.o
@@ -87,3 +87,7 @@ dist/amiga/Space-RunTests: build/amiga/000/tools/run_tests.o
 dist/amiga/Space-career-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_careers.o
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
 -include build/amiga/020/tests/test_careers.d
+
+dist/amiga/Space-ui-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_ui.o
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+-include build/amiga/020/tests/test_ui.d

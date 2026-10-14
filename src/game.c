@@ -867,6 +867,7 @@ void game_action(Game *g, int k) {
         g->selection = 0;
         break;
     case 'u':
+        g->selection = 0;
         g->page = SHIPYARD;
         break;
     case 'j':

@@ -430,6 +430,11 @@ int load_game(Game *g, const char *path) {
         copy.pos = copy.ports[copy.docked].pos;
         copy.vel = port_relative_velocity(&copy, copy.docked);
     }
+    copy.ui_x = g->ui_x;
+    copy.ui_y = g->ui_y;
+    copy.ui_visible = g->ui_visible;
+    copy.ui_down = copy.ui_fire = copy.ui_weapons = 0;
+    copy.ui_capture = -1;
     copy.paused = 0;
     copy.turret_yaw = copy.yaw;
     copy.turret_pitch = copy.pitch;

@@ -10,6 +10,9 @@ int main(void) {
     result = SystemTags((CONST_STRPTR)"Space-tests.020 --quick > core-results.txt",
                         NP_StackSize, 262144, TAG_DONE);
     if (result) return 20;
+    result = SystemTags((CONST_STRPTR)"Space-ui-tests.020 > ui-results.txt",
+                        NP_StackSize, 262144, TAG_DONE);
+    if (result) return 20;
     result = SystemTags((CONST_STRPTR)"Space-career-tests.020 > career-results.txt",
                         NP_StackSize, 262144, TAG_DONE);
     if (result) return 20;

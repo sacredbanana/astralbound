@@ -79,7 +79,8 @@ layout on the host; these flags cannot be combined with `--rtg`. The host and Am
 renderer. `Space-tests.020` runs the full core suite on an Amiga;
 `Space-tests.020 --quick` runs the shorter native smoke suite.
 `Space-career-tests.020` runs the careers/resources/equipment regressions.
-`Space-RunTests` starts the presentation/core suites with an explicit 256 KiB
+`Space-ui-tests.020` exercises mouse workflows at all three display layouts.
+`Space-RunTests` starts the presentation/core/UI/career suites with an explicit 256 KiB
 child stack and writes their result files; use it in a bare boot CLI. Full trajectories
 remain in the default suite, which can take a long time under emulation.
 
@@ -112,9 +113,30 @@ works with autopilot; drive cruise batches are limited to one simulated second.
 Drive settings reset on loading, while saved velocity is preserved and fast
 cruise momentum retains powerful braking. All existing commander formats still load.
 
+The mouse console uses an original Frontier-inspired layout: a central elliptical
+scanner, instrument banks, raised controls and a persistent navigation strip.
+**FLY** returns to the cockpit without cycling the camera; **VIEW** cycles cameras.
+**GAL**, **NAV**, **SYS**, **PORT**, **LOG**, **KIT**, **CREW** and **HLP** open their
+panels. PORT has Contracts/Market/Shipyard tabs. Click a list row to select it, then
+use the labelled action buttons to trade, accept or negotiate jobs, buy equipment,
+hire crew or service the ship. Dim controls are unavailable in the current state.
+Buttons activate on release inside the same control; dragging away cancels a click.
+
+In flight, click **LAUNCH**, **AUTO**, **DRIVE**, **ASSIST**, **GEAR**, **DOCK** or
+**LOCK** to operate the ship. Drag the cyan throttle strip; **STOP** commands zero
+speed. The time strip selects 1/4/16/64/256/1024/4096x while retaining the existing
+safety limits; the cockpit shows delivered/requested compression. **PAUSE/PLAY**
+works with the mouse. Click the scanner to show missile/decoy controls and click
+its background again to return. In SYS, click a body or station marker to choose
+that navigation target; overlapping distant markers are resolved through NAV's
+list and BODY/PORT/PAGE buttons. GAL's nine sector tiles are clickable. SAVE,
+LOAD and EXIT are available in the panels. Mouse UI state is not stored in a
+commander. All keyboard shortcuts remain available.
+
 For manual flight, hold the **right mouse button** and drag to steer. Drag right/left
 for yaw and up/down for pitch; the mouse acts as a virtual stick with a small dead
-zone. Release the right button to recenter. **Left mouse button** fires. On Amiga,
+zone. Release the right button to recenter. **Left mouse button** fires when pressed in the flight viewport. Console and panel
+clicks never fire weapons. On Amiga,
 use the mouse port and a standard digital joystick in **joystick port 2**; directions
 steer and its fire button shoots. The host preview uses the first attached joystick
 or gamepad. Standard SDL controllers use proportional left-stick steering, A/B/X/Y

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense; SDL is used only by the host harness. */
 #include "space.h"
 #include "flight_input.h"
+#include "ui.h"
 #include "audio.h"
 #include "controller.h"
 #include <SDL.h>
@@ -57,6 +58,11 @@ int main(int argc, char **argv) {
             g.pos = add(port->pos, scale(port->normal, 1232LL * FP, 16384));
             aim_angles(sub(port->pos, g.pos), &g.yaw, &g.pitch);
         }
+        if (!strcmp(argv[i], "--market")) g.page = MARKET;
+        if (!strcmp(argv[i], "--board")) g.page = BOARD;
+        if (!strcmp(argv[i], "--equipment")) g.page = EQUIPMENT;
+        if (!strcmp(argv[i], "--destinations")) { g.page = SYSTEM_MAP; g.system_display = 0; }
+        if (!strcmp(argv[i], "--weapons")) g.ui_weapons = 1;
         if (!strcmp(argv[i], "--system-map")) { g.page = SYSTEM_MAP; g.system_display = 1; }
         if (!strcmp(argv[i], "--system-data")) { g.page = SYSTEM_MAP; g.system_display = 2; }
         if (!strcmp(argv[i], "--local-map")) { g.page = SYSTEM_MAP; g.system_display = 1; g.map_local = 1; }
@@ -134,6 +140,8 @@ int main(int argc, char **argv) {
         audio_device = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
         if (audio_device) SDL_PauseAudioDevice(audio_device, 0);
     }
+    SDL_ShowCursor(SDL_DISABLE);
+    ui_move(&g, &f, f.w / 2, f.h / 2);
     freq = SDL_GetPerformanceFrequency();
     last = SDL_GetPerformanceCounter();
     while (!quit) {
@@ -161,9 +169,22 @@ int main(int argc, char **argv) {
                 SDL_SetRelativeMouseMode(SDL_FALSE);
                 mouse_stick(&mouse, 0, 0, 0);
             }
-            if (e.type == SDL_MOUSEMOTION)
+            if (e.type == SDL_MOUSEMOTION) {
+                if (!mouse_right) {
+                    ui_move(&g, &f, e.motion.x, e.motion.y);
+                    ui_pointer(&g, &f, e.motion.x, e.motion.y, g.ui_down);
+                }
                 mouse_stick(&mouse, e.motion.xrel, e.motion.yrel,
                             mouse_right && g.page == FLIGHT && !g.paused);
+            }
+            if ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) && e.button.button == SDL_BUTTON_LEFT) {
+                int request = ui_pointer(&g, &f, mouse_right ? g.ui_x : e.button.x,
+                                         mouse_right ? g.ui_y : e.button.y, e.type == SDL_MOUSEBUTTONDOWN);
+                if (request == UI_EXIT) quit = 1;
+                if (request == UI_SAVE) snprintf(g.message, sizeof(g.message), "%s", save_game(&g, "space.sav") ? "SAVED" : "SAVE FAILED");
+                if (request == UI_LOAD && !load_game(&g, "space.sav")) snprintf(g.message, sizeof(g.message), "LOAD FAILED");
+            }
+            if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) ui_cancel(&g);
             if (e.type == SDL_QUIT)
                 quit = 1;
             if (e.type == SDL_KEYDOWN && !e.key.repeat) {
@@ -190,6 +211,7 @@ int main(int argc, char **argv) {
                     game_action(&g, k);
             }
         }
+        ui_pointer(&g, &f, g.ui_x, g.ui_y, g.ui_down);
         keys = SDL_GetKeyboardState(0);
         if (g.page != FLIGHT || g.paused) {
             mouse_right = 0;
@@ -215,7 +237,7 @@ int main(int argc, char **argv) {
             }
             c.fire = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL];
             flight_input(&c, &mouse, yaw, pitch,
-                         fire || (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON_LMASK));
+                         fire || ui_fire(&g, &f));
         }
         if (gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             unsigned buttons = 0;
@@ -243,6 +265,7 @@ int main(int argc, char **argv) {
         if (audio_device) SDL_LockAudioDevice(audio_device);
         audio_observe(&sound, &g);
         if (audio_device) SDL_UnlockAudioDevice(audio_device);
+        g.ui_visible = !mouse_right && !!(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
         render_game(&g, &f);
         for (i = 0; i < f.w * f.h; i++)
             rgb[i] = 0xff000000U | f.palette[f.pixels[i]];

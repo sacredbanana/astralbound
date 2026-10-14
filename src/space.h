@@ -157,6 +157,7 @@ typedef struct {
     Deposit deposits[MAX_DEPOSITS];
     int rig_count, deposit_count;
     int board_page, black_market, resource_target; /* transient UI/navigation */
+    int ui_x, ui_y, ui_visible, ui_down, ui_capture, ui_press_page, ui_fire, ui_weapons; /* transient */
     char message[80];
 } Game;
 typedef struct {

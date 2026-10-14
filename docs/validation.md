@@ -537,3 +537,34 @@ PAL/NTSC performance, analogue/CD32 devices, other RTG cards, live AGA/RTG caree
 play or long-duration audio/display lifecycle stability. That hardware QA item
 remains unchecked. Careers are bounded templates and local encounters, not a
 persistent civilian economy or strategic war simulation.
+
+## Mouse cockpit and GUI (2026-10-13)
+
+- Shared integer layout and pointer capture/hit testing in `src/ui.c`; both SDL
+  preview and native ECS/AGA/RTG backends use it. The original console has a
+  central elliptical 10 km scanner/weapon panel, raised contextual controls,
+  hull/shield/fuel/temperature gauges, drag throttle and safe time selection.
+- Clickable markets, contract/equipment/hull lists, crew actions, galaxy tiles
+  and true-scale orbital markers; docking, flight, save/load and exit are mouse
+  operated. Release outside the pressed widget cancels activation. UI gestures
+  cannot start weapon fire. Pointer state is transient and commander formats
+  remain unchanged. The pointer stays in place on loading a commander.
+- `tests/test_ui.c` exercises purchases/sales, target selection, launch,
+  autopilot, warp, pause, weapons-panel switching, throttle, cancelled/disabled
+  controls, death/restart, platform requests and transient save state at
+  320x200, 320x256 and 640x480. It is part of host/native builds and the native
+  `Space-RunTests` wrapper.
+- Host core/career/presentation/renderer suites and ASan/UBSan checks pass,
+  including astronomical navigation. 68000/020/030/040/060 soft-float binaries
+  build with warnings treated as errors. AmigaGuide checker: zero defects.
+- Isolated PAL 68020 Amiberry ran the native UI workflow suite and ECS 320x200
+  GUI. Actual mouse input opened PORT/Market, purchased and sold cargo, saved
+  and restored the commander, and exited to the CLI. Screenshots show cargo
+  and credit changes and SAVED/COMMANDER RESTORED feedback. Exit restores
+  DMA `03F0` from flight's `03C0`; the user's original AmiKit process remains
+  untouched. Evidence: `build/gui-native-*.png`, `build/gui-guest/ui-results.txt`,
+  `build/gui-tests.log`, `build/gui-sanitize.log` and `build/gui-amiga-build.log`.
+
+Live RTG mouse/focus/pointer hiding, live AGA GUI, physical controllers/hardware
+and real-machine performance remain unverified. Host RTG rendering and shared
+mouse tests do not establish those runtime properties.

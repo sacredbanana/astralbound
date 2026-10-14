@@ -2,6 +2,7 @@
    Native PAL/NTSC ECS/AGA takeover; RTG stays under the graphics driver. */
 #include "space.h"
 #include "flight_input.h"
+#include "ui.h"
 #include "native_video.h"
 #include "controller.h"
 #include <proto/lowlevel.h>
@@ -58,6 +59,8 @@ static volatile UBYTE *cia_sdr = (volatile UBYTE *)0xbfec01;
 static volatile UBYTE *cia_cra = (volatile UBYTE *)0xbfee01;
 static UBYTE held[128], pressed[128], ecs_map[256];
 static Game g;
+static Frame f;
+static UWORD *blank_pointer;
 static MouseStick mouse;
 static UWORD mouse_last;
 static int mouse_right, mouse_left, input_active = 1;
@@ -68,10 +71,11 @@ static void native_mouse(void) {
     mouse_last = now;
     mouse_right = !(hw->potinp & 0x0400);
     mouse_left = !(*(volatile UBYTE *)0xbfe001 & 0x40);
+    if (!mouse_right) ui_move(&g, &f, g.ui_x + dx - 128, g.ui_y + dy - 128);
     mouse_stick(&mouse, dx - 128, dy - 128,
                 mouse_right && g.page == FLIGHT && !g.paused);
 }
-static Frame f;
+
 static UBYTE *planes[2], *mapped;
 static UWORD *copper[2];
 static struct View *old_view;
@@ -349,6 +353,8 @@ static int open_rtg(void) {
                             TAG_DONE);
     if (!window)
         return 0;
+    blank_pointer = AllocMem(12, MEMF_CHIP | MEMF_CLEAR);
+    if (blank_pointer) SetPointer(window, blank_pointer, 1, 16, 0, 0);
     palette[0] = 256UL << 16;
     for (i = 0; i < 256; i++) {
         ULONG c = f.palette[i];
@@ -391,8 +397,11 @@ static void close_all(void) {
                 FreeScreenBuffer(screen, buffers[i]);
         if (safe_port)
             DeleteMsgPort(safe_port);
-        if (window)
+        if (window) {
+            if (blank_pointer) ClearPointer(window);
             CloseWindow(window);
+        }
+        if (blank_pointer) FreeMem(blank_pointer, 12);
         if (screen)
             CloseScreen(screen);
     }
@@ -565,6 +574,7 @@ int main(int argc, char **argv) {
         takeover();
         render_set_pump(keyboard);
     }
+    ui_move(&g, &f, f.w / 2, f.h / 2);
     last_time = clock_now();
     while (!quit) {
         Controls c = {0};
@@ -583,10 +593,19 @@ int main(int argc, char **argv) {
                     if (code == SELECTDOWN) mouse_left = 1;
                     if (code == SELECTUP) mouse_left = 0;
                     if (!mouse_right) mouse_stick(&mouse, 0, 0, 0);
+                    { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                      if (u == UI_SAVE) request = 1;
+                      if (u == UI_LOAD) request = 2;
+                      if (u == UI_EXIT) quit = 1; }
                 } else if (m->Class == IDCMP_MOUSEMOVE) {
+                    if (!mouse_right) {
+                        ui_move(&g, &f, g.ui_x + m->MouseX, g.ui_y + m->MouseY);
+                        ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                    }
                     mouse_stick(&mouse, m->MouseX, m->MouseY,
                                 mouse_right && g.page == FLIGHT && !g.paused);
                 } else if (m->Class == IDCMP_INACTIVEWINDOW) {
+                    ui_cancel(&g);
                     input_active = mouse_right = mouse_left = 0;
                     memset(held, 0, sizeof(held));
                     memset(pressed, 0, sizeof(pressed));
@@ -596,6 +615,12 @@ int main(int argc, char **argv) {
             }
         } else
             keyboard();
+        if (input_active) {
+            int ui_request = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+            if (ui_request == UI_SAVE) request = 1;
+            if (ui_request == UI_LOAD) request = 2;
+            if (ui_request == UI_EXIT) quit = 1;
+        }
         controller_poll();
         for (i = 0; i < 128; i++) {
             if (pressed[i]) {
@@ -661,7 +686,7 @@ int main(int argc, char **argv) {
             c.thrust = held[0x11] - held[0x21];
             c.fire = held[0x63];
             flight_input(&c, &mouse, analog ? 0 : joystick_yaw(joy), analog ? 0 : joystick_pitch(joy),
-                         mouse_left || !(*(volatile UBYTE *)0xbfe001 & 0x80));
+                         ui_fire(&g, &f) || !(*(volatile UBYTE *)0xbfe001 & 0x80));
         }
         if (input_active) {
             ULONG type = pad_state & JP_TYPE_MASK;
@@ -693,6 +718,7 @@ int main(int argc, char **argv) {
         }
         sound_update();
         if (profiling) tick_start = clock_now();
+        g.ui_visible = input_active && !mouse_right;
         render_game(&g, &f);
         if (profiling) { uint64_t now = clock_now(); render_ticks += rtg ? now - tick_start : (now - tick_start) & 0xffffffU; tick_start = now; }
         if (rtg) {

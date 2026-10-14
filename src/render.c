@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "space.h"
+#include "ui.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +26,7 @@ static size_t depth_capacity;
 static Frame *frame;
 static const Game *game;
 static int view_h;
+static int draw_scale = 1;
 static Vec camera_position;
 static int camera_yaw, camera_pitch;
 /* Q4 coordinates retain fractional ray hits between fixed mesh vertices. */
@@ -72,11 +74,15 @@ static const uint8_t glyphs[][7] = {
     {2, 6, 10, 18, 31, 2, 2},     {31, 16, 16, 30, 1, 1, 30},   {14, 16, 16, 30, 17, 17, 14},
     {31, 1, 2, 4, 8, 8, 8},       {14, 17, 17, 14, 17, 17, 14}, {14, 17, 17, 15, 1, 1, 14}};
 static void pixel(int x, int y, int c) {
-    if (x >= 0 && y >= 0 && x < frame->w && y < frame->h)
-        frame->pixels[y * frame->w + x] = (uint8_t)c;
+    int xx, yy;
+    x *= draw_scale; y *= draw_scale;
+    for (yy=0; yy<draw_scale; yy++) for(xx=0;xx<draw_scale;xx++)
+        if(x+xx>=0 && y+yy>=0 && x+xx<frame->w && y+yy<frame->h)
+            frame->pixels[(y+yy)*frame->w+x+xx]=(uint8_t)c;
 }
 static void rect(int x, int y, int w, int h, int c) {
     int yy;
+    x *= draw_scale; y *= draw_scale; w *= draw_scale; h *= draw_scale;
     if (x < 0) {
         w += x;
         x = 0;
@@ -1056,46 +1062,6 @@ static void world(void) {
         raster(&triangles[i]);
     }
 }
-static void hud(void) {
-    char s[100];
-    int w = frame->w, h = view_h, i;
-    rect(0, h, w, frame->h - h, 1);
-    rect(0, h, w, 1, 13);
-    text(7, h + 6, 13, "SPACE");
-    snprintf(s, sizeof(s), "%s / %s", game->system.name,
-             game->docked >= 0 ? "DOCKED"
-             : game->autopilot ? (game->drive_active ? "AUTO DRIVE" : "AUTO")
-                               : game->drive_active ? "DRIVE" : game->drive_manual ? "DRIVE LOCK" : "MANUAL");
-    text(49, h + 6, 15, s);
-    {
-        int64_t alt = altitude_at(game, game->pos), speed = length(game->vel) / FP;
-        char altitude[32];
-        if (alt >= AU_METRES / 10)
-            snprintf(altitude, sizeof(altitude), "%ld.%02ld AU", (long)(alt / AU_METRES),
-                     (long)((alt % AU_METRES) * 100 / AU_METRES));
-        else if (alt >= 1000000)
-            snprintf(altitude, sizeof(altitude), "%ld KM", (long)(alt / 1000));
-        else
-            snprintf(altitude, sizeof(altitude), "%ld M", (long)alt);
-        snprintf(s, sizeof(s), "ALT %s  V %ld %s", altitude,
-                 (long)(speed >= 100000 ? speed / 1000 : speed),
-                 speed >= 100000 ? "KM/S" : "M/S");
-    }
-    text(7, h + 18, 15, s);
-    snprintf(s, sizeof(s), "%d CR  %dX/%dX", game->credits, game->effective_warp, game->warp);
-    text(7, h + 30, 12, s);
-    for (i = 0; i < 3; i++) {
-        int value = i == 0 ? game->hull : i == 1 ? game->shield : game->fuel;
-        int xx = w - 96;
-        text(xx, h + 6 + i * 12, 15, i == 0 ? "H" : i == 1 ? "S" : "F");
-        rect(xx + 10, h + 6 + i * 12, 78, 6, 3);
-        rect(xx + 10, h + 6 + i * 12, value * 78 / 100, 6, i == 0 ? 11 : i == 1 ? 13 : 12);
-    }
-    text(7, h + 44, 7, "V FLIGHT  G MAP  B PORT  H HELP");
-    text(7, view_h - 10, 12, game->message);
-    if (game->paused)
-        text(w / 2 - 18, 40, 12, "PAUSED");
-}
 static void panel(const char *title) {
     rect(4, 4, frame->w - 8, view_h - 19, 1);
     rect(4, 4, frame->w - 8, 2, 13);
@@ -1107,9 +1073,7 @@ static int selected_body(void) {
 /* A top-down true-scale projection. Local mode resolves moons and ports that
    are necessarily coincident at AU scale. All arithmetic stays in metres. */
 static void map_point(Vec p, Vec origin, int64_t extent, int *x, int *y) {
-    Vec r = scale(sub(p, origin), 62, extent);
-    *x = screen_coord(frame->w / 2 + r.x);
-    *y = screen_coord(96 - r.z);
+    ui_map_point(p, origin, extent, x, y);
 }
 static void orbit_path(Vec origin, Vec center, int64_t radius, int inclination,
                        int64_t extent) {
@@ -1131,30 +1095,7 @@ static void orbital_map(void) {
     int64_t extent = 1;
     Vec origin = vec(0, 0, 0);
     char s[96];
-    if (game->map_local) {
-        parent = game->system.planets[b].parent;
-        if (parent < 0)
-            parent = b;
-        origin = game->system.planets[parent].center;
-        extent = (int64_t)game->system.planets[parent].radius * 4;
-        for (i = 0; i < game->system.count; i++)
-            if (game->system.planets[i].parent == parent && game->system.planets[i].orbit > extent)
-                extent = game->system.planets[i].orbit;
-        for (i = 0; i < game->nports; i++)
-            if (game->ports[i].body == parent) {
-                int64_t d = length(sub(scale(game->ports[i].pos, 1, FP), origin));
-                if (d > extent)
-                    extent = d;
-            }
-    } else {
-        for (i = 0; i < game->system.count; i++) {
-            const Planet *p = &game->system.planets[i];
-            int64_t d = p->orbit + (p->parent >= 0 ? game->system.planets[p->parent].orbit : 0);
-            if (d > extent)
-                extent = d;
-        }
-    }
-    extent = extent * 11 / 10;
+    ui_orbit_geometry(game, &origin, &extent, &parent);
     panel(game->map_local ? "LOCAL ORBITS / TOP DOWN" : "SYSTEM ORBITS / TOP DOWN");
     for (i = 0; i < game->system.count; i++) {
         const Planet *p = &game->system.planets[i];
@@ -1192,7 +1133,7 @@ static void orbital_map(void) {
              (long)(extent / (game->map_local ? 1000 : AU_METRES / 100)),
              game->map_local ? "KM" : "0.01 AU");
     text(12, 161, 7, s);
-    text(12, 174, 7, "C SCALE / Q T SELECT / I DATA / Y LIST");
+
 }
 static void system_data(void) {
     static const char *climates[] = {"VACUUM", "TEMPERATE", "THIN", "DENSE", "FROZEN", "HYDROGEN"};
@@ -1209,53 +1150,34 @@ static void system_data(void) {
              governments[game->system.government]);
     text(12, 42, 7, s);
     snprintf(s, sizeof(s), "%s / %s", p->name, body_names[p->type]);
-    text(12, 60, 12, s);
+    text(12, 52, 12, s);
     snprintf(s, sizeof(s), "RADIUS %ld KM / GRAVITY %d M/S2", (long)(p->radius / 1000), (int)p->gravity);
-    text(12, 72, 15, s);
+    text(12, 62, 15, s);
     snprintf(s, sizeof(s), "%s / ATMOSPHERE %ld KM", climates[p->climate], (long)(p->atmosphere / 1000));
-    text(12, 84, 15, s);
+    text(12, 72, 15, s);
     snprintf(s, sizeof(s), "PARENT %s / %s", p->parent >= 0 ? game->system.planets[p->parent].name : "STARS",
              p->rings ? "RINGS" : "NO RINGS");
-    text(12, 96, 15, s);
+    text(12, 82, 15, s);
     snprintf(s, sizeof(s), "ORBIT %ld %s", (long)(p->orbit / (p->parent >= 0 ? 1000 : AU_METRES / 100)),
              p->parent >= 0 ? "KM" : "0.01 AU");
-    text(12, 108, 15, s);
+    text(12, 92, 15, s);
     snprintf(s, sizeof(s), "PERIOD %lu H / INCLINATION %d DEG", (unsigned long)(p->period / 3600),
              p->inclination * 360 / ANGLE);
-    text(12, 120, 15, s);
+    text(12, 102, 15, s);
     for (i = 0; i < game->nports; i++)
         ports += game->ports[i].body == b;
     snprintf(s, sizeof(s), "%d PORTS / %s", ports,
              j >= 0 && (game->explored[j].surveyed & (1U << b)) ? "SURVEYED" : "UNSURVEYED");
-    text(12, 132, 13, s);
+    text(12, 112, 13, s);
     snprintf(s, sizeof(s), "NAV RANGE %ld KM", (long)(length(sub(navigation_position(game), game->pos)) / (FP * 1000)));
-    text(12, 150, 15, s);
-    text(12, 174, 7, "Q T SELECT / UP DOWN / Z ORBITS / V FLY");
+    text(12, 124, 15, s);
+
 }
 /* Radar follows the hull heading even when a turret or rear camera is used.
    Horizontal distance uses X/Z; a short stem shows signed vertical separation. */
 static void sensors(void) {
-    int i, selected = combat_target(game), cx = frame->w - 46, cy = 43;
+    int selected = combat_target(game);
     char s[80];
-    rect(cx - 40, 8, 80, 61, 1);
-    text(cx - 36, 11, 7, "RADAR 10 KM");
-    line(cx - 35, cy, cx + 35, cy, 3);
-    line(cx, cy - 18, cx, cy + 18, 3);
-    rect(cx - 1, cy - 1, 3, 3, 15);
-    for (i = 0; i < MAX_NPC; i++) {
-        const Npc *n = &game->npc[i];
-        Vec r;
-        int x, y, stem, color;
-        if (!n->active || length(sub(n->pos, game->pos)) > 10000LL * FP)
-            continue;
-        r = scale(sub(n->pos, game->pos), 1, FP);
-        x = (int)((r.x * cosi(game->yaw) - r.z * sini(game->yaw)) / 16384 * 32 / 10000);
-        y = (int)((r.x * sini(game->yaw) + r.z * cosi(game->yaw)) / 16384 * 18 / 10000);
-        stem = (int)(r.y * 8 / 10000);
-        color = i == selected ? 12 : n->hostile ? 14 : 11;
-        line(cx + x, cy - y, cx + x, cy - y - stem, color);
-        rect(cx + x - 1, cy - y - stem - 1, 3, 3, color);
-    }
     text(7, 20, 7, game->camera_mode == 0 ? "FRONT" : game->camera_mode == 1 ? "REAR" :
          game->camera_mode == 2 ? "EXTERNAL" : game->camera_mode == 3 ? "DORSAL TURRET" : "VENTRAL TURRET");
     if (selected >= 0) {
@@ -1435,11 +1357,11 @@ static void menus(void) {
                      m->state == ACTIVE     ? "ACTIVE"
                      : m->state == COMPLETE ? "PAID"
                                             : "FAILED");
-            text(12, 30 + i * 18, 13, s);
+            text(12, 30 + i * 13, 13, s);
             snprintf(s, sizeof(s), "  %ld/%ld P%d LEG%d/%d %ldS", (long)m->destination.x,
                      (long)m->destination.z, m->port + 1, m->leg, m->legs,
                      (long)(m->deadline > game->tick ? (m->deadline - game->tick) / HZ : 0));
-            text(12, 39 + i * 18, 7, s);
+            text(12, 37 + i * 13, 7, s);
         }
         break;
     case HELP:
@@ -1453,12 +1375,159 @@ static void menus(void) {
                 "F5 SAVE / F9 LOAD / ESC EXIT",         "R CONTACT / Z ORBITS / I BODY DATA",
                 "0 EQUIP / 9 CREW / , MISSILE . DECOY", "BACKSLASH ROCK / O MINE N CARGO / / POD"};
             for (i = 0; i < 12; i++)
-                text(12, 30 + i * 12, i < 9 ? 15 : 7, help[i]);
+                text(12, 30 + i * 9, i < 9 ? 15 : 7, help[i]);
         }
         break;
     default:
         break;
     }
+}
+static void bevel(int x,int y,int w,int h,int selected) {
+    rect(x,y,w,h,selected?19:16);
+    line(x,y,x+w-1,y,selected?3:20); line(x,y,x,y+h-1,selected?3:20);
+    line(x,y+h-1,x+w-1,y+h-1,selected?20:0); line(x+w-1,y,x+w-1,y+h-1,selected?20:0);
+}
+static void gui_rows(void) {
+    char s[100]; int i;
+    for(i=0;i<8;i++) {
+        switch(game->page) {
+        case MARKET:
+            snprintf(s,sizeof(s),"%-9s %4d %4d %4d %3d",goods_names[i],price(game,i),sell_price(game,i),market_stock(game,i),game->cargo[i]); break;
+        case BOARD:
+            snprintf(s,sizeof(s),"%-14s %5d CR  %s",mission_names[game->board[i].type],game->board[i].reward,game->board[i].state==OFFERED?"OFFER":"TAKEN"); break;
+        case EQUIPMENT:
+            snprintf(s,sizeof(s),"%-19s %4d CR  %d",equipment_names[i],equipment_cost[i],i==CABIN?game->cabins:i==MISSILE_RACK?game->missiles:i==COUNTERMEASURE?game->countermeasures:equipped(game,(Equipment)i)); break;
+        case SHIPYARD:
+            if(i>=SHIPS) continue;
+            snprintf(s,sizeof(s),"%-9s %3dT %d CREW %5d CR",ship_specs[i].name,ship_specs[i].capacity,ship_specs[i].crew,ship_specs[i].cost); break;
+        case SYSTEM_MAP: {
+            int first=game->target<0?game->target_body/8*8:game->target/8*8;
+            if(first+i>=(game->target<0?game->system.count:game->nports)) continue;
+            if(game->target<0) snprintf(s,sizeof(s),"%-20s %s",game->system.planets[first+i].name,body_names[game->system.planets[first+i].type]);
+            else snprintf(s,sizeof(s),"%-20s %s",game->ports[first+i].name,game->ports[first+i].surface?"SURFACE":"ORBITAL");
+            break;
+        }
+        default: continue;
+        }
+        text(13,44+i*12,i==game->selection && game->page!=SYSTEM_MAP?12:15,s);
+    }
+}
+static void cockpit_scan(int top) {
+    int cx=160,cy=top+24,i,a,px=0,py=0;
+    rect(102,top+3,115,36,0);
+    if(game->ui_weapons) { text(107,top+5,13,"WEAPON CONTROL"); return; }
+    for(a=0;a<=ANGLE;a+=32) {
+        int x=cx+sini(a)*53/16384,y=cy+cosi(a)*12/16384;
+        if(a) line(px,py,x,y,5);
+        px=x; py=y;
+    }
+    line(106,cy,214,cy,3); line(cx,top+11,cx,top+36,3);
+    line(134,top+13,186,top+35,3); line(186,top+13,134,top+35,3);
+    for(i=0;i<MAX_NPC;i++) {
+        const Npc *npc=&game->npc[i]; Vec r;
+        int x,y,stem,c;
+        if(!npc->active || length(sub(npc->pos,game->pos))>10000LL*FP) continue;
+        r=scale(sub(npc->pos,game->pos),1,FP);
+        x=(int)((r.x*cosi(game->yaw)-r.z*sini(game->yaw))/16384*50/10000);
+        y=(int)((r.x*sini(game->yaw)+r.z*cosi(game->yaw))/16384*10/10000);
+        stem=(int)(r.y*8/10000); c=i==combat_target(game)?12:npc->hostile?14:11;
+        line(cx+x,cy-y,cx+x,cy-y-stem,c); rect(cx+x-1,cy-y-stem-1,3,3,c);
+    }
+    rect(cx-1,cy-1,3,3,15); text(130,top+4,7,"SCAN 10KM");
+}
+static void gui(void) {
+    UiWidget v[UI_MAX_WIDGETS]; int i,n=ui_widgets(game,frame,v),s=ui_scale(frame);
+    int h=frame->h/s,top=h-80,hover=-1;
+    char buf[100];
+    draw_scale=s;
+    if(game->page==FLIGHT) {
+        rect(0,top,320,80,16); line(0,top,319,top,20);
+        bevel(0,top,100,64,0); bevel(99,top,121,43,0); bevel(220,top,100,45,0);
+        cockpit_scan(top);
+        rect(3,top+31,94,10,0);
+        { int64_t speed=length(game->vel)/FP;
+          snprintf(buf,sizeof(buf),"V %ld %s",(long)(speed>=100000?speed/1000:speed),speed>=100000?"KM/S":"M/S"); text(5,top+33,13,buf); }
+        for(i=0;i<4;i++) {
+            int value=i==0?game->hull:i==1?game->shield:i==2?game->fuel:game->heat, x=223+i*23;
+            int c=i==0?14:i==1?13:i==2?12:game->heat>=80?14:11;
+            text(x,top+32,c,i==0?"HUL":i==1?"SHD":i==2?"FUE":"TMP");
+            rect(x,top+40,21,3,0); rect(x,top+40,value*21/100,3,c);
+        }
+        snprintf(buf,sizeof(buf),"%s %dX/%dX",game->paused?"PAUSED":"TIME",game->effective_warp,game->warp);
+        text(104,top+39,12,buf);
+    } else {
+        static const char *titles[]={"FLIGHT","GALACTIC NAVIGATION","CONTRACT EXCHANGE","COMMODITY MARKET","SHIP CATALOGUE","CONTRACT LOG","SYSTEM NAVIGATION","FLIGHT MANUAL","SHIP EQUIPMENT","COMMANDER RECORD"};
+        rect(0,0,320,h,1);
+        if(game->page==LOG || game->page==HELP || (game->page==SYSTEM_MAP && game->system_display)) {
+            /* Existing orbital projection and body data remain truthful at true scale. */
+            int old_h=view_h; view_h=h; menus(); view_h=old_h;
+            rect(0,h-60,320,60,1);
+        }
+        rect(0,0,320,20,16); line(0,19,319,19,20);
+        text(8,7,13,titles[game->page]);
+        if(game->page==MARKET) text(13,34,7,"ITEM        BUY SELL STOCK HOLD");
+        if(game->page==BOARD) text(13,34,7,game->docked>=0?game->ports[game->docked].name:"DOCK TO ACCEPT CONTRACTS");
+        if(game->page==SHIPYARD) text(13,34,7,"HULL      HOLD  CREW    PRICE");
+        if(game->page==EQUIPMENT) text(13,34,7,"EQUIPMENT          PRICE  FITTED");
+        if(game->page==CAREER) {
+            snprintf(buf,sizeof(buf),"%s / %d CR",ship_specs[game->ship].name,game->credits); text(12,28,15,buf);
+            snprintf(buf,sizeof(buf),"CREW %d/%d / PASSENGERS %d/%d",game->crew,ship_specs[game->ship].crew,passengers_used(game),game->cabins*2); text(12,42,13,buf);
+            for(i=0;i<FACTIONS;i++) {
+                snprintf(buf,sizeof(buf),"%s / %s",faction_names[i],military_rank(game,i)); text(12,65+i*26,12,buf);
+                snprintf(buf,sizeof(buf),"REP %d / FINE %d / MEDALS %d",game->reputation[i],game->wanted[i],game->medals[i]); text(12,76+i*26,7,buf);
+            }
+        }
+        if(game->page==MAP) {
+            System selected; generate_system(game->seed,game->selected,&selected);
+            snprintf(buf,sizeof(buf),"%s  %ld/%ld",selected.name,(long)game->selected.x,(long)game->selected.z); text(12,24,13,buf);
+            snprintf(buf,sizeof(buf),"%d BODIES / %d PORTS / %d FUEL",selected.count,system_port_count(&selected),game->fuel); text(12,143,7,buf);
+        }
+    }
+    for(i=0;i<n;i++) {
+        UiWidget *b=&v[i]; int over=game->ui_visible && game->ui_x/s>=b->x && game->ui_x/s<b->x+b->w && game->ui_y/s>=b->y && game->ui_y/s<b->y+b->h;
+        int pressed=game->ui_down && game->ui_capture==b->action && over;
+        if(over) hover=i;
+        if(b->action==UI_SCAN || b->action>=UI_BODY) continue;
+        if(b->action==UI_THROTTLE) {
+            rect(b->x,b->y,b->w,b->h,0); rect(b->x+1,b->y+1,game->throttle*(b->w-2)/4000,b->h-2,13); continue;
+        }
+        bevel(b->x,b->y,b->w,b->h,pressed || b->active);
+        if(over && b->enabled) line(b->x+1,b->y+1,b->x+b->w-2,b->y+1,13);
+        if(b->label[0]) text(b->x+(b->w-(int)strlen(b->label)*6)/2,b->y+(b->h-7)/2,b->enabled?(b->active?12:15):7,b->label);
+        if(b->action>=UI_SECTOR && b->action<UI_SECTOR+9) {
+            int id=b->action-UI_SECTOR; Sector sector=game->selected; System sys;
+            sector.x+=id%3-1; sector.z+=id/3-1; generate_system(game->seed,sector,&sys);
+            rect(b->x+48,b->y+6,3,3,sys.count?exploration_index(game,sector)>=0?11:13:7);
+            text(b->x+6,b->y+20,b->active?12:15,sys.count?sys.name:"EMPTY");
+        }
+    }
+    if(game->page==MARKET || game->page==BOARD || game->page==SHIPYARD || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display)) gui_rows();
+    if(game->page!=FLIGHT) {
+        snprintf(buf,sizeof(buf),"%d CR / HOLD %d/%dT",game->credits,cargo_used(game),ship_capacity[game->ship]); text(8,h-28,12,buf);
+        /* Status ribbon stays clear of both action buttons and navigation. */
+        if(game->page==BOARD) {
+            const Mission *m=&game->board[game->selection];
+            snprintf(buf,sizeof(buf),"TO %ld/%ld P%d / %dT %dP / %ldH",(long)m->destination.x,(long)m->destination.z,m->port+1,m->quantity,m->passengers,(long)((m->deadline>game->tick?m->deadline-game->tick:0)/(HZ*3600)));
+            text(8,h-62,7,buf);
+        } else if(game->page==SYSTEM_MAP && !game->system_display) {
+            snprintf(buf,sizeof(buf),"RANGE %ld KM / %s",(long)(length(sub(navigation_position(game),game->pos))/(FP*1000)),game->target<0?"BODY WAYPOINT":"DOCKING PORT");
+            text(8,h-62,7,buf);
+        }
+        snprintf(buf,sizeof(buf),"%.50s",game->message); text(8,h-52,13,buf);
+    } else {
+        draw_scale=1;
+        { int64_t alt=altitude_at(game,game->pos);
+          snprintf(buf,sizeof(buf),"ALT %ld %s / %s",(long)(alt>=1000000?alt/1000:alt),alt>=1000000?"KM":"M",game->autopilot?"AUTO":game->drive_active?"DRIVE":"MANUAL"); text(7,view_h-23,13,buf); }
+        snprintf(buf,sizeof(buf),"%.50s",hover>=0 && v[hover].label[0]?v[hover].label:game->message);
+        text(7,view_h-10,12,buf);
+        draw_scale=s;
+    }
+    if(game->ui_visible) {
+        int x=game->ui_x/s,y=game->ui_y/s;
+        line(x,y,x,y+9,0); line(x,y,x+7,y+7,0); line(x,y+9,x+3,y+6,0);
+        line(x+1,y+1,x+1,y+7,15); line(x+1,y+1,x+5,y+5,15);
+    }
+    draw_scale=1;
 }
 void render_shutdown(void) {
     free(depth_buffer);
@@ -1517,15 +1586,9 @@ void render_game(const Game *g, Frame *f) {
     int64_t alt = altitude_at(g, g->pos);
     frame = f;
     game = g;
-    /* Keep all eight rows and menu instructions readable at 200 lines.
-       Compact menus use the whole screen; flight retains its cockpit. */
-    if (f->h < 256 && g->page != FLIGHT) {
-        char status[110];
-        view_h = f->h;
-        memset(f->pixels, 0, (size_t)f->w * f->h);
-        menus();
-        snprintf(status, sizeof(status), "%ld CR  %s", (long)g->credits, g->message);
-        text(7, f->h - 12, 12, status);
+    if (g->page != FLIGHT) {
+        view_h=f->h;
+        gui();
         return;
     }
     camera_position = g->pos;
@@ -1536,7 +1599,7 @@ void render_game(const Game *g, Frame *f) {
                               scale(up, 220 * FP, 16384));
         aim_angles(sub(g->pos, camera_position), &camera_yaw, &camera_pitch);
     }
-    view_h = f->h - 56;
+    view_h = ui_view_height(g, f);
     nt = 0;
     {
         size_t count = (size_t)f->w * view_h;
@@ -1604,9 +1667,8 @@ void render_game(const Game *g, Frame *f) {
             line(f->w - 20, view_h - 20, f->w / 2, view_h / 2, 12);
         }
         sensors();
-    } else
-        menus();
-    hud();
+    }
+    gui();
 }
 /* Planes are contiguous and MSB-first, independent of host byte order. */
 void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {

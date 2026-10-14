@@ -12,10 +12,10 @@ static void resource_visibility(void) {
     g.pos = add(asteroid_position(&g, 0), vec(0, 0, -800 * FP));
     f.pixels = calloc(320 * 200, 1); assert(f.pixels && render_init(&f));
     render_game(&g, &f);
-    for (y = 53; y < 89; y++) for (x = 140; x < 180; x++)
+    for (y = 20; y < view_h-25; y++) for (x = 120; x < 200; x++)
         if (depth_buffer[y * 320 + x] && f.pixels[y * 320 + x] >= 6 &&
             f.pixels[y * 320 + x] <= 8) pixels++;
-    assert(pixels > 500);
+    assert(pixels > 300);
     free(f.pixels); render_shutdown();
     puts("PASS asteroid geometry visible in the astronomical Q8 camera frame");
 }
@@ -72,7 +72,7 @@ static void compact_display(void) {
         render_game(&g, &full);
         assert(render_init(&small));
         render_game(&g, &small);
-        for (y = 12; y < 181; y++)
+        for (y = 20; y < 138; y++)
             assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12, 296));
     }
     /* New system panels must remain fully legible in the 200-line layout. */
@@ -83,7 +83,7 @@ static void compact_display(void) {
         render_game(&g, &small);
         assert(render_init(&full));
         render_game(&g, &full);
-        for (y = 12; y < 181; y++)
+        for (y = 20; y < 138; y++)
             assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12, 296));
     }
     g.map_local = 1; g.system_display = 1;
@@ -145,18 +145,18 @@ static void orbital_and_radar(void) {
     /* AU-sized origins must cancel before projection; a local displacement
        of half the map radius lands exactly halfway to the edge. */
     map_point(add(g.pos, vec(500, 0, -500)), g.pos, 1000, &x, &y);
-    assert(x == 191 && y == 127);
+    assert(x == 191 && y == 109);
     g.yaw = 0;
     g.combat_target = -1;
     g.npc[0] = (Npc){add(g.pos, vec(0, 0, 10000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
-    sensors();
-    assert(f.pixels[25 * 320 + 274] == 14); /* forward at 10 km */
+    cockpit_scan(120);
+    assert(f.pixels[134 * 320 + 160] == 14); /* forward at 10 km */
     g.yaw = 256;
-    sensors();
-    assert(f.pixels[43 * 320 + 242] == 14); /* left after hull turns right */
+    cockpit_scan(120);
+    assert(f.pixels[144 * 320 + 110] == 14); /* left after hull turns right */
     g.npc[0].pos = add(g.pos, vec(0, 0, 10001 * FP));
-    sensors();
-    assert(f.pixels[43 * 320 + 242] != 14); /* out of range is removed */
+    cockpit_scan(120);
+    assert(f.pixels[144 * 320 + 110] != 14); /* out of range is removed */
     free(f.pixels);
     render_shutdown();
 }

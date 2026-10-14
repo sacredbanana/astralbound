@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Isrc
 HEADERS = $(wildcard src/*.h)
-CORE = src/audio.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/render.c
+CORE = src/audio.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/ui.c src/render.c
 .PHONY: all test sanitize preview clean amiga
 all: build/space
 build:
@@ -15,12 +15,15 @@ build/renderer-tests: $(CORE) $(HEADERS) tests/test_renderer.c src/space.h src/t
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(filter-out src/render.c,$(CORE)) tests/test_renderer.c -o $@
 build/presentation-tests: $(CORE) $(HEADERS) tests/test_presentation.c src/controller.h src/audio.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_presentation.c -o $@
-test: build/tests build/renderer-tests build/presentation-tests build/career-tests
+test: build/tests build/renderer-tests build/presentation-tests build/career-tests build/ui-tests
+	./build/ui-tests
 	./build/career-tests
 	./build/presentation-tests
 	./build/renderer-tests
 	./build/tests
 sanitize: | build
+	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_ui.c -o build/ui-tests-sanitize
+	./build/ui-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_careers.c -o build/career-tests-sanitize
 	./build/career-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_presentation.c -o build/presentation-tests-sanitize
@@ -37,7 +40,7 @@ preview: build/space
 amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
-	rm -f build/space build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/*.ppm
+	rm -f build/ui-tests build/ui-tests-sanitize build/space build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/*.ppm
 
 .PHONY: benchmark package
 build/benchmark: $(CORE) $(HEADERS) tools/benchmark.c src/space.h src/trig.h | build
@@ -81,3 +84,6 @@ build/career-preview: $(CORE) $(HEADERS) tools/career_preview.c | build
 career-preview: build/career-preview
 	mkdir -p build/evidence
 	./build/career-preview
+
+build/ui-tests: $(CORE) $(HEADERS) tests/test_ui.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_ui.c -o $@
