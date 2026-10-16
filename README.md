@@ -21,7 +21,9 @@ police/piracy, mining, six hulls, missiles and portable commander saves.
 ./build-amiga.sh tests
 ```
 
-The script uses an installed `m68k-amigaos-gcc`, `/opt/amiga/bin`, or the
+With no targets the script builds the game for every CPU (`Space.000`, `.020`,
+`.030`, `.020fpu`, `.040` and `.060`); named targets build only those. The
+script uses an installed `m68k-amigaos-gcc`, `/opt/amiga/bin`, or the
 `sacredbanana/amiga-compiler:m68k-amigaos` Docker image. `DEBUG=1` enables debug
 builds; `CLEAN=1` rebuilds from scratch. No SDL or OpenGL is linked into the
 Amiga executables.
