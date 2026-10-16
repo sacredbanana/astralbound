@@ -422,6 +422,18 @@ int load_game(Game *g, const char *path) {
         copy.vel = surface_velocity(p, local);
         copy.frame_body = copy.body;
     }
+    /* Regenerated geology can rise above an older commander's position.
+       Re-seat ground saves and lift buried airborne saves before flight resumes. */
+    if (copy.docked < 0) {
+        int64_t clearance = altitude_at(&copy,copy.pos);
+        if ((copy.docked == -2 && llabs(clearance-12)>3) || clearance<0) {
+            const Planet *p=&copy.system.planets[copy.body];
+            Vec local=sub(scale(copy.pos,1,FP),p->center);
+            local=radial(local,p->radius+terrain_height(p,local)+(copy.docked == -2 ? 12 : 50));
+            copy.pos=scale(add(p->center,local),FP,1);
+            copy.vel=surface_velocity(p,local);
+        }
+    }
     if (copy.docked == -2) {
         const Planet *p = &copy.system.planets[copy.body];
         copy.ground_anchor = body_rotate(p, sub(copy.pos, scale(p->center, FP, 1)), 1);

@@ -13,11 +13,12 @@ typedef struct {
     const Planet *surface;
     int64_t surface_depth[3];
     int surface_x[3], surface_y[3]; /* Q8 projected vertices for colour mapping */
+    int8_t slope; /* Geometric illumination for distant resolved landforms. */
 } Tri;
 static Tri triangles[TRI_MAX];
 static int nt;
 static const Planet *terrain_surface;
-static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint);
+static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint, int slope);
 static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v);
 /* Reciprocal depth is linear in screen space. Keep the buffer in ordinary
    RAM; only the final indexed image is copied to Amiga display memory. */
@@ -205,7 +206,7 @@ static void target_marker_position(Vec p, int top, int *x, int *y) {
     *x = cx + (int)ox;
     *y = cy + (int)oy;
 }
-static void emit(Vec a, Vec b, Vec c, int color) {
+static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     Tri *t;
     Vec v[3] = {a, b, c};
     int i;
@@ -213,6 +214,7 @@ static void emit(Vec a, Vec b, Vec c, int color) {
         return;
     t = &triangles[nt];
     t->surface = terrain_surface;
+    t->slope = (int8_t)slope;
     for (i = 0; i < 3; i++) {
         t->inverse_z[i] = (uint32_t)(1073741824LL / v[i].z);
         t->x[i] = screen_coord(frame->w / 2 + v[i].x * (frame->w / 2) / v[i].z);
@@ -243,6 +245,22 @@ static int64_t clip_distance(Vec v, int plane) {
     default: return v.z * (view_h - view_h / 2) + v.y * (frame->w / 2);
     }
 }
+static Vec cross(Vec a, Vec b);
+static int terrain_face_slope(const Planet *p, Vec a, Vec b, Vec c) {
+    Vec local = sub(a,p->center), up, normal, delta;
+    int i, slope=0;
+    if (length(local) < p->radius || !surface_light(&game->system,p,local)) return 0;
+    up=unit(local,16384);
+    normal=unit(cross(unit(sub(b,a),16384),unit(sub(c,a),16384)),16384);
+    if (normal.x*up.x+normal.y*up.y+normal.z*up.z < 0) normal=scale(normal,-1,1);
+    delta=sub(normal,up);
+    for (i=0;i<game->system.stars;i++) {
+        Vec sun=unit(sub(game->system.star[i].center,a),16384);
+        slope+=(int)((delta.x*sun.x+delta.y*sun.y+delta.z*sun.z)/16384);
+    }
+    slope=slope*14/16384;
+    return slope < -12 ? -12 : slope > 12 ? 12 : slope;
+}
 static void triangle(Vec a, Vec b, Vec c, int color) {
     Vec vertices[2][10];
     int plane, i, count = 3, current = 0;
@@ -263,8 +281,11 @@ static void triangle(Vec a, Vec b, Vec c, int color) {
         count = n;
         current = 1 - current;
     }
-    for (i = 1; i + 1 < count; i++)
-        emit(vertices[current][0], vertices[current][i], vertices[current][i + 1], color);
+    if (count >= 3) {
+        int slope=terrain_surface ? terrain_face_slope(terrain_surface,a,b,c) : 0;
+        for (i = 1; i + 1 < count; i++)
+            emit(vertices[current][0], vertices[current][i], vertices[current][i + 1], color, slope);
+    }
 }
 static int sort_tri(const void *a, const void *b) {
     const Tri *x = a, *y = b;
@@ -410,7 +431,7 @@ static void raster(const Tri *t) {
                                 v += (int)((int64_t)(v1 - v0) * (x - block) / (stop - block));
                             }
                             *depths = (uint32_t)(z >> 8);
-                            *pixels = (uint8_t)surface_detail(t->surface, face, u, v, (uint32_t)(z >> 8), footprint);
+                            *pixels = (uint8_t)surface_detail(t->surface, face, u, v, (uint32_t)(z >> 8), footprint, t->slope);
                         }
                         block = stop + 1;
                     }
@@ -559,7 +580,7 @@ static void surface_slope(const Planet *p, unsigned slot, int face, int tu, int 
 /* Metre-scale albedo, never a screen-space stipple or animated texture.
    Broad patches survive approach; small inclusions fade before minification.
    No extra geometry, height noise, floating point or terrain sampling per pixel. */
-static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint) {
+static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint, int slope) {
     unsigned slot=surface_lookup(p,face,u,v);
     int color=surface_cache[slot].color, material, shade, variation, strength;
     int tu = u >= 0 ? u/256 : (u-255)/256;
@@ -567,9 +588,19 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     uint32_t grain = surface_cache[slot].grain;
     static const int ecs[] = {25,8,8,16,28,21};
     static const int aga[] = {80,64,64,96,112,96};
-    if (depth <= 1073741824U/2000 || footprint >= 64) return color;
     material = surface_cache[slot].material;
     if (material == 5) return color;
+    if (depth <= 1073741824U/2000 || footprint >= 64) {
+        /* Facet normals retain mountain/valley shape beyond texture range.
+           Ocean pixels stay level even next to steep coastal geometry. */
+        if (material == 0) return color;
+        shade = frame->enhanced ? color-aga[material] : (color-ecs[material])*6;
+        shade += slope;
+        if (shade < 0) shade=0;
+        if (shade > 14) shade=14;
+        return (frame->enhanced ? aga[material] : ecs[material]) +
+               (frame->enhanced ? shade : shade/6);
+    }
     surface_albedo(p,slot);
     strength = (int)((depth - 1073741824U/2000) / 3000);
     if (strength > 256) strength = 256;
@@ -613,6 +644,7 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     /* Centre the coarse ECS quantizer so adjacent ground tones survive even
        in ambient light. AGA/RTG retain the full material luminance ramp. */
     if (!frame->enhanced) shade += 3 + 3*strength/256;
+    if (material != 0) shade += slope*(256-strength)/256;
     shade += variation*strength/256;
     if (shade < 0) shade = 0;
     if (shade > 14) shade = 14;
@@ -721,7 +753,7 @@ static void terrain_clipmap(const Planet *p, Vec local) {
     int64_t direction[3] = {fixed.x, fixed.y, fixed.z};
     int face, camera_u, camera_v, step, x, y;
     int inner_u0 = 0, inner_v0 = 0, inner_u1 = 0, inner_v1 = 0;
-    int span = (int)isqrt64((uint64_t)(2LL * p->radius * 12000)) * 2;
+    int span = (int)isqrt64((uint64_t)(2LL * p->radius * (TERRAIN_DETAIL_ALTITUDE + TERRAIN_MAX_HEIGHT))) * 2;
     Vec rows[2][TERRAIN_GRID * 2 + 1];
     surface_uv(p, direction, &face, &camera_u, &camera_v);
     for (step = TERRAIN_FINE_STEP;; step *= 2) {
@@ -770,7 +802,7 @@ static void planet_mesh(int body) {
     Vec cam_local = sub(scale(game->pos, 1, FP), p->center);
     int radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
     int64_t distance = length(cam_local), altitude = distance - radius;
-    terrain_surface = body == game->body && altitude < 12000 ? p : NULL;
+    terrain_surface = body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE ? p : NULL;
     {
         Vec c = camera(p->center);
         if (c.z + radius < 8) {
@@ -815,7 +847,7 @@ static void planet_mesh(int body) {
                 }
         }
     }
-    if (body == game->body && altitude < 12000)
+    if (body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE)
         terrain_clipmap(p, cam_local);
     terrain_surface = NULL;
 }

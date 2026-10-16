@@ -193,8 +193,16 @@ static Vec autopilot_target(const Game *g) {
             alt < (int64_t)(p->atmosphere + 100000) * FP &&
             length(dlocal) > r + (int64_t)(p->atmosphere + 200000) * FP)
             return add(center, radial(local, r + (int64_t)(p->atmosphere + 200000) * FP));
+        if (port && port->surface && port->body == b && length(sub(du,up)) > 4) {
+            /* Approach above the moving pad before descending through the
+               terrain shell. A tangent-only detour can orbit a loaded ship
+               forever as the surface port rotates away beneath it. */
+            Vec overhead=add(port->pos,scale(port->normal,(TERRAIN_MAX_HEIGHT+2000LL)*FP,16384));
+            if (!swept_sphere(scale(g->pos,1,FP),scale(overhead,1,FP),p->center,
+                              p->radius+TERRAIN_MAX_HEIGHT+500)) return overhead;
+        }
         if (length(sub(du, up)) > 4 &&
-            swept_sphere(scale(g->pos, 1, FP), scale(dest, 1, FP), p->center, p->radius + 1000)) {
+            swept_sphere(scale(g->pos, 1, FP), scale(dest, 1, FP), p->center, p->radius + TERRAIN_MAX_HEIGHT + 1000)) {
             Vec tangent = sub(du, scale(up, cosine, 16384));
             int64_t safe = r + (int64_t)(p->atmosphere + 200000) * FP;
             if (length(tangent) < 32)
@@ -356,6 +364,14 @@ void game_tick(Game *g, Controls c) {
             g->pitch = clamp(g->pitch + clamp(pitch - g->pitch, -12, 12), -250, 250);
         }
         Vec relative_vel = g->vel;
+        /* Climb with the rotating ground. Cancelling its tangential velocity
+           during departure makes the ship slide sideways into nearby ranges. */
+        if (g->target >= 0 && g->ports[g->target].surface &&
+            g->ports[g->target].body == g->body)
+            relative_vel = sub(relative_vel, surface_velocity(planet,
+                               sub(scale(target,1,FP),planet->center)));
+        else if (alt < planet->atmosphere + TERRAIN_MAX_HEIGHT + 2000)
+            relative_vel = sub(relative_vel, surface_velocity(planet, scale(local,1,FP)));
         int destination_body = g->target >= 0 ? g->ports[g->target].body : g->target_body;
         if ((g->frame_body < 0 || g->frame_body == destination_body) &&
             (g->target < 0 || g->ports[g->target].surface || alt > planet->atmosphere + 50000) &&

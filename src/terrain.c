@@ -26,22 +26,81 @@ static int noise(uint32_t seed, Vec q, int shift) {
         d = mix(sample(seed, x, y + 1, z + 1), sample(seed, x + 1, y + 1, z + 1), fx);
     return mix(mix(a, b, fy), mix(c, d, fy), fz);
 }
+/* Metre-space geology keeps mountain slopes visible on large planets and
+   small moons alike. Intersecting coherent fields form ranges, winding cuts,
+   isolated cones/calderas and crater bowls without longitude/cube-face seams. */
+static int landform_height(const Planet *p, Vec n, Vec q) {
+    int continent = noise(p->seed, n, 14);
+    int region = noise(p->seed ^ 0x52414e47U, q, 16);
+    int fold = noise(p->seed ^ 0x464f4c44U, q, 14) - 2048;
+    int crossfield = noise(p->seed ^ 0x43524f53U, q, 14) - 2048;
+    int hills = noise(p->seed ^ 0x48494c4cU, q, 12);
+    int ridge = 2048 - abs(fold);
+    int mountain = ridge * ridge / 2048;
+    int cut = abs(crossfield), valley = cut < 400 ? (400-cut) : 0;
+    int h, province = region > 1400 ? region - 1400 : 0;
+    if (province > 1600) province = 1600;
+    mountain = mountain * province / 1600;
+    switch (p->type) {
+    case OCEAN:
+        /* Continents retain sea-level coasts; inland ranges rise above them. */
+        h = continent * 3200 / 4096 - 1450;
+        if (h > 0) {
+            int inland = h < 500 ? h : 500;
+            h += (mountain * 2200 / 2048 + hills / 8 - valley * 2) * inland / 500;
+        }
+        break;
+    case DESERT:
+        /* Elevated plateaus cut by narrow, deep meandering canyon systems. */
+        h = 1800 + region / 4 + mountain * 1900 / 2048 + hills / 10 - valley * 5;
+        break;
+    case ICE:
+        /* Broad glacial uplands, sharp pressure ridges and rift valleys. */
+        h = 850 + region / 3 + mountain * 1400 / 2048 + hills / 16 - valley * 3;
+        break;
+    case MOON: {
+        int bowl = (int)isqrt64((uint64_t)((int64_t)fold*fold +
+                                             (int64_t)crossfield*crossfield));
+        h = 1100 + region / 4 + mountain * 1200 / 2048 + hills / 12;
+        /* Bowl floor, raised rim and smooth outer ejecta apron. */
+        if (bowl < 650) h -= (650-bowl) * 1400 / 650;
+        else if (bowl < 950) h += (bowl-650) * 650 / 300;
+        else if (bowl < 1300) h += (1300-bowl) * 650 / 350;
+        break;
+    }
+    default:
+        h = 800 + region / 3 + mountain * 3000 / 2048 + hills / 8 - valley * 2;
+        break;
+    }
+    /* Volcanic provinces on rock/desert worlds and some rocky moons. Two
+       zero contours intersect in isolated summits with excavated calderas. */
+    if ((p->type == ROCKY || p->type == DESERT ||
+         (p->type == MOON && (p->seed & 1))) && region > 1900) {
+        int cone = (int)isqrt64((uint64_t)((int64_t)fold*fold +
+                                             (int64_t)crossfield*crossfield));
+        int relief = 0;
+        if (cone < 900) relief = (900-cone) * 3200 / 900;
+        if (cone < 220) relief -= (220-cone) * 1400 / 220;
+        h += relief * (region < 2400 ? region-1900 : 500) / 500;
+    }
+    return h;
+}
 int terrain_elevation(const Planet *p, Vec relative) {
-    Vec n = unit(body_rotate(p, relative, 1), 65536);
-    int h =
-        noise(p->seed, n, 14) * 1400 / 4096 + noise(p->seed ^ 0x8537U, n, 12) * 250 / 4096 - 650;
-    Vec pad = scale(forward(120, 180), 4, 1);
-    int64_t d1 = length(sub(n, vec(0, 65536, 0))), d2 = length(sub(n, pad)), d = d1 < d2 ? d1 : d2;
-    if (p->type == GAS_GIANT)
-        return 0;
-    if (p->type != OCEAN && h < 0)
-        h = 0;
-    /* Flatten landing sites and blend out to surrounding terrain. */
-    d = d * p->radius / 65536;
-    if (d < 1000)
-        h = 0;
-    else if (d < 2000)
-        h = h * (int)(d - 1000) / 1000;
+    Vec fixed = body_rotate(p, relative, 1);
+    Vec n, q, pad;
+    int h;
+    int64_t d1, d2, d;
+    if (p->type == GAS_GIANT) return 0;
+    n = unit(fixed, 65536); q = radial(fixed, p->radius);
+    h = landform_height(p, n, q);
+    if (h > TERRAIN_MAX_HEIGHT) h = TERRAIN_MAX_HEIGHT;
+    if (p->type != OCEAN && h < 0) h = 0;
+    pad = radial(forward(120, 180), p->radius);
+    d1 = length(sub(q, vec(0, p->radius, 0)));
+    d2 = length(sub(q, pad)); d = d1 < d2 ? d1 : d2;
+    /* Metre-accurate, smooth pad transitions avoid quantized rings/cliffs. */
+    if (d < 1000) h = 0;
+    else if (d < 3000) h = h * smooth((int)(d-1000)*4096/2000) / 4096;
     return h;
 }
 /* Collision follows the renderer's fixed 256 m cube-face triangles. Sampling
@@ -192,7 +251,7 @@ int64_t altitude_at(const Game *g, Vec pos) {
     const Planet *p = &g->system.planets[nearest_body(g, pos)];
     Vec local = sub(pos, scale(p->center, FP, 1));
     int64_t d = length(local) / FP - p->radius;
-    if (d > 2000)
+    if (d > TERRAIN_MAX_HEIGHT + 2000)
         return d;
     return d - terrain_height(p, scale(local, 1, FP));
 }
@@ -201,7 +260,7 @@ int terrain_impact(const Game *g, Vec from, Vec to, int body) {
     Vec a = sub(scale(from, 1, FP), p->center), b = sub(scale(to, 1, FP), p->center);
     int i;
     int64_t len = length(sub(b, a));
-    if (!swept_sphere(a, b, vec(0, 0, 0), p->radius + 1000))
+    if (!swept_sphere(a, b, vec(0, 0, 0), p->radius + TERRAIN_MAX_HEIGHT + 6))
         return 0; /* Sample within the broad phase, using up to 65 terrain probes. Fast
 crossing of the whole planet is separately covered by the inner sphere. */
     if (swept_sphere(a, b, vec(0, 0, 0), p->radius + 6))

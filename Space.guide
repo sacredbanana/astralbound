@@ -338,7 +338,15 @@
   Surfaces have seeded rock strata, mineral deposits, desert dune ridges,
   ice fractures, vegetation clearings and lunar crater/ejecta patterns.
   Detail stays anchored to the rotating planet and fades with distance.
-  These are visual textures; terrain heights and landing pads are unchanged.
+  Physical terrain also varies by body type: rocky mountain ranges, hills,
+  valleys and volcanic cones/calderas; desert plateaus and winding canyons;
+  glacial ridges and rifts; lunar crater bowls with raised rims. Some rocky
+  moons have volcanoes. Ocean worlds have level seas and inland ranges.
+  Gas giants have no solid relief. Volcanoes are static, without eruptions.
+  Terrain is bounded to 8 km elevation and shares geometry with collision.
+  Detail extends to 20 km above sea level; distant slopes retain lighting.
+  Landing pads blend smoothly into the surrounding terrain. Older saves
+  below regenerated ground are lifted clear when loaded.
 
   Planets rotate about their Z axes. Terrain, forests and surface ports
   follow that rotation; port velocities include ground motion. Moons are

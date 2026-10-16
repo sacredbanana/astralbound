@@ -649,3 +649,54 @@ armed. Disengaged cruise momentum still retains powerful braking.
   results in build/independent-drive-guest/{core,ui}-results.txt.
 - AmigaGuide validation passes. AGA/RTG interactive and real-hardware control
   checks remain unverified.
+
+# Physical planetary landforms - 16 October 2026
+
+The common shallow angular height field has been replaced by deterministic
+body-fixed geology in metres. Rocky worlds have folded ranges, hills, valleys
+and seeded volcanic cones/calderas. Deserts have elevated plateaus cut by winding
+canyons; ice worlds have glacial uplands, pressure ridges and rifts. Moons have
+excavated crater bowls with raised rims and optional volcanic provinces. Ocean
+worlds preserve sea-level water and coasts with inland relief. Gas giants remain
+without solid relief. Volcanoes are static geometry, without lava or eruptions.
+
+Elevations are bounded to 8 km. Rendering and collision still share the fixed
+256 m cube-face triangles. Pad transitions use accurate metre distances and
+smooth blending across 1-3 km, avoiding the old angularly quantized steps.
+The detailed mesh now covers viewpoints up to 20 km above sea level, with a
+larger horizon span and facet lighting beyond the texture range. Near texture
+lighting blends into facet lighting. No additional per-pixel terrain noise is
+introduced. There is still a discrete globe/detail transition at 20 km.
+
+Altitude queries and collision broad phases now include tall peaks. Autopilot
+climbs relative to rotating ground and uses a clear overhead waypoint before
+surface-port descent; a loaded-freighter regression exposed the old tangent-only
+approach circling above its destination. Saves retain format 6: buried airborne
+commanders are raised to 50 m clearance, and landed commanders reattach at 12 m.
+Unburied airborne saves retain position and velocity.
+
+Evidence and reproduction:
+
+- `make landform-preview` produces five real generated world fixtures, each from
+  two angles at ECS/AGA 320 x 256 and RTG 640 x 480, plus portable commanders in
+  `build/evidence/landform-*`. Fixture selection searches natural slopes rather
+  than changing the world's type or seed after generation. Host timings include
+  rendering and are workload/machine dependent, not native frame-rate claims.
+- The dedicated regression samples rock/ocean/desert/ice/gas/moon terrain over
+  three seeds and a 131 km region. Observed maxima were 7,120 / 3,628 / 6,645 /
+  3,658 / 0 / 4,708 m. It covers smooth neighbouring samples, flattened pads,
+  high-peak altitude/collision and buried/landed save recovery.
+- Renderer coverage retains 32 camera angles, moving material boundaries,
+  clipmap seams/recentering, cache revisits and 120 m render/collision agreement.
+  Material assertions allow physical slope illumination within the same ramp.
+- Native 68000/020/030/040/060 games and test executables build with warnings as
+  errors through `./build-amiga.sh -j4 all variants tests`.
+- AmiKit/Amiberry loaded the host-generated mountain commander in native ECS,
+  AGA and RTG. `build/evidence/landform-native-{ecs,aga,rtg}.png` show the same
+  ridgelines at approximately 2,200 m ground clearance; RTG is 640 x 480.
+  Audio was disabled for these visual checks. A pre-test emulator snapshot
+  preserves the original live session.
+
+Physical hardware, volcano eruptions, and real-machine performance remain
+unverified. Host/emulator frames establish visible geometry, not a hardware
+performance budget.

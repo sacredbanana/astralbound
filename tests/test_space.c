@@ -58,6 +58,67 @@ static void test_universe(void) {
     }
     puts("PASS deterministic generation, terrain and cross-CPU golden values");
 }
+static void test_landforms(void) {
+    Planet p = {0};
+    int type, u, v, seed;
+    p.radius=3000000; p.parent=-1; set_rotation(&p,0);
+    for (type=0;type<BODY_TYPES;type++) {
+        int lo=TERRAIN_MAX_HEIGHT, hi=-TERRAIN_MAX_HEIGHT, slopes=0;
+        p.type=(BodyType)type;
+        for (seed=1;seed<=3;seed++) {
+            p.seed=(uint32_t)seed;
+            for (v=-65536;v<=65536;v+=4096) for (u=8192;u<=139264;u+=4096) {
+                Vec q=vec(u,p.radius,v);
+                int h=terrain_elevation(&p,q), next=terrain_elevation(&p,add(q,vec(256,0,0)));
+                assert(h<=TERRAIN_MAX_HEIGHT);
+                assert(abs(h-terrain_elevation(&p,scale(q,2,1)))<10);
+                assert(abs(h-next)<600); /* No cell/face cliffs or spikes. */
+                if (h<lo) lo=h;
+                if (h>hi) hi=h;
+                slopes+=abs(h-next)>10;
+            }
+            assert(terrain_elevation(&p,vec(0,p.radius,0))==0);
+            assert(terrain_elevation(&p,forward(120,180))==0);
+        }
+        printf("terrain %s: %d..%d m, %d resolved slopes\n",body_names[type],lo,hi,slopes);
+        if (type==GAS_GIANT) assert(lo==0 && hi==0);
+        else {
+            assert(hi-lo>1000 && hi>1400 && slopes>10);
+            if (type!=OCEAN) assert(lo>=0);
+        }
+    }
+    /* Flight safety must see a mountain above the old 1/2 km shortcuts. */
+    {
+        Game g; Planet *body; Vec q=vec(0,0,0), from,to; int h=0;
+        game_init(&g,1); body=&g.system.planets[0]; body->type=ROCKY;
+        set_rotation(body,0);
+        for (u=8192;u<200000 && h<2400;u+=256) {
+            q=vec(u,body->radius,0); h=terrain_height(body,q);
+        }
+        assert(h>=2400);
+        from=scale(add(body->center,radial(q,body->radius+h+300)),FP,1);
+        to=scale(add(body->center,radial(q,body->radius+h-100)),FP,1);
+        assert(terrain_impact(&g,from,to,0));
+        assert(!terrain_impact(&g,from,from,0));
+        assert(llabs(altitude_at(&g,from)-300)<5);
+    }
+    /* Older saves may place a commander below newly generated mountains. */
+    {
+        Game g,h; Planet *body; Vec q; int height;
+        game_init(&g,1); body=&g.system.planets[1];
+        q=vec(122000,body->radius,-10000); height=terrain_height(body,q);
+        assert(height>0);
+        g.docked=-1; g.body=g.frame_body=1;
+        g.pos=scale(add(body->center,radial(q,body->radius+height-300)),FP,1);
+        assert(save_game(&g,TEST_SAVE) && load_game(&h,TEST_SAVE));
+        assert(llabs(altitude_at(&h,h.pos)-50)<5);
+        g.docked=-2;
+        assert(save_game(&g,TEST_SAVE) && load_game(&h,TEST_SAVE));
+        assert(llabs(altitude_at(&h,h.pos)-12)<5);
+        remove(TEST_SAVE); remove(TEST_SAVE ".bak");
+    }
+    puts("PASS type-specific metre-scale landforms, pads, bounded slopes and tall-peak flight safety");
+}
 static void test_world(void) {
     Game g, h;
     System s;
@@ -841,6 +902,7 @@ static void test_environment(void) {
     g.tick++; update_world(&g);
     assert(length(sub(scale(sub(g.ports[0].pos, before), HZ, 1), v)) < 100 * FP);
     g.docked = -2; g.frame_body = g.body = 0;
+    turned=radial(turned,fixed.radius+terrain_height(&g.system.planets[0],turned)+12);
     g.pos = add(scale(g.system.planets[0].center, FP, 1),
                 scale(turned, FP, 1));
     before = body_rotate(&g.system.planets[0], sub(scale(g.pos, 1, FP), g.system.planets[0].center), 1);
@@ -929,6 +991,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     puts(quick ? "SPACE QUICK SMOKE SUITE" : "SPACE FULL CORE SUITE");
     test_universe();
+    test_landforms();
     test_environment();
     test_world();
     test_hetha_departure();

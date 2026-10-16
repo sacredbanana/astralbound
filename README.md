@@ -360,8 +360,22 @@ share tile boundaries and interpolate smoothly; finer inclusions and slope light
 fade before minification. ECS uses its existing ground tones; AGA/RTG use full
 material ramps. The tile cache adds 48 KiB over the previous four-corner cache,
 plus about 7 KiB for orbital reflectance. Generation uses integer math and
-requires no external textures. These are visual
-surface features; terrain geometry, landing pads, collision heights and commander
-saves retain their existing behaviour. `make surface-preview` renders matched
+requires no external textures. Reflectance supplements physical terrain:
+rocky worlds have hills, folded mountain ranges, valleys and volcanic cones with
+calderas; deserts have elevated plateaus and deep winding canyons; ice worlds have
+glacial uplands, pressure ridges and rifts; moons have crater bowls, raised rims
+and, for some seeds, volcanic terrain. Ocean worlds keep level seas and coasts
+with inland mountain ranges. Gas giants have no solid relief. Geometry uses
+body-fixed metre-space fields with a bounded 8 km maximum elevation, shared by
+rendering and collision. Pads blend smoothly into the surrounding land. Detailed
+terrain remains visible to 20 km above sea level, with geometric slope lighting
+beyond texture range. Older commanders buried by regenerated terrain are lifted
+clear on load; landed saves reattach to the ground. Native hardware performance
+for the richer terrain remains unmeasured. `make surface-preview` renders matched
 rock/desert/ice/moon fixtures in ECS/AGA; `make terrain-detail-preview` measures the
 close-approach renderer at ECS/AGA/RTG resolutions.
+
+`make landform-preview` renders real generated rock/ocean/desert/ice/moon worlds
+from two angles at ECS/AGA/RTG resolutions and writes portable commander fixtures
+under `build/evidence/landform-*`. Volcanoes are static geometry; eruptions and
+lava simulation are not implemented.

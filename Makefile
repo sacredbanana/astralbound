@@ -93,3 +93,10 @@ career-preview: build/career-preview
 
 build/ui-tests: $(CORE) $(HEADERS) tests/test_ui.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_ui.c -o $@
+
+.PHONY: landform-preview
+build/landform-preview: $(CORE) $(HEADERS) tools/landform_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/landform_preview.c -o $@
+landform-preview: build/landform-preview
+	mkdir -p build/evidence
+	./build/landform-preview
