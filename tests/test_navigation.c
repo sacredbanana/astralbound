@@ -2,6 +2,7 @@
 #include "space.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <string.h>
 static void remote_cruise(void) {
@@ -135,6 +136,77 @@ static void hetha_d_route(void) {
     assert(g.body == 2 && g.frame_body == 2);
     assert(length(sub(g.pos, navigation_position(&g))) < 100 * FP);
 }
+static int find_port(const Game *g, const char *name) {
+    int i;
+    for (i = 0; i < g->nports; i++)
+        if (strstr(g->ports[i].name, name)) return i;
+    assert(0);
+    return -1;
+}
+/* The point above a surface pad is the destination's own approach, not a
+   detour: an armed drive must carry the cruise instead of ordinary thrust. */
+static void surface_port_drive(void) {
+    Game g;
+    Controls c = {0};
+    int frames, drive = 0;
+    game_init(&g, 0x53504143);
+    game_action(&g, 'l');
+    g.target = find_port(&g, "D REACH");
+    g.target_body = -1;
+    g.autopilot = 1;
+    game_action(&g, 'a');
+    g.warp = MAX_WARP;
+    for (frames = 0; frames < 20000 && g.autopilot && !g.dead; frames++) {
+        game_frame(&g, c, 1);
+        drive |= g.drive_active;
+    }
+    printf("Hetha D Reach with drive: %d frames, %lu ticks, hull %d, fuel %d\n", frames,
+           (unsigned long)g.tick, g.hull, g.fuel);
+    assert(drive && g.docked == g.target && g.hull == 100 && frames < 2000);
+}
+/* Deep in the air with the pad below the horizon. Climbing toward orbit
+   restored the line of sight to the overhead point within seconds, and the
+   two waypoints then alternated, swinging the nose by tens of degrees. */
+static void atmospheric_pad_approach(void) {
+    Game g;
+    Controls c = {0};
+    int i, port, last_yaw, last_pitch, swings = 0;
+    const Planet *p;
+    Vec center, up, side;
+    game_init(&g, 0x53504143);
+    game_action(&g, 'l');
+    port = find_port(&g, "D REACH");
+    p = &g.system.planets[g.ports[port].body];
+    center = scale(p->center, FP, 1);
+    up = unit(sub(g.ports[port].pos, center), 16384);
+    side = unit(vec(up.z, 0, -up.x), 16384);
+    /* 26 km above ground ten degrees around from the pad, as reported. */
+    g.pos = add(center, radial(add(scale(up, cosi(28), 16384), scale(side, sini(28), 16384)),
+                               (int64_t)(p->radius + 26000) * FP));
+    g.frame_body = g.body = g.ports[port].body;
+    g.vel = surface_velocity(p, scale(sub(g.pos, center), 1, FP));
+    g.target = port;
+    g.target_body = -1;
+    g.autopilot = 1;
+    for (i = 0; i < 6 * HZ; i++)
+        game_tick(&g, c); /* initial alignment */
+    last_yaw = g.yaw;
+    last_pitch = g.pitch;
+    for (i = 0; i < 400000 && g.autopilot && !g.dead &&
+                length(sub(g.pos, g.ports[port].pos)) > 12000 * FP; i++) {
+        int yaw, pitch;
+        game_tick(&g, c);
+        yaw = ((g.yaw - last_yaw + 1536) & 1023) - 512;
+        pitch = g.pitch - last_pitch;
+        swings += abs(yaw) >= 6 || abs(pitch) >= 6;
+        last_yaw = g.yaw;
+        last_pitch = g.pitch;
+    }
+    while (g.autopilot && !g.dead && i++ < 400000)
+        game_tick(&g, c);
+    printf("atmospheric pad approach: %d ticks, %d steering swings, hull %d\n", i, swings, g.hull);
+    assert(g.docked == port && g.hull == 100 && swings < 20);
+}
 int main(void) {
     Game g;
     Controls c = {0};
@@ -142,6 +214,8 @@ int main(void) {
     remote_cruise();
     moving_target_approach();
     hetha_d_route();
+    surface_port_drive();
+    atmospheric_pad_approach();
     game_init(&g, 1);
     g.docked = -1;
     g.target = -1;

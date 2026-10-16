@@ -173,12 +173,19 @@ static int64_t drive_limit(const Game *g) {
         return limit < SYSTEM_DRIVE_SPEED ? limit : SYSTEM_DRIVE_SPEED;
     }
 }
-static Vec autopilot_target(const Game *g);
+static Vec autopilot_route(const Game *g, int *detour);
+static int autopilot_detour(const Game *g) {
+    int detour;
+    autopilot_route(g, &detour);
+    return detour;
+}
 static int drive_requested(const Game *g) {
-    /* Guidance may limit thrust for safe capture without disarming the drive. */
+    /* Guidance may limit thrust for safe capture without disarming the drive.
+       The 1,000 km handover leaves the weakest loaded hull room to stop from
+       the 4 km/s terminal cap on ordinary engines (about 600 km). */
     if (g->autopilot &&
-        (length(sub(autopilot_target(g), navigation_position(g))) > 5000 * FP ||
-         length(sub(g->pos, navigation_position(g))) < 20000000LL * FP))
+        (autopilot_detour(g) ||
+         length(sub(g->pos, navigation_position(g))) < 1000000LL * FP))
         return 0;
     return g->docked == -1 && g->fuel > 0 && !g->dead && !g->laser &&
            g->drive_manual;
@@ -216,10 +223,14 @@ int safe_warp(const Game *g) {
        not prevent the player from accelerating time. */
     return g->paused || g->dead || g->ui_quit ? 1 : clamp(g->warp, 1, MAX_WARP);
 }
-static Vec autopilot_target(const Game *g) {
+/* Detours (climb-outs, around-body and stellar avoidance) report themselves
+   so callers can withhold the drive. The destination's own approach points,
+   a station corridor or the point above a pad, count as the destination. */
+static Vec autopilot_route(const Game *g, int *detour) {
     const Port *port = g->target >= 0 ? &g->ports[g->target] : NULL;
     int destination_body = port ? port->body : g->target_body;
     Vec dest = navigation_position(g);
+    *detour = 1;
     /* Enter rotating stations only through their outward traffic corridor. */
     if (port && (!g->dock_stage || g->clearance != g->target))
         dest = add(dest, scale(port->normal, 2000 * FP, 16384));
@@ -245,8 +256,37 @@ static Vec autopilot_target(const Game *g) {
                terrain shell. A tangent-only detour can orbit a loaded ship
                forever as the surface port rotates away beneath it. */
             Vec overhead=add(port->pos,scale(port->normal,(TERRAIN_MAX_HEIGHT+2000LL)*FP,16384));
-            if (!swept_sphere(scale(g->pos,1,FP),scale(overhead,1,FP),p->center,
-                              p->radius+TERRAIN_MAX_HEIGHT+500)) return overhead;
+            int64_t safe = p->radius + TERRAIN_MAX_HEIGHT + 1000,
+                    top = p->radius + p->atmosphere + 100000LL,
+                    reach = isqrt64((uint64_t)(top * top - safe * safe)) +
+                            isqrt64((uint64_t)((safe + 1000) * (safe + 1000) - safe * safe));
+            if (!swept_sphere(scale(g->pos,1,FP),scale(overhead,1,FP),p->center,(int)safe)) {
+                *detour = 0;
+                return overhead;
+            }
+            /* The horizon hides a pad that would be in view from the climb
+               ceiling. Climbing restores the line of sight within seconds and
+               the two waypoints alternate, jerking the nose back and forth.
+               Glide along the tangent to the sight-line shell instead: as the
+               overhead point rises into view, its bearing meets this one. */
+            if (alt < (int64_t)(p->atmosphere + 100000) * FP &&
+                length(sub(du, up)) * p->radius / 16384 < reach + reach / 8) {
+                Vec tangent = unit(sub(du, scale(up, cosine, 16384)), 16384);
+                int64_t shell = safe * FP, radius = length(local);
+                int64_t sine, lead = 30000LL + (alt > (int64_t)p->atmosphere * FP
+                                                ? alt / FP - p->atmosphere : 0);
+                if (alt < TERRAIN_MAX_HEIGHT * FP)
+                    return add(center, radial(local, shell + 1000LL * FP));
+                if (radius <= shell)
+                    return add(add(g->pos, scale(tangent, lead * FP, 16384)),
+                               scale(up, shell - radius, 16384));
+                /* Sine of the dip below the local horizon, kept in metres:
+                   a Q14 cosine is too coarse just above the shell. */
+                sine = (int64_t)isqrt64((uint64_t)((radius - shell) / FP * ((radius + shell) / FP))) *
+                       16384 / (radius / FP);
+                return add(g->pos, unit(sub(scale(tangent, isqrt64((uint64_t)(16384 * 16384 - sine * sine)), 16384),
+                                            scale(up, sine, 16384)), (int)(lead * FP)));
+            }
         }
         if (length(sub(du, up)) > 4 &&
             swept_sphere(scale(g->pos, 1, FP), scale(dest, 1, FP), p->center, p->radius + TERRAIN_MAX_HEIGHT + 1000)) {
@@ -274,6 +314,7 @@ static Vec autopilot_target(const Game *g) {
                                                       (s->radius + 2000000000LL) * FP, 16384));
         }
     }
+    *detour = 0;
     return dest;
 }
 void game_tick(Game *g, Controls c) {
@@ -403,8 +444,11 @@ void game_tick(Game *g, Controls c) {
                 length(sub(g->vel, navigation_velocity(g))) < 12 * FP)
                 g->dock_stage = 1;
         }
-        target = autopilot_target(g);
-        if (g->tick % 4 == 0) {
+        int detour;
+        target = autopilot_route(g, &detour);
+        /* Hold the nose while settling onto a gate or pad: the bearing of a
+           point a few metres away swings wildly with every correction. */
+        if (g->tick % 4 == 0 && length(sub(target, g->pos)) > 100 * FP) {
             int yaw = g->yaw, pitch = g->pitch, turn;
             aim_angles(sub(target, g->pos), &yaw, &pitch);
             turn = ((yaw - g->yaw + 1536) & 1023) - 512;
@@ -423,7 +467,7 @@ void game_tick(Game *g, Controls c) {
         int destination_body = g->target >= 0 ? g->ports[g->target].body : g->target_body;
         if ((g->frame_body < 0 || g->frame_body == destination_body) &&
             (g->target < 0 || g->ports[g->target].surface || alt > planet->atmosphere + 50000) &&
-            length(sub(target, navigation_position(g))) < 5000 * FP) {
+            !detour) {
             Vec motion = navigation_velocity(g);
             if (g->frame_body < 0 &&
                 length(sub(navigation_position(g), g->pos)) > 10000000LL * FP) {
@@ -672,7 +716,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     int accel = drive_thrust(g) / FP;
     /* Rapid drive changes use short bounded cruise steps. */
     if (accel == SYSTEM_DRIVE_ACCEL && step > HZ) step = HZ;
-    Vec dest, target;
+    Vec dest;
     int64_t speed, route, closing;
     if (step < HZ || g->frame_body != -1 || g->paused || g->dead || g->ui_quit || !g->fuel ||
         !g->autopilot || g->docked != -1 || g->laser || c.fire || c.thrust ||
@@ -696,8 +740,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     if (UINT32_MAX - g->tick < (uint32_t)step)
         return 1;
     dest = navigation_position(g);
-    target = autopilot_target(g);
-    if (length(sub(target, dest)) > 5000 * FP)
+    if (autopilot_detour(g))
         return 1;
     speed = length(g->vel) / FP;
     route = length(sub(dest, g->pos)) / FP;

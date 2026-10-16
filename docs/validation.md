@@ -816,3 +816,27 @@ view. `make test` and `make fpu-test` pass. `Space-benchmark` gained a 12 km
 | 020 | 403–438 → 115–122 | 91–96 → 95–97 |
 | 020fpu | 355–360 → 86–93 | 70–73 → 67–75 |
 | 040 | 381 → 96 | 77 → 77 |
+
+### Autopilot drive and atmospheric pad approach (2026-10-16)
+
+Autopilot treated the point 10 km above a surface pad as a detour, so an armed
+drive never engaged on a surface-port route and the trip ran at the 750 km/s
+ordinary cap with no cruise compression. Route waypoints now report whether they
+are detours; the station corridor and the point above a pad count as the
+destination for the drive, cruise intervals and destination motion matching. The
+drive hands over to ordinary engines 1,000 km out instead of 20,000 km.
+
+Deep in the air with the pad below the horizon, the climb waypoint restored the
+line of sight to the overhead point within seconds; the two then alternated and
+swung the nose by up to ~45° every few seconds. Within sight-line reach of the
+climb ceiling, the autopilot now glides along the tangent to the sight-line shell
+(1 km above the highest terrain), whose bearing meets the overhead bearing as it
+clears. Farther pads keep the climb-out route. The nose also holds within 100 m
+of a gate or pad instead of chasing a noisy bearing.
+
+Host: Hetha B launch to Hetha D Reach with the drive armed at 4096x fell from
+113,305 frames (14.5M ticks) to 509 frames (127,861 ticks), hull and fuel 100. A
+start 26 km up and ten degrees from the pad fell from 8,226 large steering steps
+to 0. Hetha D arrives after 96,685 ticks (was 206,012) and the interplanetary route
+after 57,825 (was 168,048). `make test`, `make sanitize`, `make fpu-test` and
+`make navigation-test` pass. Native emulator/hardware runtime is untested.
