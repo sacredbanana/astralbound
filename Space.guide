@@ -86,7 +86,9 @@
   Mouse: drag right/left for roll, up/down for pitch, with a small dead zone.
   Use the mouse port and a digital joystick in port 2. On the host preview,
   axes 0/1 or a direction pad steer, button 0 fires. W/S controls thrust.
-  Pitch follows the ship's bank. Autopilot levels the bank and retains
+  Vertical controls are inverted: down pitches up; up pitches down.
+  This also applies to turret aiming. Pitch follows the ship's bank.
+  Autopilot levels the bank and retains
   steering until you disengage it with P.
 
   In turret views arrows, mouse and joystick aim independently of the hull. W/S still controls

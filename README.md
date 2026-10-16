@@ -150,7 +150,9 @@ or gamepad. Standard SDL controllers use proportional left-stick steering, A/B/X
 for fire/brake/contact/autopilot, shoulders for thrust/reverse and Start to pause.
 Unmapped joysticks retain axes 0/1 and button 0 fire. Keyboard arrows,
 Ctrl and W/S remain available; W/S controls speed/thrust with either device.
-Horizontal steering banks the ship; pitch follows the bank.
+Horizontal steering banks the ship; pitch follows the bank. Vertical controls
+are inverted: press down or pull the mouse/stick down to pitch up; push up to
+pitch down. This also applies to turret aiming.
 Steering also aims the turret in turret views. Autopilot retains steering until P
 turns it off; time compression remains limited to autopilot flight.
 

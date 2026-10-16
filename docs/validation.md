@@ -741,3 +741,18 @@ cruise steps. Commander format 7 appends roll; formats 3 through 6 load level.
   `build/evidence/out-programs-before-roll`.
 
 Physical controllers, real hardware, and live AGA/RTG roll input remain untested.
+
+### Inverted vertical steering (2026-10-16)
+
+Down now pitches up and up pitches down for keyboard arrows, right-drag mouse,
+digital joystick/CD32 directions, SDL joystick axes/hats and calibrated analogue
+controllers. Turret aiming uses the same inversion; roll mapping is unchanged.
+
+Host presentation tests and the core `--quick` suite passed. Native
+68000/020/030/040/060 builds and the guide checker passed, and ZIP/LHA/boot ADF
+packages were rebuilt. Isolated ECS/68020 emulation passed native presentation
+and core smoke tests. Live Down/Up arrows produced saved pitch values +39/-45,
+confirming nose-up/nose-down respectively; see `build/invert-y-native-pitch.txt`
+and `build/invert-y-native-down.png`. Installed `OUT:Space.*` binaries were
+updated with previous copies in `build/evidence/out-programs-before-invert-y`.
+Physical controller and live AGA/RTG input checks remain untested.
