@@ -1882,7 +1882,7 @@ static void sensors(void) {
         Vec rel = sub(n->pos, game->pos), rv = sub(n->vel, game->vel), dir = unit(rel, 16384);
         Vec p = camera(scale(n->pos, 1, FP));
         int64_t closing = -(rv.x * dir.x + rv.y * dir.y + rv.z * dir.z) / (16384 * FP);
-        snprintf(s, sizeof(s), "R %s %d / HULL %d", n->hostile ? "HOSTILE" : "CONTACT", selected + 1, n->hull);
+        snprintf(s, sizeof(s), "R %s %d / HULL %d", n->hostile ? "HOSTILE" : game->npc_role[selected] == POLICE ? "POLICE" : "CONTACT", selected + 1, n->hull);
         text(7, 32, 12, s);
         snprintf(s, sizeof(s), "%ld M / CLOSING %ld M/S", (long)(length(rel) / FP), (long)closing);
         text(7, 44, 12, s);

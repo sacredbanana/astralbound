@@ -244,8 +244,13 @@ separate reputation and fines. **F on this page** pays the current faction's fin
 Government 2/3 restricts crystals; government 3 also restricts circuits. **B in the
 market** toggles the black market at lawless ports or with local reputation 5+.
 Restricted goods cost 50% more there. Customs on departure, arrival and nearby
-patrol scans confiscates contraband and fines 100 CR per tonne. Wanted commanders
-attract armed police near ports; cargo attracts pirates in lawless orbital space.
+patrol scans confiscates contraband and fines 100 CR per tonne. Two police ships
+circle every port and station while you are within 50 km. Firing a laser or missile
+within 10 km of police costs a 500 CR fine; firing again after a two-second warning,
+or shooting at a police ship, sets every patrol on you until the fine is paid with
+F at a port. Returning fire on an attacker is lawful. Destroyed police are replaced
+after three minutes, and fines of 1000 CR or more count as a warrant near ports.
+Cargo attracts pirates in lawless orbital space.
 Nearby traffic flies the same hull models as the shipyard, pointed along its course
 through the local air or frame and rolled level with the nearest body; once a hull
 shrinks below about 16 pixels long it falls back to a four-triangle silhouette.

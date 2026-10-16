@@ -268,7 +268,11 @@
   B in M market toggles black-market access at lawless ports or reputation
   5+. Restricted goods cost 50% more. Customs confiscates contraband on
   departure, arrival and patrol scans: 100 CR fine per tonne.
-  Wanted commanders attract police near ports; lawless space has pirates.
+  Two police ships patrol every port and station. Firing within 10 km
+  of police costs a 500 CR fine; firing again, or shooting at police,
+  makes every patrol hostile until the fine is paid with F at a port.
+  Returning fire on an attacker is lawful. Fines of 1000 CR or more are
+  a warrant: police engage near ports. Lawless space has pirates.
 
   Backslash selects an asteroid above the first body; P approaches 400 m
   behind it. Aim and O with mining equipment releases ore. Within 250 m

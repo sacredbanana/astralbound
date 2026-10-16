@@ -157,7 +157,8 @@ static int64_t drive_limit(const Game *g) {
         int64_t r = length(sub(g->pos, g->ports[i].pos)) / FP - 10000;
         if (r < room) room = r;
     }
-    for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active) {
+    /* Passive police circle inside their port's own 10 km shell. */
+    for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && !police_patrol(g, i)) {
         int64_t r = length(sub(g->pos, g->npc[i].pos)) / FP - 20000;
         if (r < room) room = r;
     }
@@ -691,7 +692,7 @@ void game_tick(Game *g, Controls c) {
             }
     if (c.fire && g->heat < 90 && g->tick % 6 == 0 &&
         (g->camera_mode < 3 || equipped(g, g->camera_mode == 3 ? DORSAL : VENTRAL))) {
-        int yaw = g->yaw, pitch = g->pitch;
+        int yaw = g->yaw, pitch = g->pitch, hit = -1, aimed = -1;
         Vec f;
         if (g->camera_mode >= 3)
             view_angles(g, &yaw, &pitch);
@@ -702,7 +703,7 @@ void game_tick(Game *g, Controls c) {
         for (i = 0; i < MAX_NPC; i++) {
             Npc *n = &g->npc[i];
             Vec rel = sub(n->pos, g->pos);
-            int64_t l, along;
+            int64_t l, along, miss;
             if (!n->active)
                 continue;
             l = length(rel);
@@ -711,11 +712,17 @@ void game_tick(Game *g, Controls c) {
             along = (rel.x * f.x + rel.y * f.y + rel.z * f.z) / 16384;
             if (along <= 0)
                 continue;
-            if (length(sub(rel, scale(f, along, 16384))) < 70 * FP) {
-                damage_npc(g, i, 20 + (g->camera_mode >= 3 ? g->turret_upgrade[g->camera_mode - 3] : g->upgrade) * 10);
+            miss = length(sub(rel, scale(f, along, 16384)));
+            if (miss < 70 * FP) {
+                hit = i;
                 break;
             }
+            if (miss < 250 * FP && g->npc_role[i] == POLICE)
+                aimed = i; /* a near miss on police still counts as firing on them */
         }
+        police_discharge(g, hit >= 0 ? hit : aimed);
+        if (hit >= 0)
+            damage_npc(g, hit, 20 + (g->camera_mode >= 3 ? g->turret_upgrade[g->camera_mode - 3] : g->upgrade) * 10);
     }
     for (i = 0; i < MAX_NPC; i++) {
         Npc *n = &g->npc[i];
@@ -736,8 +743,14 @@ void game_tick(Game *g, Controls c) {
         rel = sub(g->pos, n->pos);
         rv = sub(g->vel, n->vel);
         l = length(rel);
-        desired = sub(g->pos, unit(rel, 1200 * FP));
-        acceleration = guidance(n->pos, sub(n->vel, g->vel), desired, 50 * FP, 500 * FP);
+        if (police_patrol(g, i)) {
+            /* Hold station on the port's patrol circle, matching its motion. */
+            acceleration = guidance(n->pos, sub(n->vel, port_relative_velocity(g, g->npc_port[i])),
+                                    patrol_point(g, i), 40 * FP, 400 * FP);
+        } else {
+            desired = sub(g->pos, unit(rel, 1200 * FP));
+            acceleration = guidance(n->pos, sub(n->vel, g->vel), desired, 50 * FP, 500 * FP);
+        }
         avoid = avoidance(rel, rv, 50 * FP, 300 * FP);
         if (length(avoid))
             acceleration = avoid; /* Ground avoidance always overrides the attack run. */
@@ -792,7 +805,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
         (g->target < 0 && g->target_body < 0))
         return 1;
     for (i = 0; i < MAX_NPC; i++)
-        if (g->npc[i].active) return 1;
+        if (g->npc[i].active && !police_patrol(g, i)) return 1;
     for (i = 0; i < MAX_PODS; i++) if (g->pods[i].active) return 1;
     for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active) return 1;
     if (g->resource_target >= 0) return 1;
@@ -939,7 +952,8 @@ int jump(Game *g, Sector d) {
         altitude_at(g, g->pos) < 12000)
         return 0;
     for (i = 0; i < MAX_NPC; i++)
-        if (g->npc[i].active && length(sub(g->npc[i].pos, g->pos)) < 20000 * FP)
+        if (g->npc[i].active && !police_patrol(g, i) &&
+            length(sub(g->npc[i].pos, g->pos)) < 20000 * FP)
             return 0;
     generate_system(g->seed, d, &destination);
     if (!destination.count)

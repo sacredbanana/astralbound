@@ -162,6 +162,9 @@ typedef struct {
     int board_page, black_market, resource_target; /* transient UI/navigation */
     int ui_x, ui_y, ui_visible, ui_down, ui_capture, ui_press_page, ui_fire, ui_weapons; /* transient */
     int ui_quit; /* transient modal: 0 closed, 1 open, 2 save failed */
+    int npc_port[MAX_NPC]; /* transient: port each police ship patrols, refreshed from position */
+    int police_alert; /* transient: 0 calm, 1 weapons fine issued, 2 police engaging */
+    uint32_t police_warned, police_tick; /* transient: fine time; earliest patrol reinforcement */
     uint32_t ui_clock; /* transient real-time ticks for presentation animation */
     char message[80];
 } Game;
@@ -194,6 +197,10 @@ int illegal_good(const Game *g, int good);
 int black_market_available(const Game *g);
 void inspect_cargo(Game *g);
 int settle_fine(Game *g);
+int police_patrol(const Game *g, int index);
+Vec patrol_point(const Game *g, int index);
+void police_patrols(Game *g);
+void police_discharge(Game *g, int target);
 void career_missions(Game *g);
 void career_time(Game *g);
 void career_tick(Game *g, Vec old);

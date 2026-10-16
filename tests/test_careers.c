@@ -297,9 +297,78 @@ static void test_legacy_and_extension(void) {
     remove(SLOT); remove(SLOT ".bak");
     puts("PASS v4/v5/v6 migration, career/combat extension roundtrip and checksummed semantic rejection");
 }
+static int police_count(const Game *g, int hostile) {
+    int i, n = 0;
+    for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && g->npc_role[i] == POLICE &&
+        g->npc[i].hostile == hostile) n++;
+    return n;
+}
+static void hold_fire(Game *g, Vec aim, int ticks) {
+    Controls c = {0};
+    int i;
+    c.fire = 1;
+    for (i = 0; i < ticks; i++) { aim_angles(aim, &g->yaw, &g->pitch); g->heat = 0; game_tick(g, c); }
+}
+/* Stations are body-locked, so a free-falling commander drifts off; re-park. */
+static void park(Game *g, int port, int metres) {
+    g->body = g->frame_body = g->ports[port].body;
+    g->pos = add(g->ports[port].pos, scale(g->ports[port].normal, (int64_t)metres * FP, 16384));
+    g->vel = port_relative_velocity(g, port);
+}
+static void test_police_patrols(void) {
+    Game g;
+    Controls c = {0};
+    int i, f, port = 1, raider;
+    Vec out, side = vec(16384, 0, 0); /* level aim, clear of the patrol circle below */
+    game_init(&g, 1); orbit(&g); g.credits = 100000;
+    f = system_faction(&g);
+    assert(!g.ports[port].surface);
+    out = g.ports[port].normal;
+    park(&g, port, 4000);
+    /* Two passive police circle each nearby port without blocking travel. */
+    for (i = 0; i < HZ * 30; i++) game_tick(&g, c);
+    assert(police_count(&g, 0) >= 2 && !police_count(&g, 1) && g.hull == 100);
+    for (i = 0; i < MAX_NPC; i++) if (police_patrol(&g, i) && g.npc_port[i] == port) {
+        assert(length(sub(g.npc[i].pos, patrol_point(&g, i))) < 1500 * FP);
+        assert(length(sub(g.npc[i].pos, g.ports[port].pos)) < 5000 * FP);
+    }
+    park(&g, port, 4000);
+    /* First burst in sight of police: a fine and a warning, not an attack. */
+    hold_fire(&g, out, HZ);
+    assert(g.shots && g.police_alert == 1 && g.wanted[f] == 500 && !police_count(&g, 1));
+    for (i = 0; i < HZ * 3; i++) game_tick(&g, c);
+    park(&g, port, 4000);
+    /* Firing again sets every patrol on the commander. */
+    hold_fire(&g, out, 6);
+    assert(g.police_alert == 2 && g.wanted[f] == 1000 && police_count(&g, 1) >= 2 && !police_count(&g, 0));
+    /* Paying the fine at a port stands them down. */
+    g.docked = port; assert(settle_fine(&g)); g.docked = -1;
+    assert(!g.police_alert && !police_count(&g, 1) && police_count(&g, 0) >= 2);
+    park(&g, port, 4000);
+    /* Defending against an attacker is lawful. */
+    for (raider = 0; raider < MAX_NPC && g.npc[raider].active; raider++) {}
+    assert(raider < MAX_NPC);
+    g.npc[raider] = (Npc){add(g.pos, scale(side, 1000 * FP, 16384)), g.vel, 60, 1, 1, -1, HZ * 10};
+    g.npc_role[raider] = RAIDER;
+    hold_fire(&g, side, 6);
+    assert(g.shots && g.npc[raider].hull < 60 && !g.police_alert && !g.wanted[f]);
+    g.npc[raider].active = 0;
+    /* A direct shot at police skips the warning. */
+    for (i = 0; i < MAX_NPC; i++) if (police_patrol(&g, i)) break;
+    assert(i < MAX_NPC);
+    g.npc[i].pos = add(g.pos, scale(side, 1500 * FP, 16384)); g.npc[i].vel = g.vel;
+    hold_fire(&g, side, 6);
+    assert(g.police_alert == 2 && g.wanted[f] >= 500 && police_count(&g, 1) >= 2);
+    /* Passive patrols stand down once the commander leaves the port behind. */
+    g.docked = port; assert(settle_fine(&g)); g.docked = -1;
+    park(&g, port, 200000);
+    for (i = 0; i < HZ * 2; i++) game_tick(&g, c);
+    assert(!police_count(&g, 0) && !police_count(&g, 1));
+    puts("PASS port police patrols, weapons fines, warnings, pursuit, self-defence and recall");
+}
 int main(void) {
     test_ships_crew(); test_terms_passengers(); test_rescue_escort();
-    test_combat_contracts(); test_law_missiles(); test_mining_saves(); test_legacy_and_extension();
+    test_combat_contracts(); test_law_missiles(); test_police_patrols(); test_mining_saves(); test_legacy_and_extension();
     puts("All career tests passed.");
     return 0;
 }

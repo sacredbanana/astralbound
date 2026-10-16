@@ -154,8 +154,120 @@ int settle_fine(Game *g) {
     int f = system_faction(g), i;
     if (g->docked < 0 || g->dead || !g->wanted[f] || g->credits < g->wanted[f]) return 0;
     g->credits -= g->wanted[f]; g->wanted[f] = 0;
-    for (i = 0; i < MAX_NPC; i++) if (g->npc_role[i] == POLICE) g->npc[i].active = 0;
+    /* Paid-up commanders are left alone; pursuers return to port patrol. */
+    for (i = 0; i < MAX_NPC; i++) if (g->npc_role[i] == POLICE) g->npc[i].hostile = 0;
+    g->police_alert = 0;
     return 1;
+}
+/* Every port keeps two police ships circling it, launched only while the
+   commander is near so the twelve NPC slots stay available for contracts.
+   Stations are circled across their traffic corridor; surface ports above
+   the pad. Port assignment and patrol phase derive from position and slot,
+   so saves need no extra state. */
+#define PATROLS_PER_PORT 2
+#define MAX_PATROLS 6
+#define PATROL_RADIUS 2500
+#define PATROL_LAUNCH 50000LL
+#define PATROL_RECALL 80000LL
+#define POLICE_WITNESS 10000LL
+#define WEAPONS_FINE 500
+#define WARRANT 1000
+static int nearest_port(const Game *g, Vec pos) {
+    int i, best = 0;
+    int64_t distance = INT64_MAX;
+    for (i = 0; i < g->nports; i++) {
+        int64_t d = length(sub(pos, g->ports[i].pos));
+        if (d < distance) { best = i; distance = d; }
+    }
+    return best;
+}
+int police_patrol(const Game *g, int i) {
+    return g->npc[i].active && g->npc_role[i] == POLICE && !g->npc[i].hostile;
+}
+Vec patrol_point(const Game *g, int i) {
+    const Port *port = &g->ports[clamp(g->npc_port[i], 0, g->nports ? g->nports - 1 : 0)];
+    Vec n = port->normal, a, b, point;
+    /* 90 second circuit; 397/1024 turn between slots keeps port mates apart. */
+    int angle = (int)(((uint64_t)g->tick * 1024 / (HZ * 90) + (unsigned)i * 397) & 1023);
+    a = n.y > 12000 || n.y < -12000 ? vec(0, n.z, -n.y) : vec(-n.z, 0, n.x);
+    a = unit(a, 16384);
+    b = unit(vec((n.y * a.z - n.z * a.y) / 16384, (n.z * a.x - n.x * a.z) / 16384,
+                 (n.x * a.y - n.y * a.x) / 16384), 16384);
+    point = add(port->pos, add(scale(a, (int64_t)cosi(angle) * PATROL_RADIUS * FP, 16384LL * 16384),
+                               scale(b, (int64_t)sini(angle) * PATROL_RADIUS * FP, 16384LL * 16384)));
+    if (port->surface) {
+        int64_t alt;
+        point = add(point, scale(n, 1500 * FP, 16384));
+        alt = altitude_at(g, point);
+        if (alt < 800) point = add(point, scale(n, (800 - alt) * FP, 16384));
+    }
+    return point;
+}
+static void police_hostile(Game *g, const char *why) {
+    int i;
+    for (i = 0; i < MAX_NPC; i++) if (police_patrol(g, i)) {
+        g->npc[i].hostile = 1;
+        if (g->npc[i].cooldown > HZ) g->npc[i].cooldown = HZ;
+    }
+    if (g->police_alert != 2) say(g, why);
+    g->police_alert = 2;
+}
+void police_patrols(Game *g) {
+    int i, j, count, total = 0;
+    if (!g->nports || g->docked != -1) return;
+    for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && g->npc_role[i] == POLICE) {
+        g->npc_port[i] = nearest_port(g, g->npc[i].pos);
+        if (g->npc[i].hostile) g->police_alert = 2; /* also restores a loaded pursuit */
+        else if (length(sub(g->npc[i].pos, g->pos)) > PATROL_RECALL * FP) {
+            g->npc[i].active = 0;
+            continue;
+        }
+        total++;
+    }
+    if (g->tick - g->police_tick >= 0x80000000U) return; /* reinforcements still en route */
+    for (j = 0; j < g->nports; j++) {
+        if (length(sub(g->ports[j].pos, g->pos)) > PATROL_LAUNCH * FP) continue;
+        for (count = 0, i = 0; i < MAX_NPC; i++)
+            if (g->npc[i].active && g->npc_role[i] == POLICE && g->npc_port[i] == j) count++;
+        while (count < PATROLS_PER_PORT && total < MAX_PATROLS) {
+            Npc *n;
+            for (i = 0; i < MAX_NPC && g->npc[i].active; i++) {}
+            if (i == MAX_NPC) return;
+            n = &g->npc[i];
+            memset(n, 0, sizeof(*n));
+            n->active = 1; n->hull = 60; n->mission = -1; n->cooldown = HZ * 3;
+            n->hostile = g->police_alert == 2;
+            g->npc_role[i] = POLICE; g->npc_ship[i] = 3; g->npc_port[i] = j;
+            n->pos = patrol_point(g, i);
+            n->vel = port_relative_velocity(g, j);
+            count++; total++;
+        }
+    }
+}
+/* The commander fired a laser or missile. target is the contact hit or
+   aimed at, or -1. Engaging an attacker is lawful; any other discharge in
+   sight of police earns a fine, and a second one (after two seconds to
+   release the trigger) or a shot at police turns every patrol hostile. */
+void police_discharge(Game *g, int target) {
+    int i, f = system_faction(g), witness = 0;
+    if (target >= 0 && g->npc_role[target] == POLICE) {
+        if (g->police_alert != 2) g->wanted[f] = clamp(g->wanted[f] + WEAPONS_FINE, 0, 1000000);
+        police_hostile(g, "POLICE FIRED UPON - PATROLS ENGAGING");
+        return;
+    }
+    if (target >= 0 && g->npc[target].hostile) return;
+    for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && g->npc_role[i] == POLICE &&
+        length(sub(g->npc[i].pos, g->pos)) < POLICE_WITNESS * FP) witness = 1;
+    if (!witness) return;
+    if (!g->police_alert) {
+        g->police_alert = 1; g->police_warned = g->tick;
+        g->wanted[f] = clamp(g->wanted[f] + WEAPONS_FINE, 0, 1000000);
+        g->reputation[f] = clamp(g->reputation[f] - 1, -100, 100);
+        say(g, "POLICE: WEAPONS FINE 500 CR - CEASE FIRE");
+    } else if (g->police_alert == 1 && g->tick - g->police_warned > HZ * 2) {
+        g->wanted[f] = clamp(g->wanted[f] + WEAPONS_FINE, 0, 1000000);
+        police_hostile(g, "POLICE: WARNING IGNORED - PATROLS ENGAGING");
+    }
 }
 void career_time(Game *g) {
     uint32_t hours = (g->tick - g->wage_tick) / MARKET_INTERVAL;
@@ -183,6 +295,7 @@ void career_system(Game *g) {
     memset(g->projectiles, 0, sizeof(g->projectiles));
     g->resource_target = -1;
     g->black_market = 0;
+    g->police_alert = 0; g->police_tick = g->tick;
     g->encounter_tick = g->tick;
     for (i = 0; i < MAX_MISSIONS; i++) if (g->contracts[i].state == ACTIVE &&
         g->contracts[i].type == RESCUE && g->contracts[i].progress == 1)
@@ -315,9 +428,11 @@ void damage_npc(Game *g, int index, int damage) {
         g->wanted[f] = clamp(g->wanted[f] + 200, 0, 1000000);
         g->reputation[f] = clamp(g->reputation[f] - 2, -100, 100);
     }
+    if (role == POLICE) police_hostile(g, "POLICE FIRED UPON - PATROLS ENGAGING");
     n->hull -= damage;
     if (n->hull > 0) return;
     n->hull = 0; n->active = 0;
+    if (role == POLICE) g->police_tick = g->tick + HZ * 180;
     if (n->mission >= 0 && g->contracts[n->mission].state == ACTIVE) {
         Mission *m = &g->contracts[n->mission];
         if (role == CIVILIAN) fail(g, m);
@@ -340,6 +455,7 @@ int fire_missile(Game *g) {
         Missile *m = &g->projectiles[i];
         m->pos = g->pos; m->vel = g->vel; m->target = target;
         m->ttl = HZ * 20; m->active = 1; g->missiles--;
+        police_discharge(g, target);
         return 1;
     }
     return 0;
@@ -484,6 +600,7 @@ void career_tick(Game *g, Vec old) {
         } else if (terrain_impact(g, from, m->pos, nearest_body(g, m->pos))) m->active = 0;
     }
     if (g->docked != -1) return;
+    if (g->tick % HZ == 0) police_patrols(g);
     if (equipped(g, SCOOP) && g->tick % HZ == 0 && g->fuel < 100) {
         const Planet *p = &g->system.planets[g->body];
         int64_t alt = altitude_at(g, g->pos);
@@ -497,10 +614,9 @@ void career_tick(Game *g, Vec old) {
         for (i = 0; i < g->nports; i++) if (length(sub(g->pos, g->ports[i].pos)) < 20000 * FP) near = 1;
         if (near && g->system.government) {
             inspect_cargo(g);
-            if (g->wanted[f]) {
-                for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && g->npc_role[i] == POLICE) break;
-                if (i == MAX_NPC) spawn(g, -1, POLICE, 1800);
-            }
+            police_patrols(g);
+            /* Small fines are settled at a port; a warrant sets patrols on the commander. */
+            if (g->wanted[f] >= WARRANT) police_hostile(g, "POLICE: OUTSTANDING WARRANT - ENGAGING");
         } else if (!g->system.government && cargo_used(g) > g->cabins * 2 &&
                    altitude_at(g, g->pos) > 13000 && length(displacement) < 2000 * FP) {
             for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && g->npc[i].hostile) break;
