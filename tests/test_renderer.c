@@ -77,6 +77,76 @@ static void hetha_target_bearing(void) {
     puts("PASS Hetha D target marker below level forward bearing");
 }
 
+static void persistent_target_markers(void) {
+    static const Vec bearings[] = {
+        {0,0,1000000}, {-2000000,0,1000000}, {2000000,0,1000000},
+        {0,2000000,1000000}, {0,-2000000,1000000},
+        {-2000000,2000000,1000000}, {2000000,-2000000,1000000},
+        {-1000000,0,-1000000}, {1000000,0,-1000000},
+        {0,1000000,-1000000}, {0,-1000000,-1000000}, {0,0,-1000000},
+        {-1000000,0,0}, {1000000,0,1}
+    };
+    Game g;
+    Frame f = {320,200,0,0,{0}};
+    int layout, mode, b, x, y, sx, sy;
+    f.pixels = malloc(640 * 480); assert(f.pixels);
+    for (layout = 0; layout < 3; layout++) {
+        f.w = layout == 2 ? 640 : 320;
+        f.h = layout == 2 ? 480 : layout == 1 ? 256 : 200;
+        assert(render_init(&f));
+        game_init(&g, 0x53504143);
+        g.docked = -1; g.target = 0; g.resource_target = -1;
+        g.pos = scale(add(g.system.planets[g.body].center,
+                         vec(0, g.system.planets[g.body].radius + 1000000, 0)), FP, 1);
+        g.yaw = 73; g.pitch = 31; g.turret_yaw = 41; g.turret_pitch = -29;
+        for (mode = 0; mode < 5; mode++) {
+            g.camera_mode = mode;
+            render_game(&g, &f);
+            for (b = 0; b < (int)(sizeof(bearings) / sizeof(bearings[0])); b++) {
+                Vec v = scale(bearings[b], 1, 1000), world_offset, actual;
+                int cy = cosi(camera_yaw), syaw = sini(camera_yaw);
+                int cp = cosi(camera_pitch), sp = sini(camera_pitch);
+                int64_t wy = (v.y * cp + v.z * sp) / 16384;
+                int64_t wz = (v.z * cp - v.y * sp) / 16384;
+                world_offset = vec((v.x * cy + wz * syaw) / 16384, wy,
+                                   (wz * cy - v.x * syaw) / 16384);
+                g.ports[0].pos = add(camera_position, scale(world_offset, FP, 1));
+                g.npc[0] = (Npc){g.ports[0].pos, vec(0,0,0), 100, 1, 1, -1, 0};
+                g.combat_target = 0;
+                render_game(&g, &f);
+                actual = camera(scale(g.ports[0].pos, 1, FP));
+                target_marker_position(actual, 10, &x, &y);
+                assert(x >= 10 && x <= f.w - 11 && y >= 10 && y <= view_h - 32);
+                /* Check the rendered square and diamond after the complete HUD
+                   pass, including edge cases and every supported camera. */
+                assert(f.pixels[(y - 8) * f.w + x - 8] == 13);
+                assert(f.pixels[(y + 8) * f.w + x + 8] == 13);
+                target_marker_position(actual, 56, &sx, &sy);
+                assert(f.pixels[(sy - 6) * f.w + sx] == 12);
+                assert(f.pixels[(sy + 6) * f.w + sx] == 12);
+            }
+        }
+        /* Exact bearings check edge choice without perspective rounding or
+           camera transforms hiding a left/right or front/rear inversion. */
+        for (b = 1; b < (int)(sizeof(bearings) / sizeof(bearings[0])); b++) {
+            Vec v = bearings[b];
+            target_marker_position(v, 10, &x, &y);
+            assert(x == 10 || x == f.w - 11 || y == 10 || y == view_h - 32);
+            if (v.x < 0) assert(x < f.w / 2);
+            if (v.x > 0 || (!v.x && !v.y)) assert(x > f.w / 2);
+            if (v.y > 0) assert(y < view_h / 2);
+            if (v.y < 0) assert(y > view_h / 2);
+        }
+        target_marker_position(vec(100,50,1000), 10, &x, &y);
+        assert(x == f.w / 2 + 100 * (f.w / 2) / 1000);
+        assert(y == view_h / 2 - 50 * (f.w / 2) / 1000);
+        target_marker_position(vec(0,0,0), 10, &x, &y);
+        assert(x == f.w / 2 && y == view_h / 2);
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS target markers persist at all viewport edges and behind all cameras in NTSC/PAL/RTG");
+}
+
 static void compact_display(void) {
     static Game g;
     Frame small = {320, 200, 1, 0, {0}}, full = {320, 256, 1, 0, {0}};
@@ -531,6 +601,7 @@ static void procedural_geology(void) {
     puts("PASS seeded geological diversity, spherical sampling and shared tile boundaries");
 }
 int main(void) {
+    persistent_target_markers();
     Frame f = {64, 120, 1, 0, {0}};
     Tri ground = {{0, 64, 0}, {0, 0, 64}, {1000, 1000, 1000}, 1000, 8, NULL, {0}, {0}, {0}};
     Tri wall = {{0, 64, 0}, {0, 0, 64}, {400, 2000, 400}, 1200, 16, NULL, {0}, {0}, {0}};

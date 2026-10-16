@@ -167,6 +167,44 @@ static Vec camera(Vec p) {
 static int screen_coord(int64_t value) {
     return value < -32760 ? -32760 : value > 32760 ? 32760 : (int)value;
 }
+/* Keep locked targets inside the flight viewport. Rear targets use their
+   camera-space bearing too, so perspective cannot mirror them across the HUD. */
+static void target_marker_position(Vec p, int top, int *x, int *y) {
+    int cx = frame->w / 2, cy = view_h / 2;
+    int left = 10, right = frame->w - 11, bottom = view_h - 32;
+    int64_t dx = p.x, dy = -p.y, ox, oy;
+    if (p.z > 0) {
+        ox = dx * (frame->w / 2) / p.z;
+        oy = dy * (frame->w / 2) / p.z;
+        if (cx + ox >= left && cx + ox <= right && cy + oy >= top && cy + oy <= bottom) {
+            *x = cx + (int)ox;
+            *y = cy + (int)oy;
+            return;
+        }
+    }
+    /* Exactly astern has no unique turn direction; consistently choose right.
+       A coincident target belongs at the centre rather than disappearing. */
+    if (!dx && !dy && p.z >= 0) {
+        *x = cx;
+        *y = cy;
+        return;
+    }
+    if (!dx && !dy)
+        dx = 1;
+    if (dx) {
+        ox = dx > 0 ? right - cx : left - cx;
+        oy = dy * ox / dx;
+        if (cy + oy < top || cy + oy > bottom) {
+            oy = dy > 0 ? bottom - cy : top - cy;
+            ox = dx * oy / dy;
+        }
+    } else {
+        ox = 0;
+        oy = dy > 0 ? bottom - cy : top - cy;
+    }
+    *x = cx + (int)ox;
+    *y = cy + (int)oy;
+}
 static void emit(Vec a, Vec b, Vec c, int color) {
     Tri *t;
     Vec v[3] = {a, b, c};
@@ -1189,16 +1227,12 @@ static void sensors(void) {
         text(7, 32, 12, s);
         snprintf(s, sizeof(s), "%ld M / CLOSING %ld M/S", (long)(length(rel) / FP), (long)closing);
         text(7, 44, 12, s);
-        if (p.z > 8) {
-            int x = screen_coord(frame->w / 2 + p.x * (frame->w / 2) / p.z);
-            int y = screen_coord(view_h / 2 - p.y * (frame->w / 2) / p.z);
-            if (x > 8 && x < frame->w - 8 && y > 56 && y < view_h - 20) {
-                line(x - 6, y, x, y - 6, 12);
-                line(x, y - 6, x + 6, y, 12);
-                line(x + 6, y, x, y + 6, 12);
-                line(x, y + 6, x - 6, y, 12);
-            }
-        }
+        int x, y;
+        target_marker_position(p, 56, &x, &y);
+        line(x - 6, y, x, y - 6, 12);
+        line(x, y - 6, x + 6, y, 12);
+        line(x + 6, y, x, y + 6, 12);
+        line(x, y + 6, x - 6, y, 12);
     } else
         text(7, 32, 7, "R SELECT RADAR CONTACT");
 }
@@ -1642,21 +1676,21 @@ void render_game(const Game *g, Frame *f) {
     }
     if (g->page == FLIGHT) {
         Vec p = camera(scale(navigation_position(g), 1, FP));
-        if (p.z > 8) {
-            int x = f->w / 2 + (int)(p.x * (f->w / 2) / p.z),
-                y = view_h / 2 - (int)(p.y * (f->w / 2) / p.z);
-            if (x > 10 && x < f->w - 10 && y > 10 && y < view_h - 25) {
-                line(x - 8, y - 8, x + 8, y - 8, 13);
-                line(x - 8, y + 8, x + 8, y + 8, 13);
-                line(x - 8, y - 8, x - 8, y + 8, 13);
-                line(x + 8, y - 8, x + 8, y + 8, 13);
-                text(x - 30, y + 12, 13,
-                     g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name
-                                   : g->ports[g->target].name);
-            }
-        }
+        const char *name = g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name;
+        int x, y, label_x, label_y, label_w = (int)strlen(name) * 6;
+        target_marker_position(p, 10, &x, &y);
+        line(x - 8, y - 8, x + 8, y - 8, 13);
+        line(x - 8, y + 8, x + 8, y + 8, 13);
+        line(x - 8, y - 8, x - 8, y + 8, 13);
+        line(x + 8, y - 8, x + 8, y + 8, 13);
+        label_x = x - 30;
+        if (label_x + label_w > f->w - 2) label_x = f->w - 2 - label_w;
+        if (label_x < 2) label_x = 2;
+        label_y = y + 12;
+        if (label_y + 7 > view_h - 25) label_y = y - 19;
+        text(label_x, label_y, 13, name);
         text(7, 8, 13,
-             g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name);
+             name);
         if (!g->camera_mode || g->camera_mode >= 3) {
             line(f->w / 2 - 9, view_h / 2, f->w / 2 - 3, view_h / 2, 15);
             line(f->w / 2 + 3, view_h / 2, f->w / 2 + 9, view_h / 2, 15);
