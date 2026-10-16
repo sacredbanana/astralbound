@@ -28,18 +28,21 @@ int8_t audio_effect(int effect, unsigned t) {
     case SOUND_DOCK: value = triangle(t * (t < 1300 ? 17 : t < 2600 ? 21 : 26)); break;
     case SOUND_HYPERSPACE: {
         /* Spool-up: a rising root and fifth that throb faster as it charges. */
-        unsigned pitch = 4 + t / 500, pulse = t * (2 + t / 2000) / 64;
+        unsigned pitch = 4 + t * 24 / duration, pulse = t * (2 + t * 6 / duration) / 64;
         value = triangle(t * pitch) * 2 / 3 + triangle(t * pitch * 3 / 2) / 3;
         envelope = 20 + (int)(t * 76 / duration);
         if (pulse & 64) envelope = envelope * 3 / 4;
         break;
     }
     case SOUND_JUMP: {
-        /* Tunnel entry: a breaking-wave hiss over a falling, rumbling drone. */
-        int hiss = t < 6000 ? (int)(6000 - t) * 64 / 6000 : 0;
+        /* Tunnel: a breaking-wave hiss on entry over a falling, rumbling
+           drone, with a second rush swelling towards the drop-out. */
+        unsigned swell = duration - 8000;
+        int hiss = t < 6000 ? (int)(6000 - t) * 64 / 6000 :
+                   t > swell ? (int)(t - swell) * 48 / 8000 : 0;
         value = ((int)(hash32(t / 3) & 255) - 128) * hiss / 64 +
-                triangle(t * (14 - t / 1600)) * (160 + triangle(t / 24)) / 384;
-        envelope = t < 16000 ? 96 : (int)(duration - t) * 96 / 4000;
+                triangle(t * (14 - t * 9 / duration)) * (160 + triangle(t / 24)) / 384;
+        envelope = t + 2000 < duration ? 96 : (int)(duration - t) * 96 / 2000;
         break;
     }
     default: value = triangle(t * (4 + t / 80)); break;

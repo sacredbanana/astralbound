@@ -185,7 +185,7 @@
   has a red cross; green dots mark visited systems. Hover shows a name.
   X/JUMP travels above 12 km with sufficient fuel, no nearby traffic,
   and a destination within six light-years. Distances use full 3D positions.
-  The hyperspace drive charges for 1.5 seconds, then the ship crosses
+  The hyperspace drive charges for 3 seconds, then the ship crosses
   a hyperspace tunnel to the destination. Traffic arriving during the
   charge aborts the jump at no cost. Only pause works meanwhile.
   J shows contract destination sectors and port numbers.

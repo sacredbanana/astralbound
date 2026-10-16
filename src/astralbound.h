@@ -140,9 +140,9 @@ typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
 #define POLICE_RANGE 5000
 /* Hyperspace sequence in real ticks: charge in the departure system, the
    jump itself at the tunnel boundary, then arrival in the new system. */
-#define HYPER_CHARGE (HZ * 3 / 2)
-#define HYPER_TUNNEL (HZ * 5 / 2)
-#define HYPER_EXIT HZ
+#define HYPER_CHARGE (HZ * 3)
+#define HYPER_TUNNEL (HZ * 11 / 2)
+#define HYPER_EXIT (HZ * 3 / 2)
 #define HYPER_TOTAL (HYPER_CHARGE + HYPER_TUNNEL + HYPER_EXIT)
 typedef struct { Vec pos, vel; int active, good, quantity, mission; } CargoPod;
 typedef struct { Vec pos, vel; int active, target, ttl; } Missile;

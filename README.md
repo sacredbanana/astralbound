@@ -189,7 +189,7 @@ same target removes the pin. The selected target has a gold box, current system 
 red cross, and visited systems a green dot. Hover reveals a star's name.
 
 Press **X/JUMP** above 12 km altitude to jump. The hyperspace drive charges
-for 1.5 seconds, crosses a tunnel and drops into the destination. Nearby traffic
+for 3 seconds, crosses a tunnel and drops into the destination. Nearby traffic
 arriving during the charge aborts at no cost; only pause works during the sequence. Jump range is six light-years;
 range and fuel use the actual 3D positions, including sub-sector catalog precision.
 The map reports launch, altitude, range, fuel and traffic restrictions. Overview
