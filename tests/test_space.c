@@ -855,16 +855,21 @@ static void test_flight_input(void) {
         unsigned joy = (unsigned)((right << 1) | (left << 9) |
                                   (down ^ right) | ((up ^ left) << 8));
         assert(joystick_roll(joy) == right - left);
-        assert(joystick_pitch(joy) == up - down);
+        assert(joystick_pitch(joy) == down - up);
     }
     mouse_stick(&m, 8, -8, 1);
     flight_input(&c, &m, 0, 0, 0);
     assert(!c.pitch && !c.roll);
-    mouse_stick(&m, 100, -100, 1);
+    mouse_stick(&m, 100, 100, 1);
     flight_input(&c, &m, 1, 1, 1);
     assert(c.pitch == 1 && c.roll == 1 && c.fire);
     mouse_stick(&m, 0, 0, 0);
     assert(!m.x && !m.y);
+    c = (Controls){0};
+    mouse_stick(&m, 0, -64, 1);
+    flight_input(&c, &m, 0, 0, 0);
+    assert(c.pitch == -1 && !c.roll);
+    mouse_stick(&m, 0, 0, 0);
     /* Roll alone leaves the nose fixed; banked pitch follows the hull axes. */
     game_init(&g, 3);
     g.docked = -1; g.assist = 0; g.pos = add(g.pos, vec(0, 100000 * FP, 0));

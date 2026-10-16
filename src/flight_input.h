@@ -16,7 +16,7 @@ static inline void mouse_stick(MouseStick *m, int dx, int dy, int held) {
 }
 static inline void flight_input(Controls *c, const MouseStick *m, int roll, int pitch, int fire) {
     c->roll = flight_axis(c->roll + roll + flight_axis(m->x, 8), 0);
-    c->pitch = flight_axis(c->pitch + pitch - flight_axis(m->y, 8), 0);
+    c->pitch = flight_axis(c->pitch + pitch + flight_axis(m->y, 8), 0);
     c->fire = c->fire || fire;
 }
 /* Amiga quadrature joystick directions: vertical switches XOR adjacent bits. */
@@ -24,6 +24,6 @@ static inline int joystick_roll(unsigned joy) {
     return ((joy >> 1) & 1) - ((joy >> 9) & 1);
 }
 static inline int joystick_pitch(unsigned joy) {
-    return (((joy >> 8) ^ (joy >> 9)) & 1) - ((joy ^ (joy >> 1)) & 1);
+    return ((joy ^ (joy >> 1)) & 1) - (((joy >> 8) ^ (joy >> 9)) & 1);
 }
 #endif

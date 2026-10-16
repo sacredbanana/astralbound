@@ -25,7 +25,7 @@ static inline void controller_apply(Controller *p, Game *g, Controls *c, unsigne
     if (g->page != FLIGHT || g->paused) return;
     if (analogue && p->calibrated) {
         c->axis_roll = analogue_axis(x, p->x);
-        c->axis_pitch = -analogue_axis(y, p->y);
+        c->axis_pitch = analogue_axis(y, p->y);
     }
     c->fire |= !!(buttons & PAD_FIRE);
     c->thrust = flight_axis(c->thrust + !!(buttons & PAD_THRUST) - !!(buttons & PAD_REVERSE), 0);

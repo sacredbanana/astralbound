@@ -693,7 +693,7 @@ int main(int argc, char **argv) {
             mouse_stick(&mouse, 0, 0, 0);
         if (g.page == FLIGHT && input_active) {
             UWORD joy = hw->joy1dat;
-            c.pitch = held[0x4c] - held[0x4d];
+            c.pitch = held[0x4d] - held[0x4c];
             c.roll = held[0x4e] - held[0x4f];
             c.thrust = held[0x11] - held[0x21];
             c.fire = held[0x63];
@@ -708,7 +708,7 @@ int main(int argc, char **argv) {
             if (usb_analog && !pad.calibrated) controller_calibrate(&pad, pad_state & 255, (pad_state >> 8) & 255);
             if (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK) {
                 c.roll = flight_axis(c.roll + !!(pad_state & JPF_JOY_RIGHT) - !!(pad_state & JPF_JOY_LEFT), 0);
-                c.pitch = flight_axis(c.pitch + !!(pad_state & JPF_JOY_UP) - !!(pad_state & JPF_JOY_DOWN), 0);
+                c.pitch = flight_axis(c.pitch + !!(pad_state & JPF_JOY_DOWN) - !!(pad_state & JPF_JOY_UP), 0);
             }
             controller_apply(&pad, &g, &c, buttons,
                              analog ? analog_x : (int)(pad_state & 255),

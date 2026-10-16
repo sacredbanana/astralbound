@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
             mouse_stick(&mouse, 0, 0, 0);
         }
         if (g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
-            c.pitch = keys[SDL_SCANCODE_UP] - keys[SDL_SCANCODE_DOWN];
+            c.pitch = keys[SDL_SCANCODE_DOWN] - keys[SDL_SCANCODE_UP];
             c.roll = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
             c.thrust = keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S];
             int roll = 0, pitch = 0, fire = 0;
@@ -239,11 +239,11 @@ int main(int argc, char **argv) {
                 if (SDL_JoystickNumAxes(joystick) > 0)
                     roll = flight_axis(SDL_JoystickGetAxis(joystick, 0), 8000);
                 if (SDL_JoystickNumAxes(joystick) > 1)
-                    pitch = -flight_axis(SDL_JoystickGetAxis(joystick, 1), 8000);
+                    pitch = flight_axis(SDL_JoystickGetAxis(joystick, 1), 8000);
                 if (hat & SDL_HAT_RIGHT) roll = 1;
                 if (hat & SDL_HAT_LEFT) roll = -1;
-                if (hat & SDL_HAT_UP) pitch = 1;
-                if (hat & SDL_HAT_DOWN) pitch = -1;
+                if (hat & SDL_HAT_UP) pitch = -1;
+                if (hat & SDL_HAT_DOWN) pitch = 1;
                 if (SDL_JoystickNumButtons(joystick)) fire = SDL_JoystickGetButton(joystick, 0);
             }
             c.fire = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL];

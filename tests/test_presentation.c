@@ -52,7 +52,12 @@ static void controller_tests(void) {
     controller_calibrate(&p, 100, 150);
     g.docked = -1; g.pos = add(g.pos, vec(0, 18000 * FP, 0)); g.page = FLIGHT;
     controller_apply(&p, &g, &c, PAD_FIRE | PAD_THRUST, 255, 0, 1);
-    assert(c.axis_roll == 256 && c.axis_pitch == 256 && c.fire && c.thrust == 1);
+    assert(c.axis_roll == 256 && c.axis_pitch == -256 && c.fire && c.thrust == 1);
+    c = (Controls){0};
+    controller_apply(&p, &g, &c, 0, 100, 255, 1);
+    assert(!c.axis_roll && c.axis_pitch == 256);
+    game_tick(&g, c);
+    assert(g.pitch == 3); /* Pushing down raises the nose. */
     c = (Controls){0}; c.axis_roll = 64;
     roll = g.roll; yaw = g.yaw;
     for (i = 0; i < 4; i++) game_tick(&g, c);
