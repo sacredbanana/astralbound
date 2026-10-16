@@ -20,6 +20,7 @@ typedef struct {
 } Tri;
 static Tri triangles[TRI_MAX];
 static int nt;
+static int scenery_reserve = 1000;
 static const Planet *terrain_surface;
 static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint, int slope);
 static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v);
@@ -1586,7 +1587,7 @@ static void cloud_deck(void) {
                     int64_t dist;
                     int fade, lod, light, i;
                     if (du != -ring && du != ring && dv != -ring && dv != ring) continue;
-                    if (nt > TRI_MAX - 1000) return; /* leave room for ports and ships */
+                    if (nt > TRI_MAX - scenery_reserve) return; /* leave room for nearby ports and ships */
                     c = cloud_at(p, face, u + du, v + dv, game->tick);
                     if (!c) continue;
                     base = body_rotate(p, c->base, 0);
@@ -1955,8 +1956,15 @@ static void destruction_effects(void) {
     for (i = 0; i < sprite_count; i++) destruction_disc(&destruction_sprites[i]);
 }
 
+#include "render_ports.inc"
+
 static void world(void) {
-    int i, x, b;
+    int i, b;
+    scenery_reserve = 1000;
+    for (i = 0; i < port_count(game); i++)
+        if (game->ports[i].surface &&
+            length(sub(game->ports[i].pos, camera_position)) < 6000LL * FP)
+            scenery_reserve = 2200;
     cache_globes();
     stellar_discs();
     for (b = 0; b < game->system.count; b++) {
@@ -1966,73 +1974,8 @@ static void world(void) {
     }
     forests();
     cloud_deck();
-    for (i = 0; i < port_count(game); i++) {
-        const Port *port = &game->ports[i];
-        const Planet *body = &game->system.planets[port->body];
-        Vec p = scale(port->pos, 1, FP), local = sub(p, body->center), up = unit(local, 16384);
-        Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), front;
-        if (!length(right))
-            right = vec(16384, 0, 0);
-        front = cross(right, up);
-        if (length(sub(p, scale(camera_position, 1, FP))) > 80000)
-            continue;
-        if (port->surface) {
-            for (x = 0; x < 36; x++) {
-                uint32_t h = hash32(game->system.seed + (unsigned)x * 173 + (unsigned)i);
-                int ox = (x % 6 - 3) * 180 + 70, oz = (x / 6 - 3) * 180 + 70;
-                Vec offset, v;
-                if (abs(ox) < 150 && abs(oz) < 150)
-                    ox += 350;
-                offset = add(scale(right, ox, 16384), scale(front, oz, 16384));
-                v = add(local, offset);
-                v = unit(v, body->radius + terrain_height(body, v));
-                box(add(body->center, v), up, 25 + h % 30,
-                    x % 7 == 0 ? 200 + h % 250 : 40 + h % 100, 16);
-                /* Streets meet the actual curved ground, between city blocks. */
-                {
-                    Vec a = terrain_vertex(body, local, right, front, ox - 80, oz - 80);
-                    Vec b2 = terrain_vertex(body, local, right, front, ox + 100, oz - 80);
-                    Vec c = terrain_vertex(body, local, right, front, ox + 100, oz - 60);
-                    Vec d = terrain_vertex(body, local, right, front, ox - 80, oz - 60);
-                    triangle(a, b2, c, 3);
-                    triangle(a, c, d, 3);
-                    a = terrain_vertex(body, local, right, front, ox - 80, oz - 80);
-                    b2 = terrain_vertex(body, local, right, front, ox - 60, oz - 80);
-                    c = terrain_vertex(body, local, right, front, ox - 60, oz + 100);
-                    d = terrain_vertex(body, local, right, front, ox - 80, oz + 100);
-                    triangle(a, b2, c, 3);
-                    triangle(a, c, d, 3);
-                }
-            }
-            box(add(body->center, unit(local, body->radius)), up, 65, 4, 13);
-        } else {
-            for (x = 0; x < 8; x++) {
-                Vec d = add(scale(right, cosi(x * 128 + port->rotation) * 160 / 16384, 16384),
-                            scale(front, sini(x * 128 + port->rotation) * 160 / 16384, 16384));
-                box(add(p, d), up, 45, 50, 16);
-            }
-            for (x = 0; x < 16; x++) {
-                Vec da = add(scale(right, cosi(x * 64 + port->rotation), 16384),
-                             scale(front, sini(x * 64 + port->rotation), 16384));
-                Vec db = add(scale(right, cosi((x + 1) * 64 + port->rotation), 16384),
-                             scale(front, sini((x + 1) * 64 + port->rotation), 16384));
-                Vec a = add(p, scale(da, 60, 16384)), b2 = add(p, scale(db, 60, 16384));
-                Vec c = add(p, scale(db, 240, 16384)), d = add(p, scale(da, 240, 16384));
-                triangle(a, b2, c, 18);
-                triangle(a, c, d, 18);
-            }
-            if (i == game->target)
-                for (x = 1; x <= 4; x++) {
-                    Vec gate = add(p, scale(up, x * 500, 16384));
-                    Vec a = add(gate, scale(right, -60, 16384));
-                    Vec b2 = add(gate, scale(right, 60, 16384));
-                    triangle(a, b2, add(b2, scale(front, 3, 16384)), 13);
-                    triangle(a, add(b2, scale(front, 3, 16384)), add(a, scale(front, 3, 16384)),
-                             13);
-                }
-            /* The central approach is open, rather than a solid box in the docking path. */
-        }
-    }
+    port_light_count = 0;
+    for (i = 0; i < port_count(game); i++) port_geometry(i);
     for (i = 0; i < MAX_NPC; i++)
         if (game->npc[i].active) {
             Vec p = scale(game->npc[i].pos, 1, FP);
@@ -2076,6 +2019,7 @@ static void world(void) {
     }
     destruction_geometry();
     draw_triangles();
+    port_draw_lights();
 }
 static void panel(const char *title) {
     rect(4, 4, frame->w - 8, view_h - 19, 1);

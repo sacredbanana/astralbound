@@ -869,7 +869,85 @@ static void night_and_twilight_skies(void) {
     free(f.pixels); render_shutdown();
     puts("PASS stars by night and in vacuum, hidden by day and cloud; composition-tinted sunsets");
 }
-int main(void) {
+/* Scenery lights must obey scene depth, including hull backs and terrain,
+   while the station's actual central approach remains visibly open. */
+static void port_scenery(void) {
+    static Game g, before;
+    Frame f={320,200,0,NULL,{0}};
+    PortFrame s={ {0,0,1200}, {16384,0,0}, {0,0,-16384}, {0,16384,0} };
+    Port p={0};
+    int layout, variant, x, y, n;
+    uint32_t hashes[3];
+    f.pixels=malloc(640*480); assert(f.pixels);
+    game_init(&g,0x53504143);
+    before=g;
+    for(layout=0;layout<3;layout++) {
+        f.w=layout==2 ? 640 : 320;
+        f.h=layout==2 ? 480 : layout==1 ? 256 : 200;
+        f.enhanced=layout!=0;
+        assert(render_init(&f));
+        frame=&f; game=&g; view_h=f.h-32*ui_scale(&f);
+        camera_position=vec(0,0,0); camera_yaw=camera_pitch=camera_roll=0;
+        draw_scale=1;
+        for(variant=0;variant<3;variant++) {
+            uint32_t h=2166136261U;
+            memset(f.pixels,0,(size_t)f.w*f.h);
+            memset(depth_buffer,0,depth_capacity*sizeof(*depth_buffer));
+            nt=port_light_count=0;
+            port_orbital(&p,s,(unsigned)variant,1,1);
+            assert(nt>200 && nt<1000 && port_light_count<PORT_LIGHT_MAX);
+            draw_triangles(); port_draw_lights();
+            /* The 120 m docking bore is empty, in every design and layout. */
+            for(y=-4;y<=4;y++) for(x=-4;x<=4;x++)
+                assert(!f.pixels[(view_h/2+y)*f.w+f.w/2+x]);
+            n=0;
+            for(y=0;y<f.h;y++) for(x=0;x<f.w;x++) {
+                int c=f.pixels[y*f.w+x];
+                assert(c<32);
+                if(y>=view_h) assert(!c);
+                n+=c!=0;
+                h=(h^(unsigned)c)*16777619U;
+            }
+            assert(n>800);
+            hashes[variant]=h;
+        }
+        assert(hashes[0]!=hashes[1] && hashes[1]!=hashes[2] && hashes[0]!=hashes[2]);
+        /* A beacon in front, hidden behind a nearer occluder, behind the
+           camera, then outside the viewport. No overlay can leak into HUD. */
+        for(n=0;n<5;n++) {
+            s.p=vec(n==3 ? 100000 : 0,n==4 ? -10000 : 0,n==2 ? -100 : 1000);
+            memset(f.pixels,0,(size_t)f.w*f.h);
+            for(x=0;x<f.w*f.h;x++) depth_buffer[x]=n==1 ? 1073741824U/500 : 0;
+            port_light_count=0;
+            port_lamp(&s,0,0,0,14,-1); port_draw_lights();
+            y=0; for(x=0;x<f.w*f.h;x++) y+=f.pixels[x]!=0;
+            assert(n==0 ? y>0 : y==0);
+        }
+        s.p=vec(0,0,1200);
+        /* A clear light changes only on the presentation clock. */
+        port_light_count=0; g.ui_clock=0;
+        port_lamp(&s,0,0,0,14,0); assert(port_light_count==1);
+        g.ui_clock=4; port_light_count=0;
+        port_lamp(&s,0,0,0,14,0); assert(port_light_count==0);
+        g.ui_clock=8; port_lamp(&s,0,0,0,14,0); assert(port_light_count==1);
+        g.ui_clock=16; port_light_count=0;
+        port_lamp(&s,0,0,0,14,0); assert(port_light_count==0);
+        g.ui_clock=0;
+        /* The richer surface view fits the reserved scenery budget. */
+        camera_position=add(g.ports[0].pos,scale(g.ports[0].normal,1500LL*FP,16384));
+        aim_angles(sub(g.ports[0].pos,camera_position),&camera_yaw,&camera_pitch);
+        nt=port_light_count=0;
+        port_geometry(0);
+        assert(nt>400 && nt<2000);
+        assert(port_light_count<PORT_LIGHT_MAX);
+    }
+    assert(!memcmp(&g,&before,sizeof(g))); /* rendering cannot affect saves/physics */
+    free(f.pixels); render_shutdown();
+    puts("PASS varied port structures, open docking bore, scenery budget, beacon timing and depth in ECS/AGA/RTG");
+}
+int main(int argc, char **argv) {
+    port_scenery();
+    if(argc>1 && !strcmp(argv[1],"--ports")) return 0;
     persistent_target_markers();
     night_and_twilight_skies();
     Frame f = {64, 120, 1, 0, {0}};

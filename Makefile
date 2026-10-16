@@ -49,7 +49,7 @@ amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
 	rm -f build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
-	rm -f build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
+	rm -f build/port-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 .PHONY: benchmark package
 build/benchmark: $(CORE) $(HEADERS) tools/benchmark.c src/astralbound.h src/trig.h | build
@@ -140,3 +140,10 @@ build/destruction-preview: $(CORE) $(HEADERS) tools/destruction_preview.c | buil
 destruction-preview: build/destruction-preview
 	mkdir -p build/evidence
 	./build/destruction-preview
+
+.PHONY: port-preview
+build/port-preview: $(CORE) $(HEADERS) tools/port_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/port_preview.c -o $@
+port-preview: build/port-preview
+	mkdir -p build/evidence
+	./build/port-preview
