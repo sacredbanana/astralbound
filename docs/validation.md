@@ -910,3 +910,7 @@ shared charge action; departure and charge-boundary validation both use precise
 catalog distances and fuel cost. The combined mouse-jump/Sol-arrival regression,
 master's traffic-abort/pause/input-lock tests, full host suite and all six native
 CPU builds pass after resolving the overlapping navigation/UI/documentation edits.
+Final integration review also fixed Sol's local orbit scale: unrelated eccentric
+outer bodies no longer expand the Earth/Moon view. The focused regression checks
+its lunar extent and passes normally and under ASan/UBSan; all native variants
+rebuild successfully with the correction.

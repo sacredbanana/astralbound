@@ -68,6 +68,11 @@ static void solar(void) {
     assert(moons==463);
     game_init(&g,123); setup_system(&g,sol); g.target=-1; g.target_body=sedna; g.docked=-1;
     g.frame_body=g.body=sedna; g.pos=add(scale(g.system.planets[sedna].center,FP,1),vec(0,(g.system.planets[sedna].radius+200000LL)*FP,0));
+    { Vec origin; int64_t extent; int parent;
+      g.target_body=earth;g.map_local=1;
+      ui_orbit_geometry(&g,&origin,&extent,&parent);
+      assert(parent==earth && extent>384400000 && extent<500000000);
+      g.target_body=sedna;g.map_local=0; }
     g.vel=vec(0,0,0); g.waypoint=catalog_sector(star("Sirius"));g.waypoint_set=1;
     /* Exercise body IDs well beyond 32 and long orbital periods through saves. */
     g.body=480; record_exploration(&g);

@@ -19,7 +19,7 @@ void ui_orbit_geometry(const Game *g, Vec *origin, int64_t *extent, int *parent)
     for(i=0;i<g->system.count;i++) {
         const Planet *p=&g->system.planets[i];
         int64_t d=g->map_local?(p->parent==*parent?p->orbit:0):p->orbit+(p->parent>=0?g->system.planets[p->parent].orbit:0);
-        if(p->catalog) {
+        if(p->catalog && (!g->map_local || p->parent==*parent)) {
             d+=p->orbit*p->eccentricity/1000000;
             if(!g->map_local && p->parent>=0) d+=g->system.planets[p->parent].orbit*g->system.planets[p->parent].eccentricity/1000000;
         }
