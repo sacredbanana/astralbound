@@ -161,6 +161,7 @@ typedef struct {
     int rig_count, deposit_count;
     int board_page, black_market, resource_target; /* transient UI/navigation */
     int ui_x, ui_y, ui_visible, ui_down, ui_capture, ui_press_page, ui_fire, ui_weapons; /* transient */
+    int ui_quit; /* transient modal: 0 closed, 1 open, 2 save failed */
     char message[80];
 } Game;
 typedef struct {

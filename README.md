@@ -138,8 +138,8 @@ safety limits; the cockpit shows delivered/requested compression. **PAUSE/PLAY**
 works with the mouse. Click the scanner to show missile/decoy controls and click
 its background again to return. In SYS, click a body or station marker to choose
 that navigation target; overlapping distant markers are resolved through NAV's
-list and BODY/PORT/PAGE buttons. GAL's nine sector tiles are clickable. SAVE,
-LOAD and EXIT are available in the panels. Mouse UI state is not stored in a
+list and BODY/PORT/PAGE buttons. GAL's nine sector tiles are clickable. SAVE and
+LOAD are available in the panels. Mouse UI state is not stored in a
 commander. All keyboard shortcuts remain available.
 
 For manual flight, hold the **right mouse button** and drag to steer. Drag right/left
@@ -197,7 +197,9 @@ destination list; V returns to flight.
 
 Flight controls: left/right arrows roll, up/down pitch, W/S change set speed, Ctrl fires, E switches flight
 assist, K controls landing gear, Space pauses, H opens help, F5 saves, F9 loads,
-and Escape exits. At ports F refuels and repairs, O upgrades the laser, and N
+and Escape opens a paused quit dialog: **Save & quit** (S), **Quit without saving**
+(Q), or **Cancel** (Escape/C). A failed save keeps the dialog open.
+At ports F refuels and repairs, O upgrades the laser, and N
 buys a larger hull. On the market, 1-8 selects a commodity and +/- buys/sells. Both buy and sell
 quotes are shown. Each port has independent supply: purchases raise scarcity prices,
 while sales increase stock and lower prices. Supply returns towards its generated

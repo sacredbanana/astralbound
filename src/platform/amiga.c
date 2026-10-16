@@ -69,7 +69,7 @@ static void native_mouse(void) {
     int dx = ((int)(now & 255) - (int)(mouse_last & 255) + 128) & 255;
     int dy = ((int)(now >> 8) - (int)(mouse_last >> 8) + 128) & 255;
     mouse_last = now;
-    mouse_right = !(hw->potinp & 0x0400);
+    mouse_right = !g.ui_quit && !(hw->potinp & 0x0400);
     mouse_left = !(*(volatile UBYTE *)0xbfe001 & 0x40);
     if (!mouse_right) ui_move(&g, &f, g.ui_x + dx - 128, g.ui_y + dy - 128);
     mouse_stick(&mouse, dx - 128, dy - 128,
@@ -600,7 +600,7 @@ int main(int argc, char **argv) {
                         pressed[code & 127] = 1;
                     held[code & 127] = (code & 128) ? 0 : 1;
                 } else if (m->Class == IDCMP_MOUSEBUTTONS) {
-                    if (code == MENUDOWN) mouse_right = 1;
+                    if (code == MENUDOWN && !g.ui_quit) mouse_right = 1;
                     if (code == MENUUP) mouse_right = 0;
                     if (code == SELECTDOWN) mouse_left = 1;
                     if (code == SELECTUP) mouse_left = 0;
@@ -608,7 +608,8 @@ int main(int argc, char **argv) {
                     { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
                       if (u == UI_SAVE) request = 1;
                       if (u == UI_LOAD) request = 2;
-                      if (u == UI_EXIT) quit = 1; }
+                      if (u == UI_EXIT) quit = 1;
+                      if (u == UI_SAVE_EXIT) request = 3; }
                 } else if (m->Class == IDCMP_MOUSEMOVE) {
                     if (!mouse_right) {
                         ui_move(&g, &f, g.ui_x + m->MouseX, g.ui_y + m->MouseY);
@@ -632,12 +633,16 @@ int main(int argc, char **argv) {
             if (ui_request == UI_SAVE) request = 1;
             if (ui_request == UI_LOAD) request = 2;
             if (ui_request == UI_EXIT) quit = 1;
+            if (ui_request == UI_SAVE_EXIT) request = 3;
         }
         controller_poll();
         for (i = 0; i < 128; i++) {
             if (pressed[i]) {
-                if (i == 0x45)
-                    quit = 1;
+                if (i == 0x45 || g.ui_quit) {
+                    int u = ui_quit_key(&g, i == 0x45 ? 27 : raw_action(i));
+                    if (u == UI_EXIT) quit = 1;
+                    if (u == UI_SAVE_EXIT) request = 3;
+                }
                 else if (i == 0x54)
                     request = 1;
                 else if (i == 0x58)
@@ -652,7 +657,7 @@ int main(int argc, char **argv) {
         if (request) {
             restore();
             if (!rtg) sound_close();
-            if (request == 1) {
+            if (request == 1 || request == 3) {
                 int saved = save_game(&g, "PROGDIR:space.sav");
                 int flushed = 0;
                 LONG storage_error = 0;
@@ -674,7 +679,11 @@ int main(int argc, char **argv) {
                 }
                 snprintf(g.message, sizeof(g.message), "%s", !saved ? "SAVE FAILED - OLD SLOT PRESERVED" :
                          flushed ? "SAVED" : "SAVED - FILESYSTEM FLUSH FAILED");
-                if (saved && !flushed && !rtg) {
+                if (request == 3) {
+                    if (saved && flushed) { quit = 1; break; }
+                    g.ui_quit = 2;
+                }
+                if (saved && !flushed && !rtg && !g.ui_quit) {
                     printf("Filesystem flush failed (%ld); leaving the OS active.\n", (long)storage_error);
                     quit = 1; break;
                 }
@@ -689,9 +698,11 @@ int main(int argc, char **argv) {
             accumulator = 0;
             audio_init(&sound, &g);
         }
-        if (g.page != FLIGHT || g.paused)
+        if (g.page != FLIGHT || g.paused || g.ui_quit) {
+            if (g.ui_quit) mouse_right = 0;
             mouse_stick(&mouse, 0, 0, 0);
-        if (g.page == FLIGHT && input_active) {
+        }
+        if (g.page == FLIGHT && input_active && !g.ui_quit) {
             UWORD joy = hw->joy1dat;
             c.pitch = held[0x4d] - held[0x4c];
             c.roll = held[0x4e] - held[0x4f];
@@ -700,7 +711,7 @@ int main(int argc, char **argv) {
             flight_input(&c, &mouse, analog ? 0 : joystick_roll(joy), analog ? 0 : joystick_pitch(joy),
                          ui_fire(&g, &f) || !(*(volatile UBYTE *)0xbfe001 & 0x80));
         }
-        if (input_active) {
+        if (input_active && !g.ui_quit) {
             ULONG type = pad_state & JP_TYPE_MASK;
             int usb_analog = type == JP_TYPE_ANALOGUE;
             unsigned buttons = !analog && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK || usb_analog)

@@ -214,7 +214,7 @@ static void burn_fuel(Game *g, Vec engine, int ticks, int drive) {
 int safe_warp(const Game *g) {
     /* Local hazards choose fixed physics ticks in cruise_interval; they do
        not prevent the player from accelerating time. */
-    return g->paused || g->dead ? 1 : clamp(g->warp, 1, MAX_WARP);
+    return g->paused || g->dead || g->ui_quit ? 1 : clamp(g->warp, 1, MAX_WARP);
 }
 static Vec autopilot_target(const Game *g) {
     const Port *port = g->target >= 0 ? &g->ports[g->target] : NULL;
@@ -283,7 +283,7 @@ void game_tick(Game *g, Controls c) {
     Vec local, center;
     const Planet *planet;
     int thrust = ordinary_thrust(g);
-    if (g->paused || g->dead)
+    if (g->paused || g->dead || g->ui_quit)
         return;
     /* Translated local frames preserve relative precision and do not inject
        orbital velocity into ground flight. Rebase velocity on frame changes. */
@@ -674,7 +674,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     if (accel == SYSTEM_DRIVE_ACCEL && step > HZ) step = HZ;
     Vec dest, target;
     int64_t speed, route, closing;
-    if (step < HZ || g->frame_body != -1 || g->paused || g->dead || !g->fuel ||
+    if (step < HZ || g->frame_body != -1 || g->paused || g->dead || g->ui_quit || !g->fuel ||
         !g->autopilot || g->docked != -1 || g->laser || c.fire || c.thrust ||
         c.roll || c.pitch || c.axis_roll || c.axis_pitch ||
         (g->target < 0 && g->target_body < 0))
@@ -792,7 +792,7 @@ static void cruise_step(Game *g, int ticks) {
 void game_frame(Game *g, Controls c, int ticks) {
     uint32_t before = g->tick;
     int i, steps = 0;
-    if (ticks <= 0 || g->paused || g->dead)
+    if (ticks <= 0 || g->paused || g->dead || g->ui_quit)
         return;
     for (i = 0; i < ticks && steps < MAX_FRAME_STEPS; i++) {
         int w = safe_warp(g), advanced = 0;
@@ -853,6 +853,7 @@ int jump(Game *g, Sector d) {
     return 1;
 }
 void game_action(Game *g, int k) {
+    if (g->ui_quit) return;
     if (k == 'r' && g->dead) {
         game_init(g, g->seed);
         return;

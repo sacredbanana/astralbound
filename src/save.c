@@ -449,6 +449,7 @@ int load_game(Game *g, const char *path) {
     copy.ui_visible = g->ui_visible;
     copy.ui_down = copy.ui_fire = copy.ui_weapons = 0;
     copy.ui_capture = -1;
+    copy.ui_quit = 0;
     copy.paused = 0;
     copy.turret_yaw = copy.yaw;
     copy.turret_pitch = copy.pitch;

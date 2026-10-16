@@ -1640,7 +1640,7 @@ static void menus(void) {
                 "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
                 "[ ] TIME TO 4096X / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
                 "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
-                "F5 SAVE / F9 LOAD / ESC EXIT",         "R CONTACT / Z ORBITS / I BODY DATA",
+                "F5 SAVE / F9 LOAD / ESC QUIT DIALOG",         "R CONTACT / Z ORBITS / I BODY DATA",
                 "0 EQUIP / 9 CREW / , MISSILE . DECOY", "BACKSLASH ROCK / O MINE N CARGO / / POD"};
             for (i = 0; i < 12; i++)
                 text(12, 30 + i * 9, i < 9 ? 15 : 7, help[i]);
@@ -1703,6 +1703,28 @@ static void cockpit_scan(int top) {
     }
     rect(cx-1,cy-1,3,3,15); text(130,top+4,7,"SCAN 10KM");
 }
+static int gui_buttons(UiWidget *v,int n,int s) {
+    int i,hover=-1;
+    for(i=0;i<n;i++) {
+        UiWidget *b=&v[i]; int over=game->ui_visible && game->ui_x/s>=b->x && game->ui_x/s<b->x+b->w && game->ui_y/s>=b->y && game->ui_y/s<b->y+b->h;
+        int pressed=game->ui_down && game->ui_capture==b->action && over;
+        if(over) hover=i;
+        if(b->action==UI_SCAN || b->action>=UI_BODY) continue;
+        if(b->action==UI_THROTTLE) {
+            rect(b->x,b->y,b->w,b->h,0); rect(b->x+1,b->y+1,game->throttle*(b->w-2)/4000,b->h-2,13); continue;
+        }
+        bevel(b->x,b->y,b->w,b->h,pressed || b->active);
+        if(over && b->enabled) line(b->x+1,b->y+1,b->x+b->w-2,b->y+1,13);
+        if(b->label[0]) text(b->x+(b->w-(int)strlen(b->label)*6)/2,b->y+(b->h-7)/2,b->enabled?(b->active?12:15):7,b->label);
+        if(b->action>=UI_SECTOR && b->action<UI_SECTOR+9) {
+            int id=b->action-UI_SECTOR; Sector sector=game->selected; System sys;
+            sector.x+=id%3-1; sector.z+=id/3-1; generate_system(game->seed,sector,&sys);
+            rect(b->x+48,b->y+6,3,3,sys.count?exploration_index(game,sector)>=0?11:13:7);
+            text(b->x+6,b->y+20,b->active?12:15,sys.count?sys.name:"EMPTY");
+        }
+    }
+    return hover;
+}
 static void gui(void) {
     UiWidget v[UI_MAX_WIDGETS]; int i,n=ui_widgets(game,frame,v),s=ui_scale(frame);
     int h=frame->h/s,top=h-80,hover=-1;
@@ -1751,25 +1773,8 @@ static void gui(void) {
             snprintf(buf,sizeof(buf),"%d BODIES / %d PORTS / %d FUEL",selected.count,system_port_count(&selected),game->fuel); text(12,143,7,buf);
         }
     }
-    for(i=0;i<n;i++) {
-        UiWidget *b=&v[i]; int over=game->ui_visible && game->ui_x/s>=b->x && game->ui_x/s<b->x+b->w && game->ui_y/s>=b->y && game->ui_y/s<b->y+b->h;
-        int pressed=game->ui_down && game->ui_capture==b->action && over;
-        if(over) hover=i;
-        if(b->action==UI_SCAN || b->action>=UI_BODY) continue;
-        if(b->action==UI_THROTTLE) {
-            rect(b->x,b->y,b->w,b->h,0); rect(b->x+1,b->y+1,game->throttle*(b->w-2)/4000,b->h-2,13); continue;
-        }
-        bevel(b->x,b->y,b->w,b->h,pressed || b->active);
-        if(over && b->enabled) line(b->x+1,b->y+1,b->x+b->w-2,b->y+1,13);
-        if(b->label[0]) text(b->x+(b->w-(int)strlen(b->label)*6)/2,b->y+(b->h-7)/2,b->enabled?(b->active?12:15):7,b->label);
-        if(b->action>=UI_SECTOR && b->action<UI_SECTOR+9) {
-            int id=b->action-UI_SECTOR; Sector sector=game->selected; System sys;
-            sector.x+=id%3-1; sector.z+=id/3-1; generate_system(game->seed,sector,&sys);
-            rect(b->x+48,b->y+6,3,3,sys.count?exploration_index(game,sector)>=0?11:13:7);
-            text(b->x+6,b->y+20,b->active?12:15,sys.count?sys.name:"EMPTY");
-        }
-    }
-    if(game->page==MARKET || game->page==BOARD || game->page==SHIPYARD || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display)) gui_rows();
+    if (!game->ui_quit) hover=gui_buttons(v,n,s);
+    if (!game->ui_quit && (game->page==MARKET || game->page==BOARD || game->page==SHIPYARD || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display))) gui_rows();
     if(game->page!=FLIGHT) {
         snprintf(buf,sizeof(buf),"%d CR / HOLD %d/%dT",game->credits,cargo_used(game),ship_capacity[game->ship]); text(8,h-28,12,buf);
         /* Status ribbon stays clear of both action buttons and navigation. */
@@ -1790,6 +1795,14 @@ static void gui(void) {
         text(7,view_h-10,12,buf);
         draw_scale=s;
     }
+    if (game->ui_quit) {
+        rect(36,h/2-50,248,104,16);
+        bevel(36,h/2-50,248,104,0);
+        text(70,h/2-39,13,"SAVE BEFORE QUITTING");
+        text(50,h/2-26,game->ui_quit==2?14:7,
+             game->ui_quit==2?"SAVE FAILED - RETRY OR CANCEL":"CHOOSE AN OPTION TO CONTINUE");
+    }
+    if (game->ui_quit) gui_buttons(v,n,s);
     if(game->ui_visible) {
         int x=game->ui_x/s,y=game->ui_y/s;
         line(x,y,x,y+9,0); line(x,y,x+7,y+7,0); line(x,y+9,x+3,y+6,0);

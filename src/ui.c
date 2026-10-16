@@ -44,6 +44,13 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
     static const int pages[] = {FLIGHT, MAP, SYSTEM_MAP, BOARD, LOG, SYSTEM_MAP, EQUIPMENT, CAREER, HELP};
     static const int keys[] = {'v','g','y','b','j','z','0','9','h'};
     int n = 0, i, h = f->h / ui_scale(f), dock = g->docked >= 0;
+    if (g->ui_quit) {
+        int y = h/2;
+        button(v,&n,50,y-12,220,16,UI_SAVE_EXIT,"SAVE AND QUIT / S",1,0);
+        button(v,&n,50,y+7,220,16,UI_EXIT,"QUIT WITHOUT SAVING / Q",1,0);
+        button(v,&n,50,y+26,220,16,UI_CANCEL_EXIT,"CANCEL / ESC",1,0);
+        return n;
+    }
     for (i = 0; i < 9; i++)
         button(v,&n,2+i*35,h-16,34,15,UI_NAV+keys[i],tabs[i],1,
                (g->page == pages[i] || (i == 3 && (g->page == MARKET || g->page == SHIPYARD))) && (g->page != SYSTEM_MAP || g->system_display == (i == 5)));
@@ -71,8 +78,7 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         button(v,&n,2,y+53,47,10,' ',g->paused ? "PLAY" : "PAUSE",1,g->paused);
         button(v,&n,50,y+53,47,10,UI_THROTTLE+1,"STOP",1,0);
         if (g->dead) {
-            button(v,&n,78,y/2-7,80,16,UI_RESTART,"RESTART",1,0);
-            button(v,&n,162,y/2-7,80,16,UI_EXIT,"EXIT",1,0);
+            button(v,&n,120,y/2-7,80,16,UI_RESTART,"RESTART",1,0);
         }
         return n;
     }
@@ -151,7 +157,6 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
       default: break;
       }
     }
-    button(v,&n,240,h-29,72,11,UI_EXIT,"EXIT",1,0);
     return n;
 }
 void ui_move(Game *g, const Frame *f, int x, int y) {
@@ -210,7 +215,7 @@ int ui_pointer(Game *g,const Frame *f,int x,int y,int down) {
     if(down && !was) {
         g->ui_capture = b ? b->action : -1;
         g->ui_press_page=g->page;
-        g->ui_fire = !b && g->page==FLIGHT && y<ui_view_height(g,f) && !g->paused && !g->dead;
+        g->ui_fire = !g->ui_quit && !b && g->page==FLIGHT && y<ui_view_height(g,f) && !g->paused && !g->dead;
         if(b && b->enabled && !g->dead && b->action==UI_THROTTLE) activate(g,b->action,g->ui_x/ui_scale(f));
     }
     if(down && b && b->enabled && !g->dead && b->action==UI_THROTTLE && g->ui_capture==UI_THROTTLE)
@@ -218,14 +223,26 @@ int ui_pointer(Game *g,const Frame *f,int x,int y,int down) {
     if(!down && was) {
         int action=g->ui_capture;
         g->ui_capture=-1; g->ui_fire=0;
-        if(b && b->enabled && b->action==action && g->page==g->ui_press_page && (!g->dead || action==UI_RESTART || action==UI_EXIT)) {
-            if(action==UI_SAVE || action==UI_LOAD || action==UI_EXIT) return action;
+        if(b && b->enabled && b->action==action && g->page==g->ui_press_page && (!g->dead || g->ui_quit || action==UI_RESTART)) {
+            if(action==UI_CANCEL_EXIT) { g->ui_quit=0; ui_cancel(g); return 0; }
+            if(action==UI_SAVE || action==UI_LOAD || action==UI_EXIT || action==UI_SAVE_EXIT) return action;
             activate(g,action,g->ui_x/ui_scale(f));
         }
     }
     return 0;
 }
 int ui_fire(const Game *g,const Frame *f) {
-    return g->ui_down && g->ui_fire && g->page==FLIGHT && g->ui_y<ui_view_height(g,f) && !g->paused && !g->dead;
+    return !g->ui_quit && g->ui_down && g->ui_fire && g->page==FLIGHT && g->ui_y<ui_view_height(g,f) && !g->paused && !g->dead;
+}
+int ui_quit_key(Game *g, int key) {
+    if (key == 27) {
+        g->ui_quit = g->ui_quit ? 0 : 1;
+        ui_cancel(g);
+    } else if (g->ui_quit) {
+        if (key == 's') return UI_SAVE_EXIT;
+        if (key == 'q') return UI_EXIT;
+        if (key == 'c') { g->ui_quit=0; ui_cancel(g); }
+    }
+    return 0;
 }
 void ui_cancel(Game *g) { g->ui_down=g->ui_fire=0; g->ui_capture=-1; g->ui_visible=0; }
