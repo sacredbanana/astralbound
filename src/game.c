@@ -1137,6 +1137,9 @@ int jump(Game *g, Sector d) {
        shell. Polar placement avoids the planetary and binary orbital plane. */
     g->pos = add(scale(g->system.star[0].center, FP, 1),
                  vec(0, (g->system.star[0].radius + 1100000000LL) * FP, 0));
+    /* Point the nose at the host star regardless of the departure attitude. */
+    aim_angles(sub(scale(g->system.star[0].center, FP, 1), g->pos), &g->yaw, &g->pitch);
+    g->roll = g->roll_fraction = g->pitch_fraction = 0;
     g->vel = vec(0, 0, 0);
     g->body = nearest_body(g, g->pos);
     g->frame_body = -1;

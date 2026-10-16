@@ -891,6 +891,30 @@ static int hyperspace_ready(Game *g) {
     }
     return 0;
 }
+static void assert_host_star_ahead(const Game *g) {
+    Vec to_star = sub(scale(g->system.star[0].center, FP, 1), g->pos);
+    assert(length(sub(forward(g->yaw, g->pitch), unit(to_star, 16384))) <= 2);
+    assert(g->roll == 0);
+}
+static void test_jump_heading(void) {
+    Game g;
+    int i, arrivals = 0;
+    for (i = 0; i < 9; i++) {
+        assert(hyperspace_ready(&g));
+        g.selected = (Sector){i % 3 - 1, 0, i / 3 - 1};
+        if (jump_refusal(&g, g.selected)) continue;
+        g.yaw = (i * 113 + 37) & 1023;
+        g.pitch = i * 51 - 204;
+        g.roll = (i * 127 + 83) & 1023;
+        g.roll_fraction = 123; g.pitch_fraction = -234;
+        assert(jump(&g, g.selected));
+        assert_host_star_ahead(&g);
+        assert(!g.roll_fraction && !g.pitch_fraction);
+        arrivals++;
+    }
+    assert(arrivals > 1);
+    puts("PASS direct jumps face the host star from varied departure attitudes");
+}
 static void test_hyperspace(void) {
     Game g;
     Controls c = {0};
@@ -900,6 +924,7 @@ static void test_hyperspace(void) {
        the simulation in the tunnel and arrives with controls restored. */
     assert(hyperspace_ready(&g));
     seed = g.system.seed; fuel = g.fuel;
+    g.yaw = 379; g.pitch = 91; g.roll = 237;
     g.page = MAP; g.warp = 64;
     game_action(&g, 'x');
     assert(g.hyperspace == 1 && g.page == FLIGHT && g.warp == 1 && g.system.seed == seed);
@@ -915,6 +940,7 @@ static void test_hyperspace(void) {
     assert(llabs(length(sub(scale(g.pos, 1, FP), g.system.star[0].center)) -
                  g.system.star[0].radius - 1100000000LL) < 16);
     assert(drive_available(&g));
+    assert_host_star_ahead(&g);
     tick = g.tick;
     for (i = 0; i < HYPER_TUNNEL - 1; i++) game_frame(&g, c, 1);
     assert(g.tick == tick);
@@ -922,6 +948,7 @@ static void test_hyperspace(void) {
     assert(g.tick > tick && !strncmp(g.message, "JUMP COMPLETE", 13));
     for (i = 0; i < HYPER_EXIT; i++) game_frame(&g, c, 1);
     assert(!g.hyperspace);
+    assert_host_star_ahead(&g);
     game_action(&g, 'g');
     assert(g.page == MAP);
     /* Traffic arriving during the charge aborts at release, at no cost. */
@@ -1309,6 +1336,7 @@ int main(int argc, char **argv) {
     test_thirty_c();
     test_system_drive();
     test_independent_drive_autopilot();
+    test_jump_heading();
     test_hyperspace();
     test_safety();
     test_unrestricted_warp();
