@@ -66,7 +66,7 @@
   Z / I     Open orbital map / system and body data.
   Space     Pause/resume simulation.
   H         Show on-screen help.
-  Escape    Exit and restore Workbench.
+  Escape    Ask whether to save before quitting; Escape again cancels.
 
   Mouse console: FLY returns to flight; VIEW cycles the camera. GAL opens
   galaxy tiles; NAV lists destinations; SYS shows clickable orbital markers.
@@ -79,7 +79,9 @@
   buttons. Drag the cyan throttle strip; STOP commands zero speed. Click
   a time factor for 1 through 4096x; safety limits still apply. PAUSE/PLAY
   halts/resumes flight. Click the scanner for missile/decoy controls; click
-  its background again to return. SAVE, LOAD and EXIT are in the panels.
+  its background again to return. SAVE and LOAD are in the panels.
+  Escape pauses the game and offers Save & Quit (S), Quit Without Saving (Q),
+  or Cancel (Escape/C). A failed save keeps the dialog open.
   Overlapping orbital markers can be selected through NAV's destination
   list and BODY/PORT/PAGE buttons. Keyboard shortcuts remain available.
 
@@ -387,7 +389,7 @@
   System ports Y / Galaxy G / Jump X / Contract log J
   Contracts B / Market M / Shipyard U / Equipment 0 / Crew 9
   Steer arrows / Set speed W S / Fire Ctrl / Assist E / Gear K
-  Time [ ] / Pause Space / Save F5 / Load F9 / Exit Escape
+  Time [ ] / Pause Space / Save F5 / Load F9 / Quit dialog Escape
 
   @{"Flight details" link flight}
   @{"Navigation    " link navigation}

@@ -7,6 +7,8 @@
 #define UI_LOAD 2002
 #define UI_EXIT 2003
 #define UI_RESTART 2004
+#define UI_SAVE_EXIT 2005
+#define UI_CANCEL_EXIT 2006
 #define UI_ROW 3000
 #define UI_NAV 4000
 #define UI_WARP 5000
@@ -28,6 +30,8 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *out);
 void ui_move(Game *g, const Frame *f, int x, int y);
 /* Returns a platform request (save/load/exit), otherwise zero. */
 int ui_pointer(Game *g, const Frame *f, int x, int y, int down);
+/* Escape opens/cancels the modal; S/Q/C choose save/quit/cancel. */
+int ui_quit_key(Game *g, int key);
 int ui_fire(const Game *g, const Frame *f);
 void ui_cancel(Game *g);
 #endif

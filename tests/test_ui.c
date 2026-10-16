@@ -68,12 +68,54 @@ static void workflow(Frame *f) {
     click(f,'+'); assert(g.cargo[0]==cargo && g.credits==credits);
     click(f,UI_NAV+'v');
     g.dead=1; g.throttle=0; click(f,UI_THROTTLE); assert(!g.throttle);
-    assert(click(f,UI_EXIT)==UI_EXIT);
+    n=ui_widgets(&g,f,v);
+    for(i=0;i<n;i++) assert(v[i].action!=UI_EXIT && v[i].action!=UI_SAVE_EXIT);
     click(f,UI_RESTART); assert(!g.dead && g.hull==100 && g.docked>=0);
     puts("PASS mouse trade/navigation/launch/auto/warp/pause/throttle and click/fire isolation");
 }
+static void quit_dialog(Frame *f) {
+    UiWidget v[UI_MAX_WIDGETS];
+    int page, dead, paused, i, n;
+    for (page=FLIGHT; page<=CAREER; page++) for (dead=0; dead<2; dead++) {
+        game_init(&g,0x53504143); g.page=page; g.dead=dead;
+        n=ui_widgets(&g,f,v);
+        for(i=0;i<n;i++) assert(v[i].action!=UI_EXIT && v[i].action!=UI_SAVE_EXIT);
+        for(paused=0;paused<2;paused++) {
+            uint32_t tick=g.tick;
+            Controls c={0};
+            g.paused=paused;
+            assert(!ui_quit_key(&g,27) && g.ui_quit);
+            assert(ui_widgets(&g,f,v)==3);
+            game_action(&g,' '); game_action(&g,'r'); game_action(&g,'g');
+            assert(g.paused==paused && g.dead==dead && g.page==page);
+            c.fire=1; c.thrust=1;
+            game_tick(&g,c); game_frame(&g,c,10);
+            assert(g.tick==tick);
+            /* Empty modal background cannot fire or activate the old UI. */
+            ui_pointer(&g,f,20,40,1); assert(!ui_fire(&g,f));
+            assert(!ui_pointer(&g,f,20,40,0));
+            assert(click(f,UI_SAVE_EXIT)==UI_SAVE_EXIT && g.ui_quit);
+            assert(click(f,UI_EXIT)==UI_EXIT && g.ui_quit);
+            assert(ui_quit_key(&g,'s')==UI_SAVE_EXIT);
+            assert(ui_quit_key(&g,'q')==UI_EXIT);
+            /* Enter never chooses a destructive default. */
+            assert(!ui_quit_key(&g,'\r') && g.ui_quit);
+            click(f,UI_CANCEL_EXIT);
+            assert(!g.ui_quit && g.paused==paused && g.dead==dead && g.page==page);
+            ui_quit_key(&g,27); ui_quit_key(&g,27);
+            assert(!g.ui_quit && g.paused==paused);
+            ui_quit_key(&g,27); ui_quit_key(&g,'c'); assert(!g.ui_quit);
+        }
+    }
+    game_init(&g,0x53504143); ui_quit_key(&g,27);
+    assert(save_game(&g,"ui-quit.sav"));
+    g.ui_quit=2;
+    assert(load_game(&g,"ui-quit.sav") && !g.ui_quit && !g.paused);
+    remove("ui-quit.sav");
+    puts("PASS quit modal on every page, paused/dead states, keyboard/mouse isolation and save roundtrip");
+}
 int main(void) {
     Frame f={320,200,0,NULL,{0}};
-    workflow(&f); f.h=256; workflow(&f); f.w=640; f.h=480; workflow(&f);
+    workflow(&f); quit_dialog(&f); f.h=256; workflow(&f); quit_dialog(&f); f.w=640; f.h=480; workflow(&f); quit_dialog(&f);
     return 0;
 }

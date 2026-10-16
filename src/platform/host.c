@@ -29,6 +29,20 @@ static void ppm(Frame *f, const char *path) {
     }
     fclose(o);
 }
+static int platform_request(int request) {
+    if (request == UI_EXIT) return 1;
+    if (request == UI_SAVE || request == UI_SAVE_EXIT) {
+        int saved = save_game(&g, "space.sav");
+        snprintf(g.message, sizeof(g.message), "%s", saved ? "SAVED" : "SAVE FAILED");
+        if (request == UI_SAVE_EXIT) {
+            if (saved) return 1;
+            g.ui_quit = 2;
+        }
+    }
+    if (request == UI_LOAD && !load_game(&g, "space.sav"))
+        snprintf(g.message, sizeof(g.message), "LOAD FAILED");
+    return 0;
+}
 int main(int argc, char **argv) {
     Frame f = {320, 256, 1, 0, {0}};
     SDL_Window *window;
@@ -170,7 +184,7 @@ int main(int argc, char **argv) {
                 joystick = NULL; gamepad = NULL; pad.held = 0;
             }
             if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT &&
-                g.page == FLIGHT) {
+                g.page == FLIGHT && !g.ui_quit) {
                 mouse_right = 1;
                 SDL_SetRelativeMouseMode(SDL_TRUE);
             }
@@ -191,17 +205,16 @@ int main(int argc, char **argv) {
             if ((e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) && e.button.button == SDL_BUTTON_LEFT) {
                 int request = ui_pointer(&g, &f, mouse_right ? g.ui_x : e.button.x,
                                          mouse_right ? g.ui_y : e.button.y, e.type == SDL_MOUSEBUTTONDOWN);
-                if (request == UI_EXIT) quit = 1;
-                if (request == UI_SAVE) snprintf(g.message, sizeof(g.message), "%s", save_game(&g, "space.sav") ? "SAVED" : "SAVE FAILED");
-                if (request == UI_LOAD && !load_game(&g, "space.sav")) snprintf(g.message, sizeof(g.message), "LOAD FAILED");
+                if (platform_request(request)) quit = 1;
             }
             if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) ui_cancel(&g);
-            if (e.type == SDL_QUIT)
-                quit = 1;
+            if (e.type == SDL_QUIT && !g.ui_quit)
+                ui_quit_key(&g, 27);
             if (e.type == SDL_KEYDOWN && !e.key.repeat) {
                 int k = e.key.keysym.sym;
-                if (k == SDLK_ESCAPE)
-                    quit = 1;
+                if (k == SDLK_ESCAPE || g.ui_quit) {
+                    if (platform_request(ui_quit_key(&g, k))) quit = 1;
+                }
                 else if (k == SDLK_F5)
                     snprintf(g.message, sizeof(g.message), "%s",
                              save_game(&g, "space.sav") ? "SAVED" : "SAVE FAILED");
@@ -224,12 +237,12 @@ int main(int argc, char **argv) {
         }
         ui_pointer(&g, &f, g.ui_x, g.ui_y, g.ui_down);
         keys = SDL_GetKeyboardState(0);
-        if (g.page != FLIGHT || g.paused) {
+        if (g.page != FLIGHT || g.paused || g.ui_quit) {
             mouse_right = 0;
             SDL_SetRelativeMouseMode(SDL_FALSE);
             mouse_stick(&mouse, 0, 0, 0);
         }
-        if (g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
+        if (!g.ui_quit && g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             c.pitch = keys[SDL_SCANCODE_DOWN] - keys[SDL_SCANCODE_UP];
             c.roll = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
             c.thrust = keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S];
@@ -250,7 +263,7 @@ int main(int argc, char **argv) {
             flight_input(&c, &mouse, roll, pitch,
                          fire || ui_fire(&g, &f));
         }
-        if (gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
+        if (!g.ui_quit && gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             unsigned buttons = 0;
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_A)) buttons |= PAD_FIRE;
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_B)) buttons |= PAD_BRAKE;
