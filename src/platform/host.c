@@ -76,6 +76,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--market")) g.page = MARKET;
         if (!strcmp(argv[i], "--board")) g.page = BOARD;
         if (!strcmp(argv[i], "--equipment")) g.page = EQUIPMENT;
+        if (!strcmp(argv[i], "--shipyard")) g.page = SHIPYARD;
         if (!strcmp(argv[i], "--destinations")) { g.page = SYSTEM_MAP; g.system_display = 0; }
         if (!strcmp(argv[i], "--weapons")) g.ui_weapons = 1;
         if (!strcmp(argv[i], "--system-map")) { g.page = SYSTEM_MAP; g.system_display = 1; }

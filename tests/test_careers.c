@@ -51,6 +51,15 @@ static void test_ships_crew(void) {
     assert(buy_ship(&g, 5)); assert(ship_specs[g.ship].acceleration == 30);
     assert(buy_ship(&g, 0));
     g.cargo[0] = 19; assert(!buy_equipment(&g, CABIN)); g.cargo[0] = 0;
+    /* The shipyard explains the same refusal buy_ship applies. */
+    assert(!strcmp(ship_refusal(&g, 0), "CURRENT HULL"));
+    g.credits = 100; assert(!strcmp(ship_refusal(&g, 5), "SHORT OF CREDITS") && !buy_ship(&g, 5));
+    g.credits = 100000; g.docked = -1; assert(!strcmp(ship_refusal(&g, 5), "DOCK TO BUY")); g.docked = 0;
+    g.cargo[0] = 70; assert(!strcmp(ship_refusal(&g, 1), "HOLD TOO SMALL") && !buy_ship(&g, 1)); g.cargo[0] = 0;
+    assert(!ship_refusal(&g, 2)); assert(buy_ship(&g, 2) && !strcmp(ship_refusal(&g, 2), "CURRENT HULL"));
+    g.page = SHIPYARD; g.selection = 0;
+    game_action(&g, 1001); assert(g.selection == SHIPS - 1);
+    game_action(&g, 1002); assert(g.selection == 0);
     f = system_faction(&g); g.service[f] = 15; g.medals[f] = 3;
     assert(!strcmp(military_rank(&g, f), "CAPTAIN"));
     puts("PASS hull capacities, equipment limits, crew launch gates, wages and ranks");

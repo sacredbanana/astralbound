@@ -36,16 +36,25 @@ int passengers_used(const Game *g) {
         n += g->contracts[i].passengers;
     return n;
 }
-int buy_ship(Game *g, int s) {
+/* First reason buy_ship would refuse a hull, or NULL when the sale can go ahead. */
+const char *ship_refusal(const Game *g, int s) {
     const ShipSpec *spec;
-    if (s < 0 || s >= SHIPS || s == g->ship || g->docked < 0 || g->dead) return 0;
+    if (s < 0 || s >= SHIPS || g->dead) return "UNAVAILABLE";
+    if (s == g->ship) return "CURRENT HULL";
+    if (g->docked < 0) return "DOCK TO BUY";
     spec = &ship_specs[s];
-    if (g->credits < spec->cost || cargo_used(g) > spec->capacity ||
-        g->missiles > spec->missiles || g->crew > spec->crew + 2 ||
-        (equipped(g, DORSAL) && !(spec->mounts & 1)) ||
-        (equipped(g, VENTRAL) && !(spec->mounts & 2))) return 0;
+    if (g->credits < spec->cost) return "SHORT OF CREDITS";
+    if (cargo_used(g) > spec->capacity) return "HOLD TOO SMALL";
+    if (g->missiles > spec->missiles) return "TOO MANY MISSILES";
+    if (g->crew > spec->crew + 2) return "CREW TOO LARGE";
+    if (equipped(g, DORSAL) && !(spec->mounts & 1)) return "NO DORSAL MOUNT";
+    if (equipped(g, VENTRAL) && !(spec->mounts & 2)) return "NO VENTRAL MOUNT";
+    return NULL;
+}
+int buy_ship(Game *g, int s) {
+    if (ship_refusal(g, s)) return 0;
     /* No resale credit: prevents cycling free hulls to manufacture credits. */
-    g->credits -= spec->cost;
+    g->credits -= ship_specs[s].cost;
     g->ship = s;
     say(g, "HULL PURCHASED - CHECK CREW BEFORE LAUNCH");
     return 1;

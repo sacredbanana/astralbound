@@ -802,6 +802,7 @@ static void test_unrestricted_warp(void) {
         for (i = 0; i < 64; i++) game_tick(&reference, c);
         assert(g.tick == 64 && !g.dead && g.effective_warp == 64);
         reference.effective_warp = g.effective_warp;
+        reference.ui_clock = g.ui_clock; /* frame-level presentation clock */
         assert(!memcmp(&g, &reference, sizeof(g)));
         c.fire = 0;
     }

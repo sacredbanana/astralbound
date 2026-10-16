@@ -94,7 +94,9 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
                 enabled = first+i < (g->target < 0 ? g->system.count : g->nports);
                 active = (g->target < 0 ? g->target_body : g->target) == first+i;
             }
-            button(v,&n,8,42+i*12,304,11,UI_ROW+i,"",enabled,active);
+            /* The shipyard keeps its hull list beside the rotating preview. */
+            if(g->page==SHIPYARD) button(v,&n,8,36+i*13,110,12,UI_ROW+i,"",enabled,active);
+            else button(v,&n,8,42+i*12,304,11,UI_ROW+i,"",enabled,active);
         }
     }
     if(g->page==BOARD || g->page==MARKET || g->page==SHIPYARD) {

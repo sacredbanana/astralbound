@@ -162,6 +162,7 @@ typedef struct {
     int board_page, black_market, resource_target; /* transient UI/navigation */
     int ui_x, ui_y, ui_visible, ui_down, ui_capture, ui_press_page, ui_fire, ui_weapons; /* transient */
     int ui_quit; /* transient modal: 0 closed, 1 open, 2 save failed */
+    uint32_t ui_clock; /* transient real-time ticks for presentation animation */
     char message[80];
 } Game;
 typedef struct {
@@ -182,6 +183,7 @@ int system_faction(const Game *g);
 const char *military_rank(const Game *g, int faction);
 int passengers_used(const Game *g);
 int equipped(const Game *g, Equipment item);
+const char *ship_refusal(const Game *g, int ship);
 int buy_ship(Game *g, int ship);
 int buy_equipment(Game *g, int item);
 int sell_equipment(Game *g, int item);

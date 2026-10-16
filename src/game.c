@@ -903,6 +903,8 @@ static void cruise_step(Game *g, int ticks) {
 void game_frame(Game *g, Controls c, int ticks) {
     uint32_t before = g->tick;
     int i, steps = 0;
+    if (ticks > 0)
+        g->ui_clock += (uint32_t)ticks; /* real time, independent of warp and pause */
     if (ticks <= 0 || g->paused || g->dead || g->ui_quit)
         return;
     for (i = 0; i < ticks && steps < MAX_FRAME_STEPS; i++) {
@@ -1153,8 +1155,11 @@ void game_action(Game *g, int k) {
     case '\r':
         if (g->page == EQUIPMENT)
             say(g, buy_equipment(g, g->selection) ? "EQUIPMENT PURCHASED" : "PURCHASE REFUSED");
-        if (g->page == SHIPYARD)
-            say(g, buy_ship(g, g->selection) ? "HULL PURCHASED" : "HULL PURCHASE REFUSED");
+        if (g->page == SHIPYARD) {
+            const char *refusal = ship_refusal(g, g->selection);
+            if (buy_ship(g, g->selection)) say(g, "HULL PURCHASED");
+            else snprintf(g->message, sizeof(g->message), "HULL REFUSED: %s", refusal);
+        }
         if (g->page == BOARD)
             say(g, accept_mission(g, g->selection) ? "CONTRACT ACCEPTED - J FOR DETAILS"
                                                    : "CANNOT ACCEPT CONTRACT");
@@ -1196,6 +1201,8 @@ void game_action(Game *g, int k) {
         break;
     case 1001:
     case 1002:
+        if (g->page == SHIPYARD)
+            g->selection = (g->selection + SHIPS + (k == 1001 ? -1 : 1)) % SHIPS;
         if (g->page == SYSTEM_MAP) {
             int step = k == 1001 ? -1 : 1;
             if (g->target < 0)

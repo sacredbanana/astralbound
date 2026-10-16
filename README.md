@@ -159,7 +159,8 @@ Steering also aims the turret in turret views. Autopilot retains steering until 
 turns it off; time compression remains limited to autopilot flight.
 
 At a port, **B** opens contracts, **M** opens the market and **U** opens the
-shipyard. **J** lists contracts and destinations. **G** opens the galaxy map;
+shipyard, where the selected hull turns in a 3D preview beside stat bars compared
+with your current ship (1-6 or Up/Down select, Return buys). **J** lists contracts and destinations. **G** opens the galaxy map;
 select a sector using arrows and press **X** above 12 km altitude to jump. **C**
 centres the map on the current system. Jump range is six one-light-year sectors.
 Star occupancy follows a four-arm galactic disc; empty sectors reject jumps. Green

@@ -31,6 +31,10 @@ static int view_h;
 static int draw_scale = 1;
 static Vec camera_position;
 static int camera_yaw, camera_pitch, camera_roll;
+/* A sub-viewport for inset scenes: the projection centre moves by proj_dx/dy
+   from the frame centre and rasterisation is scissored to the view rectangle.
+   All zero (the full frame) except while an inset is being drawn. */
+static int proj_dx, proj_dy, view_left, view_top, view_right_inset;
 /* Q4 coordinates retain fractional ray hits between fixed mesh vertices. */
 #ifndef SPACE_FPU
 static Vec camera_to_local(const Planet *p, Vec v) {
@@ -236,8 +240,8 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
         double reciprocal = 1.0 / fpu_double(v[i].z);
         double px = fpu_double(v[i].x) * reciprocal, py = fpu_double(v[i].y) * reciprocal;
         t->inverse_z[i] = (uint32_t)(int32_t)(1073741824.0 * reciprocal);
-        t->x[i] = screen_coord(frame->w / 2 + fpu_int(px * (frame->w / 2), 65536));
-        t->y[i] = screen_coord(view_h / 2 - fpu_int(py * (frame->w / 2), 65536));
+        t->x[i] = screen_coord(frame->w / 2 + proj_dx + fpu_int(px * (frame->w / 2), 65536));
+        t->y[i] = screen_coord(view_h / 2 + proj_dy - fpu_int(py * (frame->w / 2), 65536));
         if (t->surface) {
             t->surface_depth[i] = fpu_int64(274877906944.0 * reciprocal);
             t->surface_x[i] = frame->w * 128 + fpu_int(px * (frame->w * 128), 1 << 30);
@@ -247,8 +251,8 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
 #else
     for (i = 0; i < 3; i++) {
         t->inverse_z[i] = (uint32_t)(1073741824LL / v[i].z);
-        t->x[i] = screen_coord(frame->w / 2 + v[i].x * (frame->w / 2) / v[i].z);
-        t->y[i] = screen_coord(view_h / 2 - v[i].y * (frame->w / 2) / v[i].z);
+        t->x[i] = screen_coord(frame->w / 2 + proj_dx + v[i].x * (frame->w / 2) / v[i].z);
+        t->y[i] = screen_coord(view_h / 2 + proj_dy - v[i].y * (frame->w / 2) / v[i].z);
         if (t->surface) {
             t->surface_depth[i] = 274877906944LL / v[i].z;
             t->surface_x[i] = frame->w * 128 + (int)(v[i].x * (frame->w * 128) / v[i].z);
@@ -496,8 +500,8 @@ static void raster(const Tri *t) {
         if (t->y[i] > maxy)
             maxy = t->y[i];
     }
-    if (miny < 0)
-        miny = 0;
+    if (miny < view_top)
+        miny = view_top;
     if (maxy >= view_h)
         maxy = view_h - 1;
     for (y = miny; y <= maxy; y++) {
@@ -517,8 +521,8 @@ static void raster(const Tri *t) {
         if (n >= 2) {
             int l = xs[0] < xs[1] ? xs[0] : xs[1], r = xs[0] > xs[1] ? xs[0] : xs[1];
             int64_t z;
-            if (l < 0)
-                l = 0;
+            if (l < view_left)
+                l = view_left;
             /* Evaluate the triangle's depth plane at the actual pixel, not
                at a rounded scanline edge. This keeps shared faces coherent. */
             z = ((int64_t)t->inverse_z[0] +
@@ -527,8 +531,8 @@ static void raster(const Tri *t) {
                 z = t->surface_depth[0] +
                     (depth_x * (l * 256 - t->surface_x[0]) +
                      depth_y * (y * 256 - t->surface_y[0])) / 256;
-            if (r >= frame->w)
-                r = frame->w - 1;
+            if (r >= frame->w - view_right_inset)
+                r = frame->w - view_right_inset - 1;
             if (r >= l) {
                 int x;
                 uint8_t *pixels = frame->pixels + (size_t)y * frame->w + l;
@@ -629,6 +633,175 @@ static void box(Vec center, Vec up, int size, int height, int color) {
                         scale(f, (i == 2 || i == 3 || i == 6 || i == 7) ? size : -size, 16384))));
     for (i = 0; i < 12; i++)
         triangle(v[faces[i][0]], v[faces[i][1]], v[faces[i][2]], color + (i / 2) % 3);
+}
+/* Hulls are lofts: a convex profile swept through up to four stations, nose
+   to tail. Units are sixteenths of the ShipSpec half-width (x), height (y)
+   and depth (z), so each model keeps its catalogue proportions. */
+typedef struct { int8_t z, y, w, h; } ShipStation;
+typedef struct { uint8_t profile, tone, flags, count; int8_t x; ShipStation s[4]; } ShipLoft;
+enum { HULL_TONE, TRIM_TONE, GLASS_TONE, ACCENT_TONE, GLOW_TONE };
+enum { HEX_PROFILE, BOX_PROFILE, BLADE_PROFILE, POD_PROFILE, WEDGE_PROFILE };
+#define LOFT_MIRROR 1 /* also drawn reflected across the centreline */
+#define LOFT_EXHAUST 2 /* tail cap glows */
+#define SHIP_LOFTS 5
+static const int8_t ship_profile[5][8][2] = {
+    {{0, 16}, {16, 6}, {16, -6}, {0, -16}, {-16, -6}, {-16, 6}},
+    {{-16, 16}, {16, 16}, {16, -16}, {-16, -16}},
+    {{0, 16}, {16, 0}, {0, -16}, {-16, 0}},
+    {{0, 16}, {11, 11}, {16, 0}, {11, -11}, {0, -16}, {-11, -11}, {-16, 0}, {-11, 11}},
+    {{0, 16}, {16, -4}, {12, -16}, {-12, -16}, {-16, -4}}};
+static const uint8_t ship_profile_points[5] = {6, 4, 4, 8, 5};
+static const ShipLoft ship_lofts[SHIPS][SHIP_LOFTS] = {
+    { /* CINDER: runabout dart */
+     {WEDGE_PROFILE, HULL_TONE, 0, 4, 0, {{16, -4, 0, 0}, {4, 0, 7, 12}, {-8, 0, 9, 14}, {-12, 0, 7, 10}}},
+     {HEX_PROFILE, GLASS_TONE, 0, 3, 0, {{9, 8, 0, 0}, {3, 11, 3, 4}, {-4, 10, 2, 3}}},
+     {BLADE_PROFILE, TRIM_TONE, 0, 3, 0, {{2, -3, 8, 2}, {-10, -3, 16, 2}, {-12, -3, 15, 2}}},
+     {POD_PROFILE, TRIM_TONE, LOFT_MIRROR | LOFT_EXHAUST, 2, 5, {{-9, -1, 3, 5}, {-14, -1, 3, 5}}}},
+    { /* LOOM: light trader with side containers */
+     {BOX_PROFILE, HULL_TONE, 0, 4, 0, {{15, -2, 6, 6}, {9, 0, 10, 12}, {-9, 0, 10, 12}, {-12, 0, 8, 10}}},
+     {HEX_PROFILE, GLASS_TONE, 0, 3, 0, {{16, 5, 0, 0}, {12, 8, 5, 5}, {7, 9, 5, 4}}},
+     {BOX_PROFILE, ACCENT_TONE, LOFT_MIRROR, 2, 12, {{6, -2, 3, 9}, {-8, -2, 3, 9}}},
+     {POD_PROFILE, TRIM_TONE, LOFT_MIRROR | LOFT_EXHAUST, 2, 5, {{-10, 0, 3, 5}, {-15, 0, 3, 5}}}},
+    { /* HEARTH: heavy freighter on twin engine pods */
+     {HEX_PROFILE, HULL_TONE, 0, 4, 0, {{15, 0, 5, 5}, {8, 0, 12, 12}, {-8, 0, 12, 14}, {-12, 0, 10, 12}}},
+     {HEX_PROFILE, GLASS_TONE, 0, 3, 0, {{13, 9, 0, 0}, {9, 12, 4, 4}, {3, 12, 3, 3}}},
+     {BOX_PROFILE, ACCENT_TONE, 0, 2, 0, {{5, -13, 7, 4}, {-10, -13, 7, 4}}},
+     {POD_PROFILE, TRIM_TONE, LOFT_MIRROR | LOFT_EXHAUST, 3, 13, {{0, -2, 3, 7}, {-12, -2, 3, 7}, {-14, -2, 2, 5}}},
+     {BLADE_PROFILE, HULL_TONE, LOFT_MIRROR, 2, 8, {{-2, -2, 5, 1}, {-9, -2, 5, 1}}}},
+    { /* KESTREL: swept-wing interceptor */
+     {HEX_PROFILE, HULL_TONE, 0, 4, 0, {{16, 0, 0, 0}, {6, 0, 4, 10}, {-6, 0, 5, 14}, {-12, 0, 4, 10}}},
+     {HEX_PROFILE, GLASS_TONE, 0, 3, 0, {{9, 8, 0, 0}, {3, 11, 2, 5}, {-4, 10, 2, 3}}},
+     {BLADE_PROFILE, HULL_TONE, 0, 3, 0, {{4, 0, 4, 2}, {-8, 0, 16, 3}, {-11, 0, 16, 3}}},
+     {BLADE_PROFILE, ACCENT_TONE, LOFT_MIRROR, 3, 4, {{-3, 6, 1, 0}, {-10, 12, 1, 6}, {-12, 12, 1, 6}}},
+     {POD_PROFILE, TRIM_TONE, LOFT_MIRROR | LOFT_EXHAUST, 2, 3, {{-10, 0, 2, 6}, {-14, 0, 2, 6}}}},
+    { /* QUARRY: mining spine with forward grapples */
+     {BOX_PROFILE, HULL_TONE, 0, 4, 0, {{13, -2, 4, 6}, {9, 0, 6, 10}, {-8, 0, 6, 10}, {-12, 0, 5, 8}}},
+     {BLADE_PROFILE, ACCENT_TONE, LOFT_MIRROR, 2, 4, {{16, -9, 2, 3}, {6, -6, 3, 5}}},
+     {HEX_PROFILE, GLASS_TONE, 0, 3, 0, {{12, 8, 0, 0}, {8, 11, 4, 4}, {3, 11, 3, 3}}},
+     {POD_PROFILE, TRIM_TONE, LOFT_MIRROR | LOFT_EXHAUST, 3, 12, {{3, 0, 4, 8}, {-12, 0, 4, 8}, {-14, 0, 3, 6}}},
+     {BLADE_PROFILE, HULL_TONE, LOFT_MIRROR, 2, 8, {{0, 0, 4, 1}, {-8, 0, 4, 1}}}},
+    { /* WAYFARER: long-range liner on outrigger nacelles */
+     {HEX_PROFILE, HULL_TONE, 0, 4, 0, {{16, 0, 0, 0}, {8, 0, 7, 9}, {-6, 0, 9, 12}, {-12, 0, 7, 9}}},
+     {HEX_PROFILE, GLASS_TONE, 0, 3, 0, {{11, 7, 0, 0}, {6, 10, 4, 4}, {0, 10, 3, 3}}},
+     {POD_PROFILE, TRIM_TONE, LOFT_MIRROR | LOFT_EXHAUST, 3, 13, {{4, -4, 3, 6}, {-12, -4, 3, 6}, {-14, -4, 2, 5}}},
+     {BLADE_PROFILE, HULL_TONE, LOFT_MIRROR, 2, 9, {{0, -3, 5, 1}, {-8, -3, 5, 1}}},
+     {BLADE_PROFILE, ACCENT_TONE, 0, 3, 0, {{-2, 10, 1, 0}, {-10, 14, 1, 5}, {-12, 14, 1, 5}}}}};
+typedef struct {
+    Vec origin, right, up, front, eye, light; /* Q14 basis and light */
+    int unit; /* world units per metre */
+    const ShipSpec *spec;
+} ShipView;
+static int64_t dot(Vec a, Vec b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+/* Model coordinates are 256ths of the spec extents. */
+static Vec ship_point(const ShipView *v, int x, int y, int z) {
+    int64_t d = 16384LL * 256;
+    return add(v->origin,
+               add(scale(v->right, (int64_t)x * v->spec->width * v->unit, d),
+                   add(scale(v->up, (int64_t)y * v->spec->height * v->unit, d),
+                       scale(v->front, (int64_t)z * v->spec->depth * v->unit, d))));
+}
+static int ship_colour(int tone, int light) {
+    static const uint8_t ecs_hull[9] = {1, 16, 19, 28, 29, 30, 20, 18, 31};
+    static const uint8_t aga_hull[16] = {112, 113, 114, 115, 116, 117, 118, 119,
+                                         120, 121, 122, 123, 124, 126, 20, 18};
+    static const uint8_t glass[4] = {25, 26, 27, 13}, accent[4] = {21, 22, 23, 24};
+    if (tone == GLOW_TONE)
+        return 12;
+    if (frame->enhanced) switch (tone) {
+        case HULL_TONE: return aga_hull[light];
+        case TRIM_TONE: return aga_hull[light * 2 / 3];
+        case GLASS_TONE: return light >= 13 ? 13 : 82 + light;
+        default: return 128 + light * 2;
+        }
+    switch (tone) {
+    case HULL_TONE: return ecs_hull[light * 8 / 15];
+    case TRIM_TONE: return ecs_hull[light * 5 / 15];
+    case GLASS_TONE: return glass[light * 3 / 15];
+    default: return accent[light * 3 / 15];
+    }
+}
+/* Faces are oriented away from their loft's axis, so profiles and caps need
+   no hand-kept winding; back faces are dropped before clipping. */
+static void ship_face(const ShipView *v, Vec a, Vec b, Vec c, Vec inside, int tone) {
+    Vec e1 = sub(b, a), e2 = sub(c, a), mid, n;
+    int64_t d;
+    n = vec(e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x);
+    if (!n.x && !n.y && !n.z)
+        return;
+    mid = scale(add(a, add(b, c)), 1, 3);
+    if (dot(n, sub(mid, inside)) < 0)
+        n = scale(n, -1, 1);
+    if (dot(n, sub(mid, v->eye)) >= 0)
+        return;
+    d = dot(unit(n, 16384), v->light) / 16384;
+    triangle(a, b, c, ship_colour(tone, d > 0 ? 3 + (int)(d * 12 / 16384) : 3 + (int)(d * 2 / 16384)));
+}
+static void ship_loft(const ShipView *v, const ShipLoft *l, int side) {
+    const int8_t (*profile)[2] = ship_profile[l->profile];
+    Vec ring[4][8], axis[4], centre = vec(0, 0, 0);
+    int s, p, n = ship_profile_points[l->profile], x = l->x * side * 16, last = l->count - 1;
+    for (s = 0; s < l->count; s++) {
+        const ShipStation *st = &l->s[s];
+        axis[s] = ship_point(v, x, st->y * 16, st->z * 16);
+        centre = add(centre, axis[s]);
+        for (p = 0; p < n; p++)
+            ring[s][p] = ship_point(v, x + profile[p][0] * side * st->w,
+                                    st->y * 16 + profile[p][1] * st->h, st->z * 16);
+    }
+    centre = scale(centre, 1, l->count);
+    for (s = 0; s < last; s++) {
+        Vec inside = scale(add(axis[s], axis[s + 1]), 1, 2);
+        for (p = 0; p < n; p++) {
+            int q = (p + 1) % n;
+            ship_face(v, ring[s][p], ring[s][q], ring[s + 1][q], inside, l->tone);
+            ship_face(v, ring[s][p], ring[s + 1][q], ring[s + 1][p], inside, l->tone);
+        }
+    }
+    for (p = 1; p + 1 < n; p++) {
+        ship_face(v, ring[0][0], ring[0][p], ring[0][p + 1], centre, l->tone);
+        ship_face(v, ring[last][0], ring[last][p], ring[last][p + 1], centre,
+                  l->flags & LOFT_EXHAUST ? GLOW_TONE : l->tone);
+    }
+}
+/* Shared by the chase camera (unit 1, metres) and the shipyard preview. */
+static void ship_mesh(int ship, Vec origin, Vec right, Vec up, Vec front, int unit, Vec light) {
+    ShipView v;
+    int i;
+    v.origin = origin; v.right = right; v.up = up; v.front = front;
+    v.eye = scale(camera_position, 1, FP); v.light = light;
+    v.unit = unit; v.spec = &ship_specs[ship];
+    for (i = 0; i < SHIP_LOFTS; i++) {
+        const ShipLoft *l = &ship_lofts[ship][i];
+        if (!l->count)
+            continue;
+        ship_loft(&v, l, 1);
+        if (l->flags & LOFT_MIRROR)
+            ship_loft(&v, l, -1);
+    }
+}
+/* Model extents in sixteenths: widest |x|, tallest |y| and the z span. */
+static void ship_extent(int ship, int *x, int *y, int *front, int *back) {
+    int i, s;
+    *x = *y = 0; *front = -128; *back = 127;
+    for (i = 0; i < SHIP_LOFTS; i++) {
+        const ShipLoft *l = &ship_lofts[ship][i];
+        for (s = 0; s < l->count; s++) {
+            const ShipStation *st = &l->s[s];
+            if (abs(l->x) + st->w > *x) *x = abs(l->x) + st->w;
+            if (abs(st->y) + st->h > *y) *y = abs(st->y) + st->h;
+            if (st->z > *front) *front = st->z;
+            if (st->z < *back) *back = st->z;
+        }
+    }
+}
+static void draw_triangles(void) {
+    int i;
+    qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
+    for (i = 0; i < nt; i++) {
+        if (platform_pump && i % 32 == 0)
+            platform_pump();
+        raster(&triangles[i]);
+    }
 }
 static int material_color(const Planet *planet, Vec local, int material) {
     int shade = surface_light(&game->system, planet, local) * 14 / 16384;
@@ -1529,35 +1702,14 @@ static void world(void) {
     for (i = 0; i < MAX_MISSILES; i++) if (game->projectiles[i].active)
         box(scale(game->projectiles[i].pos, 1, FP), vec(0, 16384, 0), 4, 8, 11);
     if (game->camera_mode == 2) {
-        const ShipSpec *spec = &ship_specs[game->ship];
-        int wide = spec->width;
         Vec p = scale(game->pos, 1, FP), f = forward(game->yaw, game->pitch);
         Vec right = vec(cosi(game->yaw), 0, -sini(game->yaw)), up = unit(cross(f, right), 16384);
         Vec level_right = right;
         right = sub(scale(right, cosi(game->roll), 16384), scale(up, sini(game->roll), 16384));
         up = add(scale(level_right, sini(game->roll), 16384), scale(up, cosi(game->roll), 16384));
-        Vec tip = add(p, scale(f, spec->depth, 16384)), left = add(p, scale(right, -wide, 16384));
-        Vec r = add(p, scale(right, wide, 16384)),
-            roof = add(sub(p, scale(f, wide / 2, 16384)), scale(up, spec->height, 16384));
-        triangle(tip, left, roof, 19);
-        triangle(tip, roof, r, 20);
-        triangle(left, r, roof, 17);
-        triangle(tip, r, left, 16);
-        if (game->ship == 3) {
-            Vec wing = add(p, scale(right, wide * 2, 16384));
-            Vec other = sub(p, scale(right, wide * 2, 16384));
-            triangle(tip, wing, r, 21); triangle(tip, left, other, 21);
-        } else if (game->ship >= 4) {
-            box(sub(p, scale(right, wide / 2, 16384)), up, wide / 3, spec->height, 17);
-            box(add(p, scale(right, wide / 2, 16384)), up, wide / 3, spec->height, 19);
-        }
+        ship_mesh(game->ship, p, right, up, f, 1, unit(sub(game->system.star[0].center, p), 16384));
     }
-    qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
-    for (i = 0; i < nt; i++) {
-        if (platform_pump && i % 32 == 0)
-            platform_pump();
-        raster(&triangles[i]);
-    }
+    draw_triangles();
 }
 static void panel(const char *title) {
     rect(4, 4, frame->w - 8, view_h - 19, 1);
@@ -1890,9 +2042,6 @@ static void gui_rows(void) {
             snprintf(s,sizeof(s),"%-14s %5d CR  %s",mission_names[game->board[i].type],game->board[i].reward,game->board[i].state==OFFERED?"OFFER":"TAKEN"); break;
         case EQUIPMENT:
             snprintf(s,sizeof(s),"%-19s %4d CR  %d",equipment_names[i],equipment_cost[i],i==CABIN?game->cabins:i==MISSILE_RACK?game->missiles:i==COUNTERMEASURE?game->countermeasures:equipped(game,(Equipment)i)); break;
-        case SHIPYARD:
-            if(i>=SHIPS) continue;
-            snprintf(s,sizeof(s),"%-9s %3dT %d CREW %5d CR",ship_specs[i].name,ship_specs[i].capacity,ship_specs[i].crew,ship_specs[i].cost); break;
         case SYSTEM_MAP: {
             int first=game->target<0?game->target_body/8*8:game->target/8*8;
             if(first+i>=(game->target<0?game->system.count:game->nports)) continue;
@@ -1903,6 +2052,115 @@ static void gui_rows(void) {
         default: continue;
         }
         text(13,44+i*12,i==game->selection && game->page!=SYSTEM_MAP?12:15,s);
+    }
+}
+/* Rotating hull on a turntable, rendered into a scissored inset of the
+   frame. Coordinates are logical (320-wide); the inset itself is native. */
+static void ship_preview(int ship, int x, int y, int w, int h) {
+    static const int elevation = 32; /* about 11 degrees above the hull */
+    const ShipSpec *spec = &ship_specs[ship];
+    int s = draw_scale, vx = x * s, vy = y * s, vw = w * s, vh = h * s, old_h = view_h;
+    int ex, ey, front_z, back_z, i, spin = (int)(game->ui_clock * 16 / 5 + 640) & (ANGLE - 1);
+    int64_t rx, ry, rz, reach, rise, distance, near;
+    Vec f, right, eye, centre;
+    if ((size_t)(vy + vh) * frame->w > depth_capacity || !depth_buffer)
+        return;
+    for (i = 0; i < 40; i++) {
+        uint32_t r = hash32((unsigned)i * 2654435761U + 7);
+        pixel(x + 2 + (int)(r % (unsigned)(w - 4)), y + 2 + (int)((r >> 12) % (unsigned)(h - 4)), i % 7 ? 7 : 15);
+    }
+    /* Fit the swept bounding cylinder, units of 1/16 m, with room for
+       perspective: the nearest point is up to a third of a radius closer. */
+    ship_extent(ship, &ex, &ey, &front_z, &back_z);
+    rx = (int64_t)ex * spec->width; ry = (int64_t)ey * spec->height;
+    rz = (int64_t)(front_z - back_z) * spec->depth / 2;
+    reach = (int64_t)isqrt64((uint64_t)(rx * rx + rz * rz));
+    rise = ry * cosi(elevation) / 16384 + reach * sini(elevation) / 16384;
+    distance = (int64_t)(frame->w / 2) * reach * 100 / (vw * 48);
+    near = (int64_t)(frame->w / 2) * rise * 100 / (vh * 46);
+    distance = (distance > near ? distance : near) + reach / 3;
+    eye = vec(0, distance * sini(elevation) / 16384, -distance * cosi(elevation) / 16384);
+    camera_position = scale(eye, FP, 1);
+    camera_yaw = 0; camera_pitch = 0; camera_roll = 0;
+    aim_angles(sub(vec(0, 0, 0), eye), &camera_yaw, &camera_pitch);
+    view_h = vy + vh; view_top = vy; view_left = vx; view_right_inset = frame->w - vx - vw;
+    proj_dx = vx + vw / 2 - frame->w / 2; proj_dy = vy + vh / 2 - view_h / 2;
+    terrain_surface = NULL;
+    nt = 0;
+    memset(depth_buffer + (size_t)vy * frame->w, 0, (size_t)vh * frame->w * sizeof(*depth_buffer));
+    f = forward(spin, 0);
+    right = vec(cosi(spin), 0, -sini(spin));
+    centre = scale(f, -(int64_t)(front_z + back_z) * spec->depth / 2, 16384);
+    /* Turntable: alternating segments turn with the hull. */
+    for (i = 0; i < 16; i++) {
+        int64_t pad = reach * 4 / 5, deck = -ry - ry / 8 - 4;
+        Vec a = vec(sini(spin + i * 64) * pad / 16384, deck, cosi(spin + i * 64) * pad / 16384);
+        Vec b = vec(sini(spin + i * 64 + 64) * pad / 16384, deck, cosi(spin + i * 64 + 64) * pad / 16384);
+        triangle(vec(0, deck, 0), a, b, frame->enhanced ? (i & 1 ? 113 : 115) : (i & 1 ? 1 : 16));
+    }
+    ship_mesh(ship, centre, right, vec(0, 16384, 0), f, 16, unit(vec(-7000, 12000, -9000), 16384));
+    draw_triangles();
+    nt = 0;
+    view_h = old_h; view_top = view_left = view_right_inset = proj_dx = proj_dy = 0;
+}
+static void shipyard(void) {
+    static const char *roles[SHIPS] = {"RUNABOUT", "LIGHT TRADER", "HEAVY FREIGHTER",
+                                       "INTERCEPTOR", "MINING HAULER", "LONG RANGE LINER"};
+    static const char *labels[6] = {"HOLD", "CREW", "ACCL", "MASS", "MSL", "TUR"};
+    const ShipSpec *spec, *own = &ship_specs[game->ship];
+    int h = frame->h / draw_scale, top = 36, bottom = h - 88, i, sel = game->selection;
+    const char *refusal;
+    char s[40];
+    if (sel < 0 || sel >= SHIPS) sel = 0;
+    spec = &ship_specs[sel];
+    for (i = 0; i < SHIPS; i++) {
+        const ShipSpec *row = &ship_specs[i];
+        int c = i == sel ? 12 : i == game->ship ? 13 : 15;
+        text(12, top + 3 + i * 13, c, row->name);
+        if (i == game->ship) snprintf(s, sizeof(s), "OWNED");
+        else snprintf(s, sizeof(s), "%d", row->cost);
+        text(114 - (int)strlen(s) * 6, top + 3 + i * 13, i != game->ship && row->cost > game->credits ? 7 : c, s);
+    }
+    /* Purchase status mirrors buy_ship, so a refusal is explained before ENTER. */
+    refusal = ship_refusal(game, sel);
+    snprintf(s, sizeof(s), "PRICE %d CR", spec->cost);
+    text(8, top + 81, 15, s);
+    if (refusal && game->credits < spec->cost && sel != game->ship)
+        snprintf(s, sizeof(s), "NEED %d MORE", spec->cost - game->credits);
+    else snprintf(s, sizeof(s), "%s", refusal ? refusal : "READY TO BUY");
+    text(8, top + 91, refusal ? (sel == game->ship ? 13 : 14) : 11, s);
+    text(8, top + 101, 7, "UP DOWN / ENTER");
+    bevel(122, top, 190, bottom - top, 0);
+    rect(123, top + 1, 188, bottom - top - 2, 0);
+    ship_preview(sel, 123, top + 1, 188, bottom - top - 2);
+    for (i = 0; i < 4; i++) {
+        int cx = i & 1 ? 309 : 125, cy = i & 2 ? bottom - 3 : top + 2, dx = i & 1 ? -6 : 6, dy = i & 2 ? -4 : 4;
+        line(cx, cy, cx + dx, cy, 13); line(cx, cy, cx, cy + dy, 13);
+    }
+    text(128, top + 5, 15, spec->name);
+    text(128, top + 14, 7, roles[sel]);
+    if (sel == game->ship) text(304 - 12 * 6, top + 5, 13, "CURRENT HULL");
+    /* Catalogue bars scale to the best hull; the white tick is the current one. */
+    for (i = 0; i < 6; i++) {
+        int x = 122 + (i / 3) * 96, y = bottom + 4 + (i % 3) * 10, j, best = 1, value, mine, c;
+        for (j = 0; j < SHIPS; j++) {
+            const ShipSpec *k = &ship_specs[j];
+            int v = i == 0 ? k->capacity : i == 1 ? k->crew : i == 2 ? k->acceleration :
+                    i == 3 ? k->mass : i == 4 ? k->missiles : (k->mounts & 1) + (k->mounts >> 1 & 1);
+            if (v > best) best = v;
+        }
+        value = i == 0 ? spec->capacity : i == 1 ? spec->crew : i == 2 ? spec->acceleration :
+                i == 3 ? spec->mass : i == 4 ? spec->missiles : (spec->mounts & 1) + (spec->mounts >> 1 & 1);
+        mine = i == 0 ? own->capacity : i == 1 ? own->crew : i == 2 ? own->acceleration :
+               i == 3 ? own->mass : i == 4 ? own->missiles : (own->mounts & 1) + (own->mounts >> 1 & 1);
+        c = i == 3 || value == mine ? 13 : value > mine ? 11 : 14;
+        text(x, y, 7, labels[i]);
+        if (i == 5) snprintf(s, sizeof(s), "%s", spec->mounts == 3 ? "DV" : spec->mounts == 1 ? "D" : spec->mounts == 2 ? "V" : "-");
+        else snprintf(s, sizeof(s), "%d", value);
+        text(x + 47 - (int)strlen(s) * 6, y, 15, s);
+        rect(x + 50, y + 1, 42, 5, 0);
+        rect(x + 50, y + 1, value * 42 / best, 5, c);
+        rect(x + 50 + (mine * 41 / best), y, 1, 7, 15);
     }
 }
 static void cockpit_scan(int top) {
@@ -1982,7 +2240,6 @@ static void gui(void) {
         text(8,7,13,titles[game->page]);
         if(game->page==MARKET) text(13,34,7,"ITEM        BUY SELL STOCK HOLD");
         if(game->page==BOARD) text(13,34,7,game->docked>=0?game->ports[game->docked].name:"DOCK TO ACCEPT CONTRACTS");
-        if(game->page==SHIPYARD) text(13,34,7,"HULL      HOLD  CREW    PRICE");
         if(game->page==EQUIPMENT) text(13,34,7,"EQUIPMENT          PRICE  FITTED");
         if(game->page==CAREER) {
             snprintf(buf,sizeof(buf),"%s / %d CR",ship_specs[game->ship].name,game->credits); text(12,28,15,buf);
@@ -1999,7 +2256,8 @@ static void gui(void) {
         }
     }
     if (!game->ui_quit) hover=gui_buttons(v,n,s);
-    if (!game->ui_quit && (game->page==MARKET || game->page==BOARD || game->page==SHIPYARD || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display))) gui_rows();
+    if (!game->ui_quit && (game->page==MARKET || game->page==BOARD || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display))) gui_rows();
+    if (game->page==SHIPYARD) shipyard();
     if(game->page!=FLIGHT) {
         snprintf(buf,sizeof(buf),"%d CR / HOLD %d/%dT",game->credits,cargo_used(game),ship_capacity[game->ship]); text(8,h-28,12,buf);
         /* Status ribbon stays clear of both action buttons and navigation. */

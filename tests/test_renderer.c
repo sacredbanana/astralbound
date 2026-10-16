@@ -172,8 +172,11 @@ static void compact_display(void) {
         render_game(&g, &full);
         assert(render_init(&small));
         render_game(&g, &small);
+        /* The shipyard preview and its stat bars grow with the screen; the
+           hull list and purchase status beside them keep one layout. */
         for (y = 20; y < 138; y++)
-            assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12, 296));
+            assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12,
+                           page == SHIPYARD ? 106 : 296));
     }
     /* New system panels must remain fully legible in the 200-line layout. */
     g.page = SYSTEM_MAP;
