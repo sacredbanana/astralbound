@@ -167,6 +167,43 @@ static int find_port(const Game *g, const char *name) {
     assert(0);
     return -1;
 }
+/* The relay moves at 8 km/s. A 2.2 km/s planet detour used to wait for it to
+   lap the ship, taking over two hours even on the starter launch route. */
+static void orbital_relay_route(int ship, int loaded, int drive) {
+    Game g;
+    Controls c = {0};
+    int i, port, armed = 0, drive_used = 0;
+    int budget = drive ? 50000 : loaded ? 190000 : 90000;
+    int64_t peak = 0, orbital_speed;
+    game_init(&g, 0x53504143);
+    g.ship = ship;
+    g.crew = ship_specs[ship].crew;
+    if (loaded) g.cargo[0] = ship_specs[ship].capacity;
+    game_action(&g, 'l');
+    port = find_port(&g, "B RELAY");
+    g.target = port;
+    game_action(&g, 'p');
+    orbital_speed = length(port_relative_velocity(&g, port));
+    assert(orbital_speed > 8000LL * FP);
+    for (i = 0; i < budget && g.autopilot && !g.dead; i++) {
+        if (drive && !armed && drive_available(&g)) {
+            game_action(&g, 'a');
+            armed = g.drive_manual;
+        }
+        game_tick(&g, c);
+        if (length(g.vel) > peak) peak = length(g.vel);
+        drive_used |= g.drive_active;
+        if (!drive) assert(!g.drive_manual && !g.drive_active);
+    }
+    printf("Hetha B Relay ship %d%s%s: %d ticks, peak %lld m/s, hull %d, fuel %d\n",
+           ship, loaded ? " loaded" : "", drive ? " drive" : "", i,
+           (long long)(peak / FP), g.hull, g.fuel);
+    fflush(stdout);
+    assert(g.docked == port && !g.autopilot && g.hull == 100 && g.fuel > 0);
+    assert(peak > orbital_speed && g.clearance == port);
+    assert(length(sub(g.vel, port_relative_velocity(&g, port))) < 8 * FP);
+    assert(!drive || (armed && drive_used));
+}
 /* The point above a surface pad is the destination's own approach, not a
    detour: an armed drive must carry the cruise instead of ordinary thrust. */
 static void surface_port_drive(void) {
@@ -293,6 +330,9 @@ int main(void) {
     remote_cruise();
     superluminal_cruise();
     moving_target_approach();
+    orbital_relay_route(0, 0, 0);
+    orbital_relay_route(5, 1, 0);
+    orbital_relay_route(0, 0, 1);
     hetha_d_route();
     surface_port_drive();
     atmospheric_pad_approach();

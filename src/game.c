@@ -250,6 +250,31 @@ int safe_warp(const Game *g) {
        not prevent the player from accelerating time. */
     return g->paused || g->dead || g->ui_quit ? 1 : clamp(g->warp, 1, MAX_WARP);
 }
+/* Catch an orbiting station above its orbit before descending to the gate.
+   A chord toward its current position cuts into the atmosphere and repeatedly
+   switches between pursuit and planet avoidance. Use radial climb and tangent
+   travel in the local frame, leaving the ordinary obstacle checks in charge. */
+static Vec station_approach(const Game *g, const Port *port) {
+    const Planet *p = &g->system.planets[port->body];
+    Vec center = scale(p->center, FP, 1), local = sub(g->pos, center);
+    Vec up = unit(local, 16384);
+    int64_t gap = length(sub(up, port->normal)) * p->radius / 16384;
+    if (gap > 20000) {
+        if (g->frame_body == port->body) {
+            int64_t cosine = (up.x * port->normal.x + up.y * port->normal.y +
+                              up.z * port->normal.z) / 16384;
+            Vec tangent = sub(port->normal, scale(up, cosine, 16384));
+            int64_t radius = length(sub(port->pos, center)) + 200000LL * FP;
+            int64_t lead = gap < 1000000 ? gap : 1000000;
+            if (length(local) / FP < p->radius + p->atmosphere + 100000LL)
+                lead = 0;
+            if (length(tangent) < 32) tangent = vec(local.y, -local.x, 0);
+            return add(add(center, radial(local, radius)), radial(tangent, lead * FP));
+        }
+        return add(port->pos, scale(port->normal, 200000LL * FP, 16384));
+    }
+    return add(port->pos, scale(port->normal, 2000 * FP, 16384));
+}
 /* Detours (climb-outs, around-body and stellar avoidance) report themselves
    so callers can withhold the drive. The destination's own approach points,
    a station corridor or the point above a pad, count as the destination. */
@@ -260,7 +285,8 @@ static Vec autopilot_route(const Game *g, int *detour) {
     *detour = 1;
     /* Enter rotating stations only through their outward traffic corridor. */
     if (port && (!g->dock_stage || g->clearance != g->target))
-        dest = add(dest, scale(port->normal, 2000 * FP, 16384));
+        dest = port->surface ? add(dest, scale(port->normal, 2000 * FP, 16384))
+                             : station_approach(g, port);
     int b;
     /* Check every planet along the route, including the departure body.
        A tangent waypoint outside its terrain shell prevents straight-line dives. */
@@ -616,7 +642,7 @@ void game_tick(Game *g, Controls c) {
             g->yaw = (g->yaw + clamp(turn, -12, 12)) & 1023;
             g->pitch = clamp(g->pitch + clamp(pitch - g->pitch, -12, 12), -250, 250);
         }
-        Vec relative_vel = g->vel;
+        Vec relative_vel = g->vel, orbital_motion = vec(0, 0, 0);
         /* Climb with the rotating ground. Cancelling its tangential velocity
            during departure makes the ship slide sideways into nearby ranges. */
         if (g->target >= 0 && g->ports[g->target].surface &&
@@ -626,10 +652,30 @@ void game_tick(Game *g, Controls c) {
         else if (alt < planet->atmosphere + TERRAIN_MAX_HEIGHT + 2000)
             relative_vel = sub(relative_vel, surface_velocity(planet, scale(local,1,FP)));
         int destination_body = g->target >= 0 ? g->ports[g->target].body : g->target_body;
+        int orbital_transfer = g->target >= 0 && !g->ports[g->target].surface &&
+            g->frame_body == destination_body && g->body == destination_body &&
+            alt > planet->atmosphere + 50000 &&
+            length(sub(g->pos, navigation_position(g))) > 10000LL * FP;
+        if (orbital_transfer) {
+            /* Carry the station's angular motion around the planet while
+               following the safe tangent waypoint. Without this, the local
+               speed cap makes the detour slower than the station and it can
+               only approach when the station laps the ship. Station orbits
+               run clockwise in the body's XY plane; transport that motion
+               to the ship's longitude rather than steering through the body
+               toward the station's velocity on the far side. */
+            const Port *port = &g->ports[g->target];
+            Vec offset = sub(port->pos, center);
+            int64_t orbit = length(offset);
+            int64_t speed = length(port_relative_velocity(g, g->target));
+            orbital_motion = radial(vec(local.y, -local.x, 0),
+                                    muldiv(speed, length(vec(local.x, local.y, 0)), orbit));
+            relative_vel = sub(g->vel, orbital_motion);
+        }
         if ((g->frame_body < 0 || g->frame_body == destination_body) &&
             (g->target < 0 || g->ports[g->target].surface || alt > planet->atmosphere + 50000) &&
             !detour) {
-            Vec motion = navigation_velocity(g);
+            Vec motion = orbital_transfer ? orbital_motion : navigation_velocity(g);
             if (g->frame_body < 0 &&
                 length(sub(navigation_position(g), g->pos)) > 10000000LL * FP) {
                 /* One-second orbit samples contain metre-scale rounding
