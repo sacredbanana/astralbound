@@ -435,6 +435,7 @@ void damage_npc(Game *g, int index, int damage) {
     }
     n->hull -= damage;
     if (n->hull > 0) return;
+    destruction_npc(g, index);
     n->hull = 0; n->active = 0;
     if (role == POLICE) g->police_tick = g->tick + HZ * 180;
     if (n->mission >= 0 && g->contracts[n->mission].state == ACTIVE) {
@@ -649,6 +650,7 @@ void career_tick(Game *g, Vec old) {
             length(sub(g->npc[j].pos, g->npc[i].pos)) < 3000 * FP) {
             g->npc[i].hull -= 2;
             if (g->npc[i].hull <= 0) {
+                destruction_npc(g, i);
                 g->npc[i].active = 0;
                 if (g->npc[i].mission >= 0) fail(g, &g->contracts[g->npc[i].mission]);
             }

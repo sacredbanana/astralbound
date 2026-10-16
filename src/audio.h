@@ -6,7 +6,7 @@
 #define EFFECT_SAMPLES 4000
 enum { SOUND_NONE, SOUND_LASER, SOUND_HIT, SOUND_EXPLOSION, SOUND_DOCK, SOUND_JUMP, SOUND_HYPERSPACE, SOUND_COUNT };
 typedef struct {
-    uint32_t cursor, shots, seed;
+    uint32_t cursor, shots, seed, blast_serial;
     int effect, effect_pos, hull, shield, kills, docked, throttle, active, paused, hyperspace;
 } SpaceAudio;
 void audio_init(SpaceAudio *s, const Game *g);

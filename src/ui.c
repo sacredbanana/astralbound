@@ -5,7 +5,7 @@
 #include <string.h>
 int ui_scale(const Frame *f) { return f->w >= 640 ? 2 : 1; }
 int ui_view_height(const Game *g, const Frame *f) {
-    return g->page == FLIGHT ? f->h - 80 * ui_scale(f) : f->h;
+    return g->page == FLIGHT ? f->h - (g->death_started ? 32 : 80) * ui_scale(f) : f->h;
 }
 void ui_orbit_geometry(const Game *g, Vec *origin, int64_t *extent, int *parent) {
     int i, b=g->target>=0?g->ports[g->target].body:g->target_body;
@@ -56,6 +56,10 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         button(v,&n,50,y-12,220,16,UI_SAVE_EXIT,"SAVE AND QUIT / S",1,0);
         button(v,&n,50,y+7,220,16,UI_EXIT,"QUIT WITHOUT SAVING / Q",1,0);
         button(v,&n,50,y+26,220,16,UI_CANCEL_EXIT,"CANCEL / ESC",1,0);
+        return n;
+    }
+    if (g->death_started) {
+        button(v,&n,230,h-25,80,18,UI_RESTART,"RESTART",1,0);
         return n;
     }
     for (i = 0; i < 9; i++)

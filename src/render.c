@@ -1785,6 +1785,176 @@ static void npc_ship(const Npc *n, int ship, Vec p) {
     }
     ship_mesh(ship, p, right, up, front, 1, unit(sub(game->system.star[0].center, p), 16384));
 }
+/* Depth-tested billboard particles use the existing indexed palette on ECS,
+   AGA and RTG. All random directions are seeded once per event. */
+typedef struct { Vec p; int radius, age, fire; uint32_t seed; } DestructionSprite;
+static DestructionSprite destruction_sprites[MAX_SMOKE + MAX_BLASTS * 15 + MAX_NPC + 1];
+static int sprite_count;
+static void destruction_sprite(Vec pos, int body, int radius, int age, int fire, uint32_t seed) {
+    DestructionSprite *s;
+    if (sprite_count >= (int)(sizeof(destruction_sprites) / sizeof(*destruction_sprites))) return;
+    s = &destruction_sprites[sprite_count++];
+    s->p = camera(scale(destruction_position(game, pos, body), 1, FP));
+    s->radius = radius; s->age = age; s->fire = fire; s->seed = seed;
+}
+static int sprite_sort(const void *a, const void *b) {
+    const DestructionSprite *sa = a, *sb = b;
+    int64_t az = sa->p.z, bz = sb->p.z;
+    /* Emissive fire lights the smoke instead of vanishing inside dark puffs. */
+    if (sa->fire != sb->fire) return sa->fire ? 1 : -1;
+    return az > bz ? -1 : az < bz;
+}
+static void destruction_disc(const DestructionSprite *s) {
+    int cx, cy, r, x, y, left, right, top, bottom, fade;
+    uint32_t depth;
+    if (s->p.z <= 4 || s->p.z > 200000) return;
+    cx = screen_coord(frame->w / 2 + s->p.x * (frame->w / 2) / s->p.z);
+    cy = screen_coord(view_h / 2 - s->p.y * (frame->w / 2) / s->p.z);
+    r = (int)((int64_t)s->radius * (frame->w / 2) / s->p.z);
+    if (r < 1) r = 1;
+    if (r > frame->w) r = frame->w;
+    left = cx - r < 0 ? 0 : cx - r; right = cx + r >= frame->w ? frame->w - 1 : cx + r;
+    top = cy - r < 0 ? 0 : cy - r; bottom = cy + r >= view_h ? view_h - 1 : cy + r;
+    depth = (uint32_t)(1073741824LL / s->p.z);
+    fade = s->fire ? 0 : s->age * 12 / SMOKE_TICKS;
+    for (y = top; y <= bottom; y++) for (x = left; x <= right; x++) {
+        int dx = x - cx, dy = y - cy, d = (dx * dx + dy * dy) * 256 / (r * r);
+        int grain = ((x / 3 + (int)(s->seed & 31)) ^ (y / 3 + (int)(s->seed >> 8 & 31))) & 15;
+        int c, stipple = (x & 3) * 4 + (y & 3);
+        if (d > 235 + grain * 2 || depth < depth_buffer[y * frame->w + x]) continue;
+        if (s->fire) {
+            int heat = d + grain * 3 + s->age * 2;
+            c = heat < 40 ? 31 : heat < 90 ? 15 : heat < 160 ? 12 :
+                heat < 230 ? 14 : heat < 300 ? 23 : 22;
+            if (d > 215 && ((x + y) & 1)) continue;
+        } else {
+            if (stipple < fade || (d > 180 && ((x + y) & 1))) continue;
+            c = d < 70 ? 19 : d < 170 ? 16 : 3;
+            if (grain < 4) c = 4;
+        }
+        frame->pixels[y * frame->w + x] = (uint8_t)c;
+    }
+}
+static void destruction_streak(Vec a, Vec b, int color) {
+    Vec ca = camera(scale(a, 1, FP)), cb = camera(scale(b, 1, FP));
+    int x, y, xx, yy, count, i;
+    uint32_t depth;
+    if (ca.z < 8 || cb.z < 8 || ca.z > 200000) return;
+    x = screen_coord(frame->w / 2 + ca.x * (frame->w / 2) / ca.z);
+    y = screen_coord(view_h / 2 - ca.y * (frame->w / 2) / ca.z);
+    xx = screen_coord(frame->w / 2 + cb.x * (frame->w / 2) / cb.z);
+    yy = screen_coord(view_h / 2 - cb.y * (frame->w / 2) / cb.z);
+    count = abs(xx - x) > abs(yy - y) ? abs(xx - x) : abs(yy - y);
+    if (count < 1) count = 1;
+    if (count > frame->w * 2) return;
+    depth = (uint32_t)(1073741824LL / ca.z);
+    for (i = 0; i <= count; i++) {
+        int px = x + (xx - x) * i / count, py = y + (yy - y) * i / count;
+        if (px >= 0 && px < frame->w && py >= 0 && py < view_h &&
+            depth >= depth_buffer[py * frame->w + px]) pixel(px, py, color);
+    }
+}
+static Vec blast_fragment(const Blast *b, int index, int age) {
+    uint32_t h = hash32(b->seed + (unsigned)index * 7919U);
+    Vec d = forward(h & 1023, (int)(h >> 16 & 511) - 256);
+    Vec p = add(b->pos, scale(d, (int64_t)(350 + h % 650) * FP * age, 16384 * HZ));
+    if (b->body >= 0) {
+        const Planet *planet = &game->system.planets[b->body];
+        p = sub(p, scale(unit(b->pos, 16384), (int64_t)planet->gravity * FP * age * age,
+                        2 * HZ * HZ * 16384));
+    }
+    return destruction_position(game, p, b->body);
+}
+static void destruction_geometry(void) {
+    int i, j;
+    for (i = 0; i <= MAX_NPC; i++) {
+        const Wreck *w = &game->wrecks[i];
+        Vec p, front, right, up, r;
+        if (w->state != 1) continue;
+        p = scale(destruction_position(game, w->pos, w->body), 1, FP);
+        front = forward(w->yaw, w->pitch); r = vec(cosi(w->yaw), 0, -sini(w->yaw));
+        up = unit(cross(front, r), 16384);
+        right = sub(scale(r, cosi(w->roll), 16384), scale(up, sini(w->roll), 16384));
+        up = add(scale(r, sini(w->roll), 16384), scale(up, cosi(w->roll), 16384));
+        ship_mesh(w->ship, p, right, up, front, 1, unit(sub(game->system.star[0].center, p), 16384));
+    }
+    for (i = 0; i < MAX_BLASTS; i++) {
+        const Blast *b = &game->blasts[i];
+        if (!b->active || b->age > 4 * HZ) continue;
+        for (j = 0; j < 24; j++) {
+            Vec p = scale(blast_fragment(b, j, b->age), 1, FP);
+            Vec d = forward((int)(b->seed + j * 131U + b->age * 11U) & 1023, j * 37 % 320 - 160);
+            Vec r = unit(cross(d, vec(0, 16384, 0)), 6 + j % 9);
+            d = scale(d, 10 + j % 13, 16384);
+            triangle(add(p, d), add(p, r), sub(p, r), b->age < HZ ? 12 : j % 2 ? 17 : 19);
+        }
+    }
+}
+static void destruction_effects(void) {
+    int i, j;
+    sprite_count = 0;
+    for (i = 0; i < MAX_SMOKE; i++) {
+        const Smoke *s = &game->smoke[i];
+        if (s->active) destruction_sprite(s->pos, s->body, s->size + s->age / 2,
+                                         s->age, s->age < 5, s->seed);
+    }
+    for (i = 0; i <= MAX_NPC; i++) {
+        const Wreck *w = &game->wrecks[i];
+        if (w->state == 1) {
+            Vec tail = forward(w->yaw, w->pitch);
+            if (w->body >= 0) tail = body_rotate(&game->system.planets[w->body], tail, 1);
+            tail = sub(w->pos, scale(tail, ship_specs[w->ship].depth * FP / 2, 16384));
+            destruction_sprite(tail, w->body,
+                8 + (int)(hash32((unsigned)w->age / 2) % 9), 12, 1, (unsigned)i);
+        }
+    }
+    for (i = 0; i < MAX_BLASTS; i++) {
+        const Blast *b = &game->blasts[i];
+        Vec center;
+        int t = b->age;
+        if (!b->active) continue;
+        center = destruction_position(game, b->pos, b->body);
+        if (t < HZ * 5 / 2) {
+            for (j = 0; j < 14; j++) {
+                uint32_t h = hash32(b->seed + (unsigned)j * 137U);
+                Vec dir = forward(h & 1023, (int)(h >> 16 & 511) - 256);
+                int delay = j % 4 * 3, age = t - delay, radius;
+                Vec p;
+                if (age < 0) continue;
+                radius = b->size * (12 + age) / (24 + age / 2);
+                if (age > HZ) radius = radius * (HZ * 5 / 2 - age) / (HZ * 3 / 2);
+                if (radius < 2) continue;
+                p = add(b->pos, scale(dir, (int64_t)b->size * FP * age, 16384 * HZ));
+                if (b->body >= 0) p = add(p, scale(unit(b->pos, 16384), (int64_t)age * 20 * FP, HZ * 16384));
+                destruction_sprite(p, b->body, radius, age, 1, h);
+            }
+        }
+        if (t < HZ / 3) destruction_sprite(b->pos, b->body,
+            b->size * (HZ / 3 - t) / (HZ / 3) + 10, 0, 1, b->seed);
+        /* Expanding 3D shock ring, ground-aligned on planets. */
+        if (t < HZ * 3 / 2) {
+            Vec up = b->body < 0 ? vec(0, 16384, 0) :
+                body_rotate(&game->system.planets[b->body], unit(b->pos, 16384), 0);
+            Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), front, previous = center;
+            int radius = b->size / 2 + t * 12;
+            if (length(right) < 100) right = vec(16384, 0, 0);
+            front = unit(cross(right, up), 16384);
+            for (j = 0; j <= 40; j++) {
+                Vec d = add(scale(right, cosi(j * 1024 / 40), 16384), scale(front, sini(j * 1024 / 40), 16384));
+                Vec p = add(center, scale(d, radius * FP, 16384));
+                if (j) destruction_streak(previous, p, t < HZ / 3 ? 15 : t < HZ ? 12 : 14);
+                previous = p;
+            }
+        }
+        if (t < 3 * HZ) for (j = 0; j < 24; j++) {
+            Vec head = blast_fragment(b, j, t), tail = blast_fragment(b, j, t > 3 ? t - 3 : 0);
+            destruction_streak(tail, head, t < HZ / 2 ? 31 : t < HZ ? 12 : 14);
+        }
+    }
+    qsort(destruction_sprites, (size_t)sprite_count, sizeof(*destruction_sprites), sprite_sort);
+    for (i = 0; i < sprite_count; i++) destruction_disc(&destruction_sprites[i]);
+}
+
 static void world(void) {
     int i, x, b;
     cache_globes();
@@ -1896,7 +2066,7 @@ static void world(void) {
     }
     for (i = 0; i < MAX_MISSILES; i++) if (game->projectiles[i].active)
         box(scale(game->projectiles[i].pos, 1, FP), vec(0, 16384, 0), 4, 8, 11);
-    if (game->camera_mode == 2) {
+    if (game->camera_mode == 2 && !game->dead) {
         Vec p = scale(game->pos, 1, FP), f = forward(game->yaw, game->pitch);
         Vec right = vec(cosi(game->yaw), 0, -sini(game->yaw)), up = unit(cross(f, right), 16384);
         Vec level_right = right;
@@ -1904,6 +2074,7 @@ static void world(void) {
         up = add(scale(level_right, sini(game->roll), 16384), scale(up, cosi(game->roll), 16384));
         ship_mesh(game->ship, p, right, up, f, 1, unit(sub(game->system.star[0].center, p), 16384));
     }
+    destruction_geometry();
     draw_triangles();
 }
 static void panel(const char *title) {
@@ -2544,7 +2715,11 @@ static void gui(void) {
     int h=frame->h/s,top=h-80,hover=-1;
     char buf[100];
     draw_scale=s;
-    if(game->page==FLIGHT) {
+    if (game->death_started && game->page == FLIGHT) {
+        rect(0,h-32,320,32,1); line(0,h-32,319,h-32,14);
+        text(8,h-26,14,game->wrecks[0].state == 1 ? "HULL FAILURE" : "SHIP DESTROYED");
+        text(8,h-13,7,game->wrecks[0].state == 1 ? "FALLING - IMPACT IMMINENT" : "R TO RESTART");
+    } else if(game->page==FLIGHT) {
         rect(0,top,320,80,16); line(0,top,319,top,20);
         bevel(0,top,100,64,0); bevel(99,top,121,43,0); bevel(220,top,100,45,0);
         cockpit_scan(top);
@@ -2598,7 +2773,7 @@ static void gui(void) {
             text(8,h-62,7,buf);
         }
         snprintf(buf,sizeof(buf),"%.50s",game->message); text(8,h-52,13,buf);
-    } else if(game->page==FLIGHT) {
+    } else if(game->page==FLIGHT && !game->death_started) {
         draw_scale=1;
         { int64_t alt=altitude_at(game,game->pos);
           snprintf(buf,sizeof(buf),"ALT %ld %s / %s",(long)(alt>=1000000?alt/1000:alt),alt>=1000000?"KM":"M",game->drive_manual?(game->drive_active?(game->autopilot?"AUTO DRIVE":"DRIVE"):(game->autopilot?"AUTO DRIVE LOCK":"DRIVE LOCK")):(game->autopilot?"AUTO":game->drive_active?"BRAKING":"MANUAL")); text(7,view_h-23,13,buf); }
@@ -2635,7 +2810,7 @@ int render_init(Frame *f) {
     uint32_t *buffer;
     if (f->w <= 0 || f->h <= 56)
         return 0;
-    count = (size_t)f->w * (f->h - 56);
+    count = (size_t)f->w * f->h;
     buffer = realloc(depth_buffer, count * sizeof(*buffer));
     if (!buffer)
         return 0;
@@ -3003,7 +3178,32 @@ void render_game(const Game *g, Frame *f) {
     view_angles(g, &camera_yaw, &camera_pitch);
     camera_roll = g->camera_mode == 0 ? g->roll :
                   g->camera_mode == 1 ? (-g->roll & 1023) : 0;
-    if (g->camera_mode == 2) {
+    if (g->death_started) {
+        const Wreck *w = &g->wrecks[0];
+        Vec up = w->body < 0 ? vec(0, 16384, 0) :
+            unit(sub(g->pos, scale(g->system.planets[w->body].center, FP, 1)), 16384);
+        Vec side = vec(cosi(g->death_yaw + 110), 0, -sini(g->death_yaw + 110));
+        Vec tangent = sub(side, scale(up, dot(side, up), 16384LL * 16384));
+        int distance = 220 + ship_specs[w->ship].width * 2;
+        int lift = 110;
+        if (w->state == 2) {
+            distance += w->age < 2 * HZ ? w->age * 7 : HZ * 14;
+            lift += w->age < HZ ? w->age * 3 : HZ * 3;
+        }
+        if (length(tangent) < 2048) tangent = cross(up, vec(0, 0, 16384));
+        if (length(tangent) < 2048) tangent = cross(up, vec(16384, 0, 0));
+        tangent = unit(tangent, 16384);
+        camera_position = add(g->pos, add(scale(tangent, distance * FP, 16384), scale(up, lift * FP, 16384)));
+        /* A hillside must never bury the death camera. */
+        if (w->body >= 0) {
+            const Planet *p = &g->system.planets[w->body];
+            Vec local = sub(camera_position, scale(p->center, FP, 1));
+            int64_t floor = ((int64_t)p->radius + terrain_height(p, scale(local, 1, FP)) + 70) * FP;
+            if (length(local) < floor) camera_position = add(scale(p->center, FP, 1), radial(local, floor));
+        }
+        aim_angles(sub(g->pos, camera_position), &camera_yaw, &camera_pitch);
+        camera_roll = 0;
+    } else if (g->camera_mode == 2) {
         Vec up = unit(sub(g->pos, scale(g->system.planets[g->body].center, FP, 1)), 16384);
         camera_position = add(sub(g->pos, scale(forward(g->yaw, g->pitch), 600 * FP, 16384)),
                               scale(up, 220 * FP, 16384));
@@ -3046,9 +3246,10 @@ void render_game(const Game *g, Frame *f) {
     if (g->page == FLIGHT) {
         world();
         weather_overlay();
-        system_body_labels();
+        destruction_effects();
+        if (!g->dead) system_body_labels();
     }
-    if (g->page == FLIGHT) {
+    if (g->page == FLIGHT && !g->dead) {
         Vec p = camera(scale(navigation_position(g), 1, FP));
         const char *name = g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name;
         char range[24];

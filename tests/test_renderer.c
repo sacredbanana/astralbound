@@ -3,6 +3,44 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+static void destruction_visibility(void) {
+    static Game g;
+    Frame f = {320,200,0,NULL,{0}};
+    int mode, i, colored;
+    DestructionSprite sprite = { {0,0,1000}, 100, 0, 1, 1 };
+    f.pixels = malloc(640 * 480); assert(f.pixels);
+    for (mode = 0; mode < 3; mode++) {
+        f.w = mode == 2 ? 640 : 320; f.h = mode == 2 ? 480 : mode == 1 ? 256 : 200;
+        f.enhanced = mode != 0;
+        assert(render_init(&f)); frame = &f;
+        view_h = f.h - 32 * ui_scale(&f);
+        memset(f.pixels, 0, (size_t)f.w * f.h);
+        for (i = 0; i < f.w * view_h; i++) depth_buffer[i] = 1073741824U / 500;
+        destruction_disc(&sprite);
+        for (i = 0; i < f.w * f.h; i++) assert(!f.pixels[i]);
+        memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
+        destruction_disc(&sprite); colored = 0;
+        for (i = 0; i < f.w * view_h; i++) colored += f.pixels[i] != 0;
+        assert(colored > 100);
+        for (i = f.w * view_h; i < f.w * f.h; i++) assert(!f.pixels[i]);
+        game_init(&g, 0x53504143);
+        g.docked = g.frame_body = -1; g.pos = vec(0, AU_METRES * FP, 0);
+        destruction_player(&g, -1); game_frame(&g, (Controls){0}, 12);
+        render_game(&g, &f);
+        assert(view_h == f.h - 32 * ui_scale(&f));
+        { Vec focus = camera(scale(g.pos, 1, FP));
+          assert(focus.z > 100 && llabs(focus.x) < focus.z / 100 && llabs(focus.y) < focus.z / 100); }
+        colored = 0;
+        for (i = 0; i < f.w * view_h; i++) {
+            int c = f.pixels[i];
+            if (!f.enhanced) assert(c < 32);
+            colored += c == 12 || c == 15 || c == 31;
+        }
+        assert(colored > 100);
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS destruction particles hidden by terrain depth, cinematic framing and ECS/AGA/RTG viewport bounds");
+}
 static void speed_readout(void) {
     static const int64_t speeds[] = {600, 100000, LIGHT_SPEED / 100 - 1,
         LIGHT_SPEED / 100, LIGHT_SPEED / 2, LIGHT_SPEED, SYSTEM_DRIVE_SPEED};
@@ -890,6 +928,7 @@ int main(void) {
     hetha_target_bearing();
     warp_readout();
     speed_readout();
+    destruction_visibility();
     body_labels();
     rolled_camera();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");

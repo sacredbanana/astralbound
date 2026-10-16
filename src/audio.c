@@ -12,6 +12,7 @@ int8_t audio_engine(unsigned sample) {
 unsigned audio_effect_length(int effect) {
     if (effect <= SOUND_NONE || effect >= SOUND_COUNT) return 0;
     if (effect == SOUND_LASER) return 1200;
+    if (effect == SOUND_EXPLOSION) return AUDIO_RATE * 3 / 2;
     if (effect == SOUND_HYPERSPACE) return AUDIO_RATE * HYPER_CHARGE / HZ;
     if (effect == SOUND_JUMP) return AUDIO_RATE * HYPER_TUNNEL / HZ;
     return EFFECT_SAMPLES;
@@ -23,8 +24,13 @@ int8_t audio_effect(int effect, unsigned t) {
     envelope = (int)(duration - t) * 96 / (int)duration;
     switch (effect) {
     case SOUND_LASER: value = triangle(t * (80 - t / 20)); break;
-    case SOUND_HIT: case SOUND_EXPLOSION:
-        value = (int)(hash32(t / (effect == SOUND_EXPLOSION ? 4 : 1)) & 255) - 128; break;
+    case SOUND_HIT:
+        value = (int)(hash32(t) & 255) - 128; break;
+    case SOUND_EXPLOSION:
+        /* Sharp crack, descending bass and a rolling noisy tail. */
+        value = ((int)(hash32(t / 5) & 255) - 128) * 2 / 3 +
+                triangle(t * (9 - t * 6 / duration)) / 2;
+        break;
     case SOUND_DOCK: value = triangle(t * (t < 1300 ? 17 : t < 2600 ? 21 : 26)); break;
     case SOUND_HYPERSPACE: {
         /* Spool-up: a rising root and fifth that throb faster as it charges. */
@@ -55,6 +61,7 @@ void audio_init(SpaceAudio *s, const Game *g) {
     s->shots = g->shots; s->seed = g->system.seed;
     s->hull = g->hull; s->shield = g->shield; s->kills = g->kills; s->docked = g->docked;
     s->hyperspace = g->hyperspace != 0;
+    s->blast_serial = g->blast_serial;
 }
 int audio_observe(SpaceAudio *s, const Game *g) {
     int effect = SOUND_NONE;
@@ -66,7 +73,10 @@ int audio_observe(SpaceAudio *s, const Game *g) {
     if (!g->hyperspace && s->hyperspace && s->effect == SOUND_HYPERSPACE && s->seed == g->system.seed)
         s->effect = SOUND_NONE;
     if (g->hull < s->hull || g->shield < s->shield) effect = SOUND_HIT;
-    if (g->kills > s->kills || (g->dead && s->hull > 0)) effect = SOUND_EXPLOSION;
+    if ((g->blast_serial && g->blast_serial != s->blast_serial) ||
+        (!g->death_started && g->dead && s->hull > 0))
+        effect = SOUND_EXPLOSION;
+    s->blast_serial = g->blast_serial;
     s->shots = g->shots; s->seed = g->system.seed; s->hyperspace = g->hyperspace != 0;
     s->hull = g->hull; s->shield = g->shield; s->kills = g->kills; s->docked = g->docked;
     s->active = g->page == FLIGHT && g->docked == -1 && !g->dead;

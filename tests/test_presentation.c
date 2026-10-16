@@ -5,8 +5,14 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 unsigned long __stack = 1048576;
 static Game g;
+#ifdef __AMIGAOS3__
+#define DESTRUCTION_SAVE "astralbound-destruction.sav"
+#else
+#define DESTRUCTION_SAVE "build/destruction-test.sav"
+#endif
 static void sound_tests(void) {
     SpaceAudio a, b;
     int8_t whole[8192], chunks[8192];
@@ -20,7 +26,7 @@ static void sound_tests(void) {
     assert(audio_observe(&a, &g) == SOUND_NONE);
     g.hull--;
     assert(audio_observe(&a, &g) == SOUND_HIT);
-    g.kills++;
+    g.kills++; g.blast_serial++;
     assert(audio_observe(&a, &g) == SOUND_EXPLOSION);
     g.docked = -1;
     assert(audio_observe(&a, &g) == SOUND_DOCK);
@@ -88,4 +94,108 @@ static void controller_tests(void) {
     assert(!c.fire && !c.thrust && !c.axis_roll);
     puts("PASS analogue calibration/rates, digital precedence, button edges and menu isolation");
 }
-int main(void) { sound_tests(); controller_tests(); return 0; }
+static int active_blasts(const Game *g) {
+    int i, n = 0;
+    for (i = 0; i < MAX_BLASTS; i++) n += g->blasts[i].active != 0;
+    return n;
+}
+static void destruction_tests(void) {
+    static Game reference;
+    SpaceAudio audio;
+    Controls fire = {0};
+    Vec up, local, start;
+    uint32_t tick, serial;
+    int i, frames;
+    game_init(&g, 0x53504143);
+    g.docked = g.frame_body = -1;
+    g.pos = vec(0, AU_METRES * FP, 0); g.vel = vec(400 * FP, 0, 0);
+    g.page = MAP; g.camera_mode = 4; g.autopilot = g.drive_manual = 1;
+    g.ui_fire = 1; g.warp = MAX_WARP; g.hull = 0;
+    game_frame(&g, (Controls){0}, 1);
+    assert(g.dead && g.death_started && g.page == FLIGHT && g.camera_mode == 2);
+    assert(!g.autopilot && !g.drive_manual && !g.ui_fire && g.warp == 1);
+    assert(g.wrecks[0].state == 2 && active_blasts(&g) == 1);
+    tick = g.tick; serial = g.blast_serial;
+    reference = g;
+    fire.fire = fire.thrust = fire.roll = 1;
+    game_frame(&g, fire, HZ);
+    for (i = 0; i < HZ; i++) game_frame(&reference, fire, 1);
+    assert(!memcmp(&g, &reference, sizeof(g))); /* frame partition invariant */
+    assert(g.tick == tick && g.blast_serial == serial && !g.shots);
+    assert(length(sub(g.pos, destruction_position(&g, g.blasts[0].pos, -1))) < 2 * FP);
+    game_frame(&g, fire, BLAST_TICKS + SMOKE_TICKS);
+    assert(!active_blasts(&g));
+    for (i = 0; i < MAX_SMOKE; i++) assert(!g.smoke[i].active);
+    game_action(&g, 'r');
+    assert(!g.dead && !g.death_started && !active_blasts(&g));
+
+    /* Shot down above real terrain: external view immediately, burst only on
+       swept terrain contact, regardless of held fire or the old warp. */
+    game_init(&g, 0x53504143);
+    g.docked = -1; g.frame_body = g.body = 0;
+    up = g.ports[0].normal;
+    g.pos = add(g.ports[0].pos, scale(up, 900 * FP, 16384));
+    local = sub(g.pos, scale(g.system.planets[0].center, FP, 1));
+    g.vel = add(surface_velocity(&g.system.planets[0], scale(local, 1, FP)),
+                scale(forward(0, 0), 80 * FP, 16384));
+    start = g.pos;
+    g.hull = 1; g.shield = 0; g.camera_mode = 4;
+    g.npc[0] = (Npc){add(g.pos, vec(0,0,1200 * FP)), g.vel, 100, 1, 1, -1, 0};
+    g.npc_role[0] = RAIDER;
+    audio_init(&audio, &g);
+    game_tick(&g, (Controls){0});
+    assert(g.dead && g.hull == 0);
+    assert(g.wrecks[0].state == 1 && !active_blasts(&g));
+    assert(audio_observe(&audio, &g) == SOUND_HIT);
+    assert(g.camera_mode == 2 && g.page == FLIGHT);
+    tick = g.tick;
+    game_frame(&g, fire, HZ * 2);
+    assert(g.wrecks[0].state == 1 && !active_blasts(&g));
+    assert(length(sub(g.pos, start)) > 20 * FP);
+    frames = 0;
+    while (g.wrecks[0].state == 1 && frames++ < HZ * 120) game_frame(&g, fire, 1);
+    assert(g.wrecks[0].state == 2 && g.tick == tick && g.blast_serial == 1);
+    assert(llabs(altitude_at(&g, g.pos) - 10) < 4);
+    assert(audio_observe(&audio, &g) == SOUND_EXPLOSION);
+    assert(audio_observe(&audio, &g) == SOUND_NONE);
+    g.blast_serial = 0; /* loading/changing systems clears transient events */
+    assert(audio_observe(&audio, &g) == SOUND_NONE);
+    g.blast_serial = 1;
+    assert(save_game(&g, DESTRUCTION_SAVE));
+    assert(load_game(&reference, DESTRUCTION_SAVE));
+    assert(!reference.death_started && !active_blasts(&reference));
+    game_frame(&reference, fire, 1);
+    assert(reference.dead && reference.death_started && reference.camera_mode == 2);
+    remove(DESTRUCTION_SAVE); remove(DESTRUCTION_SAVE ".bak");
+
+    game_init(&g, 0x53504143);
+    g.frame_body = -1; g.pos = vec(0, AU_METRES * FP, 0);
+    g.npc[0] = (Npc){add(g.pos, vec(0,0,600 * FP)), vec(0,0,0), 1, 1, 1, -1, 0};
+    g.npc_role[0] = RAIDER;
+    damage_npc(&g, 0, 2);
+    assert(!g.npc[0].active && g.kills == 1 && active_blasts(&g) == 1);
+    serial = g.blast_serial; damage_npc(&g, 0, 2); assert(g.blast_serial == serial);
+    game_init(&reference, 0x53504143);
+    reference.frame_body = 0;
+    reference.npc[0] = (Npc){add(reference.ports[0].pos,
+        scale(reference.ports[0].normal, 200 * FP, 16384)), vec(0,0,0), 1, 1, 1, -1, 0};
+    reference.npc_role[0] = RAIDER;
+    reference.npc[0].vel = surface_velocity(&reference.system.planets[0],
+        sub(scale(reference.npc[0].pos, 1, FP), reference.system.planets[0].center));
+    audio_init(&audio, &reference);
+    damage_npc(&reference, 0, 2);
+    assert(reference.wrecks[1].state == 1 && !active_blasts(&reference));
+    assert(audio_observe(&audio, &reference) == SOUND_NONE); /* kill credit is not impact audio */
+    for (i = 0; i < 120 * HZ && reference.wrecks[1].state; i++) destruction_tick(&reference);
+    assert(!reference.wrecks[1].state && active_blasts(&reference) == 1);
+    assert(audio_observe(&audio, &reference) == SOUND_EXPLOSION);
+    /* Fixed capacity survives simultaneous destruction without allocation. */
+    for (i = 0; i < MAX_BLASTS * 2; i++) {
+        g.npc[0].active = 1; g.npc[0].hull = 1; damage_npc(&g, 0, 2);
+    }
+    assert(active_blasts(&g) == MAX_BLASTS);
+    setup_system(&g, g.system.sector);
+    assert(!active_blasts(&g) && !g.death_started);
+    puts("PASS external death camera, ballistic smoke/terrain impact, real-time playback, blast lifetime, NPC destruction and transient saves");
+}
+int main(void) { sound_tests(); controller_tests(); destruction_tests(); return 0; }

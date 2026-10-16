@@ -52,7 +52,8 @@ static int wb_changed;
 static struct MsgPort *timer_port;
 static struct timerequest *timer_request;
 static ULONG clock_rate = 50;
-unsigned long __stack = 131072;
+/* Save/load keep a commander copy and the stream on the stack. */
+unsigned long __stack = 262144;
 static volatile struct Custom *hw = (volatile struct Custom *)0xdff000;
 static volatile UBYTE *cia_icr = (volatile UBYTE *)0xbfed01;
 static volatile UBYTE *cia_sdr = (volatile UBYTE *)0xbfec01;

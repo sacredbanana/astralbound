@@ -16,6 +16,7 @@ int port_count(const Game *g) {
 void setup_system(Game *g, Sector sector) {
     int i, b;
     g->drive_manual = g->drive_active = 0;
+    destruction_reset(g);
     generate_system(g->seed, sector, &g->system);
     memset(g->ports, 0, sizeof(g->ports));
     g->nports = 0;
@@ -469,7 +470,7 @@ static void level_attitude(Game *g, Vec up) {
 }
 void game_tick(Game *g, Controls c) {
     Vec acceleration = vec(0, 0, 0), gravity, old, frame_delta;
-    int i, touchdown;
+    int i, touchdown, impact_body = -1;
     int64_t r, dist, alt, ground_alt;
     Vec local, center;
     const Planet *planet;
@@ -492,6 +493,8 @@ void game_tick(Game *g, Controls c) {
         g->pods[i].pos = add(g->pods[i].pos, frame_delta);
     for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active)
         g->projectiles[i].pos = add(g->projectiles[i].pos, frame_delta);
+    destruction_rebase(g, frame_delta, vec(0, 0, 0));
+    destruction_tick(g);
     career_time(g);
     if (g->laser)
         g->laser--;
@@ -561,6 +564,7 @@ void game_tick(Game *g, Controls c) {
                 g->pods[i].vel = add(g->pods[i].vel, transfer);
             for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active)
                 g->projectiles[i].vel = add(g->projectiles[i].vel, transfer);
+            destruction_rebase(g, vec(0, 0, 0), transfer);
             g->frame_body = new_frame;
         }
     }
@@ -785,6 +789,15 @@ void game_tick(Game *g, Controls c) {
                     say(g, "LANDED ON OPEN GROUND - L TO LAUNCH");
                 } else {
                     g->hull = 0;
+                    impact_body = i;
+                    { Vec a = old, b = g->pos;
+                      int probe;
+                      for (probe = 0; probe < 12; probe++) {
+                          Vec middle = add(a, scale(sub(b, a), 1, 2));
+                          if (terrain_impact(g, a, middle, i)) b = middle;
+                          else a = middle;
+                      }
+                      g->pos = b; }
                     say(g, "SURFACE IMPACT - R TO RESTART");
                 }
                 break;
@@ -876,8 +889,10 @@ void game_tick(Game *g, Controls c) {
             say(g, "COLLISION DAMAGE");
             if (g->npc_role[i] == POLICE)
                 n->vel = add(g->vel, unit(sub(n->pos, g->pos), 200 * FP)); /* armour shrugs off a ram */
-            else
+            else {
+                destruction_npc(g, i);
                 n->active = 0;
+            }
         }
         if (n->cooldown)
             n->cooldown--;
@@ -899,14 +914,8 @@ void game_tick(Game *g, Controls c) {
     }
     career_tick(g, old);
     career_missions(g);
-    if (g->hull <= 0) {
-        g->hull = 0;
-        g->dead = 1;
-        g->autopilot = 0;
-        g->warp = 1;
-        if (!strstr(g->message, "IMPACT"))
-            say(g, "SHIP LOST - R TO RESTART");
-    }
+    if (g->hull <= 0)
+        destruction_player(g, impact_body);
 }
 /* Only remote, unobstructed system-frame flight may use cruise integration.
    Bound the entire interval by travel, orbital motion and braking room, then
@@ -916,6 +925,9 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     int64_t accel = drive_thrust(g) / FP;
     /* Rapid drive changes use short bounded cruise steps. */
     if (accel == SYSTEM_DRIVE_ACCEL && step > HZ) step = HZ;
+    for (i = 0; i < MAX_BLASTS; i++) if (g->blasts[i].active) return 1;
+    for (i = 0; i < MAX_SMOKE; i++) if (g->smoke[i].active) return 1;
+    for (i = 1; i <= MAX_NPC; i++) if (g->wrecks[i].state) return 1;
     Vec dest;
     int64_t speed, route, closing;
     if (step < HZ || g->frame_body != -1 || g->paused || g->dead || g->ui_quit || !g->fuel ||
@@ -1017,6 +1029,7 @@ static void cruise_step(Game *g, int ticks) {
     g->vel = add(g->vel, delta);
     burn_fuel(g, engine, ticks, g->drive_active);
     g->tick += ticks;
+    g->destruction_clock += (uint32_t)ticks;
     g->heat = clamp(g->heat - (int)(g->tick / 8 - before / 8), 0, 100);
     g->shield = clamp(g->shield + (int)(g->tick / HZ - before / HZ), 0, 100);
     update_world(g);
@@ -1062,14 +1075,21 @@ void game_frame(Game *g, Controls c, int ticks) {
     int i, steps = 0;
     if (ticks > 0)
         g->ui_clock += (uint32_t)ticks; /* real time, independent of warp and pause */
+    if (g->hull <= 0 && !g->dead) destruction_player(g, -1);
     if (g->dead)
         g->hyperspace = 0;
-    if (ticks <= 0 || g->paused || g->dead || g->ui_quit)
+    if (ticks <= 0 || g->paused || g->ui_quit)
         return;
+    if (g->dead) {
+        if (!g->death_started) destruction_player(g, -1);
+        for (i = 0; i < ticks; i++) destruction_tick(g);
+        return;
+    }
     if (g->hyperspace && hyperspace_frame(g, ticks))
         return;
     for (i = 0; i < ticks && steps < MAX_FRAME_STEPS; i++) {
         int w = safe_warp(g), advanced = 0;
+        if (g->dead) { destruction_tick(g); continue; }
         while (advanced < w && steps < MAX_FRAME_STEPS) {
             int step, safe = safe_warp(g);
             if (g->dead || g->paused || advanced >= safe)

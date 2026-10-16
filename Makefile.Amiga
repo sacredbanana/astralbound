@@ -1,7 +1,7 @@
 AMIGA_CC ?= m68k-amigaos-gcc
-# Pull in libnix stack swapping so the executables honour their 128 KiB __stack.
+# Pull in libnix stack swapping so the executables honour their 256 KiB __stack.
 AMIGA_LDFLAGS = -Wl,-u,___stkinit
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/career.c src/save.c src/ui.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/career.c src/save.c src/ui.c src/render.c
 SOURCES = $(CORE) src/platform/amiga.c
 CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -D__AMIGAOS3__ -MMD -MP
 ifeq ($(DEBUG),1)

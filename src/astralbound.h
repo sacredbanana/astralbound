@@ -19,6 +19,10 @@
 #define TERRAIN_DETAIL_ALTITUDE (12000 + TERRAIN_MAX_HEIGHT)
 #define ANGLE 1024
 #define MAX_NPC 12
+#define MAX_BLASTS 16
+#define MAX_SMOKE 96
+#define BLAST_TICKS (HZ * 7)
+#define SMOKE_TICKS (HZ * 5)
 #define MAX_MISSIONS 8
 #define GOODS 8
 #define MAX_PLANETS 512
@@ -152,6 +156,18 @@ typedef struct { Vec pos, vel; int active, good, quantity, mission; } CargoPod;
 typedef struct { Vec pos, vel; int active, target, ttl; } Missile;
 typedef struct { Sector sector; int body, stock; Vec anchor; uint32_t last_tick; } MiningRig;
 typedef struct { Sector sector; int ore[ASTEROIDS]; } Deposit;
+/* Transient destruction presentation. Body >= 0 uses body-fixed Q8 coordinates,
+   so crashes, smoke and impact blasts stay attached to rotating terrain. */
+typedef struct {
+    Vec pos, vel;
+    int active, age, body, size;
+    uint32_t seed;
+} Blast;
+typedef struct { Vec pos, vel; int active, age, body, size; uint32_t seed; } Smoke;
+typedef struct {
+    Vec pos, vel;
+    int state, age, body, ship, yaw, pitch, roll; /* 1 falling, 2 exploded */
+} Wreck;
 typedef struct {
     uint32_t seed, tick;
     System system;
@@ -206,6 +222,11 @@ typedef struct {
     int hyperspace; /* transient: 0 idle, else real ticks into the jump sequence */
     Sector hyperspace_destination; /* transient: sector the charging jump will reach */
     int entry_brake; /* transient: 1 + body whose entry brake is armed, 0 idle */
+    Blast blasts[MAX_BLASTS];
+    Smoke smoke[MAX_SMOKE];
+    Wreck wrecks[MAX_NPC + 1]; /* slot 0 is reserved for the commander */
+    uint32_t blast_serial, destruction_clock;
+    int death_started, death_yaw, smoke_next;
     char message[80];
 } Game;
 typedef struct {
@@ -246,6 +267,12 @@ void career_time(Game *g);
 void career_tick(Game *g, Vec old);
 void career_system(Game *g);
 void damage_npc(Game *g, int index, int damage);
+Vec destruction_position(const Game *g, Vec pos, int body);
+void destruction_reset(Game *g);
+void destruction_npc(Game *g, int index);
+void destruction_player(Game *g, int impact_body);
+void destruction_tick(Game *g);
+void destruction_rebase(Game *g, Vec delta, Vec velocity);
 int fire_missile(Game *g);
 int countermeasure(Game *g);
 int escape_pod(Game *g);
