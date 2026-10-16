@@ -283,10 +283,11 @@ static void environment_rendering(void) {
         const Planet *p=&g.system.planets[0];
         local=radial(forward(a,0),p->radius+1800);
         if (cloud_density(p,local,g.tick)<100) continue;
-        g.pos=scale(add(p->center,local),FP,1);
+        g.pos=scale(add(p->center,local),FP,1); camera_position=g.pos;
+        memset(depth_buffer,0,(size_t)f.w*view_h*sizeof(*depth_buffer));
         memset(f.pixels,0,(size_t)f.w*f.h); weather_overlay();
         assert(f.pixels[100*320+160] || f.pixels[100*320+161] || f.pixels[102*320+160]);
-        g.pos=scale(add(p->center,radial(local,p->radius+4000)),FP,1);
+        g.pos=scale(add(p->center,radial(local,p->radius+4000)),FP,1); camera_position=g.pos;
         memset(f.pixels,0,(size_t)f.w*f.h); weather_overlay();
         assert(!f.pixels[100*320+160]); break;
     }

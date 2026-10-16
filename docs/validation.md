@@ -376,12 +376,14 @@ Visible stellar geometry supplies hemisphere lighting and planet/moon eclipses.
 The indexed atmosphere approximates Rayleigh single scattering with the angular
 `1 + cos^2` phase, horizon path enhancement and a blue palette. Stars below the
 local horizon or occulted by another body do not contribute. A shared deterministic
-cloud field supplies a curved deck and cockpit fog when the ship enters it.
+cumulus field, one cloud per cell of a body-fixed cube-face lattice, supplies both
+the shaded flat-based puffs and the density that tints the view inside them.
 Temperate/frozen precipitation uses climate, body-fixed latitude and altitude;
 clouds have slow simulation-time drift. Flora uses the same immutable body-fixed
-terrain and full-precision radial placement. Work is bounded: an 8 x 8 local
-cloud patch, a 9 x 9 flora lattice, 24 ECS/48 enhanced precipitation particles,
-and two-pixel fog blocks with clock servicing. These are original generated visuals.
+terrain and full-precision radial placement. Work is bounded: an 11 x 11 cloud
+lattice with distance LOD and a triangle reserve, a 9 x 9 flora lattice, 24 ECS/48
+enhanced precipitation particles, and a depth-graded palette-remap fog with
+ordered dithering and clock servicing. These are original generated visuals.
 
 Save format 5 retains the market/exploration payload and reads versions 3 and 4.
 Older open-ground landings migrate to rotating terrain; docked commanders follow

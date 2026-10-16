@@ -1140,40 +1140,265 @@ static void stellar_discs(void) {
         }
     }
 }
-/* Sparse curved cloud deck in body coordinates: depth-tested, permeable and
-   sampled by the identical density field used for cockpit fog. */
+/* Cloud shading ramp: AGA/RTG use the dedicated 224-255 ramp, ECS borrows
+   the base palette's neutral greys from night slate to sunlit white. */
+static const uint8_t ecs_cloud[9] = {1, 16, 28, 29, 30, 20, 18, 15, 31};
+static int cloud_colour(int shade) {
+    if (shade < 0) shade = 0;
+    if (shade > 255) shade = 255;
+    return frame->enhanced ? 224 + shade / 8 : ecs_cloud[shade * 9 / 256];
+}
+/* Elevations (1024 per turn) of each ring from the top pole to the bottom
+   pole; rings below the puff's floor collapse onto the flat cloud base. */
+static const int cloud_rings[3][5] = {{256, 150, 50, -60, -256}, {256, 90, -40, -256, 0},
+                                      {256, 20, -256, 0, 0}};
+static const int cloud_ring_count[3] = {5, 4, 3}, cloud_segments[3] = {8, 6, 5};
+typedef struct {
+    Vec origin, axis[3];   /* world position of the cloud base; Q14 tangent axes */
+    int64_t camera[3];     /* camera in tangent metres */
+    int sun[3], sunlit, haze, height;
+} CloudView;
+static void cloud_puff(const CloudView *view, const CloudPuff *puff, int size, int lod, uint32_t seed) {
+    int64_t t[26][3];
+    Vec w[26];
+    int start[5], ring, k, n = 0, rings = cloud_ring_count[lod], segments = cloud_segments[lod];
+    int64_t px = puff->x * size / 256, py = puff->y * size / 256, pz = puff->z * size / 256;
+    int64_t r = puff->radius * size / 256;
+    int twist = (int)(seed & 127);
+    if (r < 8) return;
+    {
+        /* Whole puffs behind or beside the view never reach the clipper. */
+        Vec centre = add(view->origin, add(add(scale(view->axis[0], px, 16384), scale(view->axis[1], py, 16384)),
+                                           scale(view->axis[2], pz, 16384)));
+        Vec v = camera(centre);
+        int64_t bound = r * 5 / 4;
+        if (v.z < -bound || v.x - bound > v.z || -v.x - bound > v.z ||
+            (v.y > 0 ? v.y : -v.y) * (frame->w / 2) > (v.z + bound) * (view_h / 2) + bound * (frame->w / 2))
+            return;
+    }
+    for (ring = 0; ring < rings; ring++) {
+        int e = cloud_rings[lod][ring], count = ring == 0 || ring == rings - 1 ? 1 : segments;
+        start[ring] = n;
+        for (k = 0; k < count; k++, n++) {
+            /* Per-vertex lumps give each puff a cauliflower silhouette. */
+            int lump = 226 + (int)(hash32(seed + (uint32_t)n * 0x9e3779b9U) % 44U);
+            int64_t rr = r * lump / 256, flat = rr * cosi(e) / 16384;
+            int az = k * 1024 / segments + twist;
+            t[n][0] = px + (count > 1 ? flat * cosi(az) / 16384 : 0);
+            t[n][1] = py + (count > 1 ? flat * sini(az) / 16384 : 0);
+            t[n][2] = pz + rr * sini(e) * 13 / (16384 * 16); /* slightly oblate */
+            if (t[n][2] < 0) t[n][2] = 0;
+            w[n] = add(view->origin, add(add(scale(view->axis[0], t[n][0], 16384),
+                                             scale(view->axis[1], t[n][1], 16384)),
+                                         scale(view->axis[2], t[n][2], 16384)));
+        }
+    }
+    for (ring = 0; ring + 1 < rings; ring++) {
+        for (k = 0; k < segments; k++) {
+            int a0 = start[ring] + (ring == 0 ? 0 : k), a1 = start[ring] + (ring == 0 ? 0 : (k + 1) % segments);
+            int b0 = start[ring + 1] + (ring + 2 == rings ? 0 : k);
+            int b1 = start[ring + 1] + (ring + 2 == rings ? 0 : (k + 1) % segments);
+            int face[2][3] = {{a0, a1, b1}, {a0, b1, b0}}, f;
+            for (f = 0; f < 2; f++) {
+                const int *v = face[f];
+                int64_t c[3], normal[3], dot;
+                int i, ndot, up, shade, height, wrap;
+                if (v[0] == v[1] || v[1] == v[2] || v[0] == v[2]) continue; /* pole fans */
+                for (i = 0; i < 3; i++) c[i] = (t[v[0]][i] + t[v[1]][i] + t[v[2]][i]) / 3;
+                if (!t[v[0]][2] && !t[v[1]][2] && !t[v[2]][2]) {
+                    normal[0] = normal[1] = 0;
+                    normal[2] = -r;
+                } else {
+                    normal[0] = c[0] - px; normal[1] = c[1] - py; normal[2] = c[2] - pz;
+                }
+                dot = normal[0] * (c[0] - view->camera[0]) + normal[1] * (c[1] - view->camera[1]) +
+                      normal[2] * (c[2] - view->camera[2]);
+                if (dot >= 0) continue; /* back face: also hides the puff from inside */
+                /* Multiple scattering keeps shadow sides a soft grey: a high
+                   floor, widely wrapped diffuse, skylight on top, darker bases. */
+                ndot = (int)((normal[0] * view->sun[0] + normal[1] * view->sun[1] + normal[2] * view->sun[2]) / r);
+                up = (int)(normal[2] * 16384 / r);
+                if (ndot > 16384) ndot = 16384;
+                if (ndot < -16384) ndot = -16384;
+                if (up > 16384) up = 16384;
+                if (up < -16384) up = -16384;
+                wrap = (ndot + 10000) * 256 / 26384;
+                if (wrap < 0) wrap = 0;
+                height = (int)(c[2] * 256 / view->height);
+                if (height > 256) height = 256;
+                shade = (124 + wrap * 112 / 256 + (up + 16384) * 20 / 32768) * (200 + height * 56 / 256) / 256;
+                shade = 24 + (shade - 24) * view->sunlit / 256;
+                shade += (170 - shade) * view->haze / 256;
+                triangle(w[v[0]], w[v[1]], w[v[2]], cloud_colour(shade));
+            }
+        }
+    }
+}
+/* Cumulus field in body-fixed coordinates, nearest cells first, fading in
+   at the edge of range so clouds grow out of the haze instead of popping. */
 static void cloud_deck(void) {
     const Planet *p = &game->system.planets[game->body];
-    Vec local = sub(scale(game->pos, 1, FP), p->center), up = unit(local, 16384);
-    Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), front;
-    int x, y, level = p->climate == HYDROGEN ? 18000 : 1800;
-    if (!p->atmosphere || length(local) - p->radius > 40000) return;
-    if (!length(right)) right = vec(16384, 0, 0);
-    front = cross(right, up);
-    for (y = -4; y < 4; y++) for (x = -4; x < 4; x++) {
-        Vec a = radial(add(local, add(scale(right, x * 2400, 16384),
-                                     scale(front, y * 2400, 16384))), p->radius + level);
-        Vec b = radial(add(a, scale(right, 2200, 16384)), p->radius + level);
-        Vec c = radial(add(b, scale(front, 2200, 16384)), p->radius + level);
-        Vec d = radial(add(a, scale(front, 2200, 16384)), p->radius + level);
-        int light = surface_light(&game->system, p, a);
-        if (cloud_density(p, a, game->tick) < 70) continue;
-        triangle(add(p->center,a), add(p->center,b), add(p->center,c), light ? 7 : 1);
-        triangle(add(p->center,a), add(p->center,c), add(p->center,d), light ? 7 : 1);
+    Vec local = sub(scale(camera_position, 1, FP), p->center), fixed;
+    int cell = cloud_spacing(p), rings = 5, face, ring, du, dv, k;
+    int64_t alt = length(local) - p->radius, range = (int64_t)cell * rings;
+    if (!p->atmosphere || alt > (int64_t)cell * 10) return;
+    fixed = body_rotate(p, local, 1);
+    for (face = 0; face < 6; face++) {
+        int u, v;
+        if (!cloud_face_cell(p, face, fixed, range, &u, &v)) continue;
+        for (ring = 0; ring <= rings; ring++)
+            for (dv = -ring; dv <= ring; dv++)
+                for (du = -ring; du <= ring; du++) {
+                    const Cloud *c;
+                    CloudView view;
+                    Vec base, rel;
+                    int64_t dist;
+                    int fade, lod, light, i;
+                    if (du != -ring && du != ring && dv != -ring && dv != ring) continue;
+                    if (nt > TRI_MAX - 1000) return; /* leave room for ports and ships */
+                    c = cloud_at(p, face, u + du, v + dv, game->tick);
+                    if (!c) continue;
+                    base = body_rotate(p, c->base, 0);
+                    rel = sub(local, base);
+                    dist = length(rel);
+                    fade = (int)((range - dist) * 256 / (cell * 2));
+                    if (fade <= 16) continue;
+                    if (fade > 256) fade = 256;
+                    lod = dist < cell * 2 ? 0 : dist < cell * 7 / 2 ? 1 : 2;
+                    view.origin = add(p->center, base);
+                    view.axis[0] = body_rotate(p, c->east, 0);
+                    view.axis[1] = body_rotate(p, c->north, 0);
+                    view.axis[2] = body_rotate(p, c->up, 0);
+                    for (i = 0; i < 3; i++)
+                        view.camera[i] = (rel.x * view.axis[i].x + rel.y * view.axis[i].y +
+                                          rel.z * view.axis[i].z) / 16384;
+                    light = surface_light(&game->system, p, base);
+                    view.sunlit = light * 3 / 64 > 256 ? 256 : light * 3 / 64;
+                    for (i = 0; i < 3; i++) view.sun[i] = 0;
+                    if (game->system.stars) {
+                        Vec sun = unit(sub(game->system.star[0].center, view.origin), 16384);
+                        for (i = 0; i < 3; i++)
+                            view.sun[i] = (int)((sun.x * view.axis[i].x + sun.y * view.axis[i].y +
+                                                 sun.z * view.axis[i].z) / 16384);
+                    }
+                    view.haze = (int)(dist * 120 / (range + 1));
+                    view.height = c->height * fade / 256;
+                    if (view.height < 1) view.height = 1;
+                    for (k = 0; k < c->puffs && k < 6 - lod * 2; k++)
+                        cloud_puff(&view, &c->puff[k], fade, lod,
+                                   hash32((uint32_t)(u + du) * 0x45d9f3bU ^ (uint32_t)(v + dv) * 0x119de1f3U ^
+                                          (uint32_t)face ^ (uint32_t)k << 24));
+                }
+    }
+}
+/* In-cloud vision: an indexed-colour tint. Each palette entry has nearest
+   matches for 25/50/75% blends toward the cloud colour (lit and unlit), and
+   ordered dithering between those levels gives smooth whiteout with depth. */
+#define FOG_STEPS 16
+static uint8_t fog_map[2][3][256], fog_full[2];
+static int fog_enhanced = -1;
+static const uint8_t bayer4[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+/* -ln(1 - n/16) in Q8: distance multiples of visibility for each fog step. */
+static const uint16_t fog_log[FOG_STEPS] = {0, 17, 34, 53, 74, 96, 120, 147,
+                                            177, 212, 251, 298, 355, 429, 532, 710};
+static void palette_ramp(int index, int *lo, int *hi) {
+    static const int edges[] = {0, 32, 64, 80, 96, 112, 128, 160, 192, 224, 256};
+    int i;
+    for (i = 0; index >= edges[i + 1]; i++) {}
+    *lo = edges[i]; *hi = edges[i + 1];
+}
+static int fog_nearest(const Frame *f, uint32_t rgb, int index) {
+    int best = 0, error = 0x7fffffff, j, lo, hi, pass;
+    int r = (int)(rgb >> 16 & 255), g = (int)(rgb >> 8 & 255), b = (int)(rgb & 255);
+    palette_ramp(index, &lo, &hi);
+    /* Base colours, the source's own ramp and the cloud ramp keep the
+       search to ~96 candidates, quick enough for a 68020 at start-up. */
+    for (pass = 0; pass < (f->enhanced ? 3 : 1); pass++) {
+        int from = pass == 0 ? 0 : pass == 1 ? lo : 224, to = pass == 0 ? 32 : pass == 1 ? hi : 256;
+        for (j = from; j < to; j++) {
+            int dr = r - (int)(f->palette[j] >> 16 & 255), dg = g - (int)(f->palette[j] >> 8 & 255),
+                db = b - (int)(f->palette[j] & 255), e = dr * dr * 3 + dg * dg * 4 + db * db * 2;
+            if (e < error) { error = e; best = j; }
+        }
+    }
+    return best;
+}
+static void fog_tables(const Frame *f) {
+    static const uint32_t target[2] = {0x262e40, 0xb8c2cc};
+    int lit, level, i, sources = f->enhanced ? 256 : 32;
+    for (lit = 0; lit < 2; lit++) {
+        fog_full[lit] = (uint8_t)fog_nearest(f, target[lit], f->enhanced ? 224 : 0);
+        for (level = 0; level < 3; level++)
+            for (i = 0; i < 256; i++) {
+                uint32_t c = f->palette[i], out = 0;
+                int ch, mix = (level + 1) * 64;
+                if (i >= sources) { fog_map[lit][level][i] = fog_full[lit]; continue; }
+                for (ch = 16; ch >= 0; ch -= 8) {
+                    int a = (int)(c >> ch & 255), b = (int)(target[lit] >> ch & 255);
+                    out |= (uint32_t)(a + (b - a) * mix / 256) << ch;
+                }
+                fog_map[lit][level][i] = (uint8_t)fog_nearest(f, out, i);
+            }
+    }
+    fog_enhanced = f->enhanced;
+}
+static void cloud_fog(int density, int lit) {
+    uint32_t threshold[FOG_STEPS + 1];
+    int tint = density * 7 / 256, visibility = 120 + (256 - density) * 3;
+    int x, y, q, cols = frame->w / 16 + 2, rows = view_h / 16 + 2;
+    int shift_x = (camera_yaw & 1023) * frame->w / 256, shift_y = -camera_pitch * frame->w / 256;
+    unsigned period = (unsigned)frame->w / 4; /* one full turn of yaw, in 16-pixel cells */
+    uint32_t phase = game->tick / 12U;
+    int frac = (int)(game->tick % 12U) * 256 / 12;
+    static int8_t wisp[48][88];
+    if (fog_enhanced != frame->enhanced) fog_tables(frame);
+    /* Inverse-depth thresholds: a pixel at least this far gets step q. */
+    for (q = 0; q <= FOG_STEPS; q++) {
+        int n = q <= tint ? 0 : (q - tint) * FOG_STEPS / (FOG_STEPS - tint);
+        if (q == FOG_STEPS) threshold[q] = 0;
+        else if (!n) threshold[q] = 0xffffffffU;
+        else threshold[q] = (uint32_t)((1LL << 38) / ((int64_t)visibility * fog_log[n]));
+    }
+    /* Slowly churning wisps, anchored to view direction so turning sweeps
+       them across the screen instead of dragging them along. */
+    if (rows > 48) rows = 48;
+    if (cols > 88) cols = 88;
+    for (y = 0; y < rows; y++)
+        for (x = 0; x < cols; x++) {
+            uint32_t cx = (uint32_t)(x + (shift_x >> 4)) % period, cy = (uint32_t)(y + (shift_y >> 4));
+            int a = (int)(hash32(cx * 0x9e3779b9U ^ cy * 0x85ebca6bU ^ phase) & 15) - 8;
+            int b = (int)(hash32(cx * 0x9e3779b9U ^ cy * 0x85ebca6bU ^ (phase + 1)) & 15) - 8;
+            wisp[y][x] = (int8_t)(a + (b - a) * frac / 256);
+        }
+    for (y = 0; y < view_h; y++) {
+        uint8_t *pixels = frame->pixels + (size_t)y * frame->w;
+        const uint32_t *depths = depth_buffer + (size_t)y * frame->w;
+        int sy = y + (shift_y & 15), by = sy >> 4, fy = sy & 15;
+        const uint8_t *dither = bayer4 + (y & 3) * 4;
+        if (platform_pump && !(y % 16)) platform_pump();
+        for (x = 0; x < frame->w; x++) {
+            int sx = x + (shift_x & 15), bx = sx >> 4, fx = sx & 15, w, level;
+            uint32_t d = depths[x];
+            w = (wisp[by][bx] * (16 - fx) + wisp[by][bx + 1] * fx) * (16 - fy) +
+                (wisp[by + 1][bx] * (16 - fx) + wisp[by + 1][bx + 1] * fx) * fy;
+            for (q = FOG_STEPS; q && d > threshold[q]; q--) {}
+            level = q * 4 + w * density / (256 * 256 / 2);
+            if (level < 0) level = 0;
+            /* Open sky whites out; solid ground stays a faint silhouette. */
+            if (level > (d ? 50 : 64)) level = d ? 50 : 64;
+            level = (level * 4 + dither[x & 3] * 4) >> 6;
+            if (level == 4) pixels[x] = fog_full[lit];
+            else if (level) pixels[x] = fog_map[lit][level - 1][pixels[x]];
+        }
     }
 }
 static void weather_overlay(void) {
     const Planet *p = &game->system.planets[game->body];
-    Vec local = sub(scale(game->pos, 1, FP), p->center);
+    Vec local = sub(scale(camera_position, 1, FP), p->center);
     int density = cloud_density(p, local, game->tick), rain = precipitation(p, local, game->tick);
     int x, y, i, lit = surface_light(&game->system, p, local) > 0;
     if (density) {
-        for (y = 0; y < view_h; y += 2) {
-            if (platform_pump && !(y % 16)) platform_pump();
-            for (x = 0; x < frame->w; x += 2)
-                if ((int)(hash32((unsigned)(x / 2 + y / 2 * frame->w)) & 255) < density * 3 / 4)
-                    rect(x, y, 2, 2, lit ? 7 : 1);
-        }
+        cloud_fog(density, lit);
         text(8, 32, 15, "IN CLOUD");
     }
     if (rain) {
@@ -1860,6 +2085,17 @@ int render_init(Frame *f) {
         f->palette[192 + i] =
             ((uint32_t)(22 + i * 4) << 16) | ((uint32_t)(18 + i * 3) << 8) | (unsigned)(12 + i * 2);
     }
+    /* Cloud ramp: night slate, shadowed blue-grey, sunlit white. */
+    for (i = 0; i < 32; i++) {
+        static const int key[4][4] = {{0, 16, 22, 36}, {12, 98, 112, 134}, {24, 196, 204, 214},
+                                      {31, 255, 255, 250}};
+        int k = i < 12 ? 0 : i < 24 ? 1 : 2, span = key[k + 1][0] - key[k][0], t = i - key[k][0];
+        f->palette[224 + i] =
+            (uint32_t)(key[k][1] + (key[k + 1][1] - key[k][1]) * t / span) << 16 |
+            (uint32_t)(key[k][2] + (key[k + 1][2] - key[k][2]) * t / span) << 8 |
+            (uint32_t)(key[k][3] + (key[k + 1][3] - key[k][3]) * t / span);
+    }
+    fog_tables(f);
     return 1;
 }
 void render_game(const Game *g, Frame *f) {

@@ -296,24 +296,165 @@ int surface_light(const System *s, const Planet *p, Vec local) {
     for (i = 0; i < s->stars; i++) light += stellar_light(s, p, point, normal, i);
     return light > 16384 ? 16384 : light;
 }
-static int cloud_cover(const Planet *p, Vec local, uint32_t tick) {
-    Vec n = unit(body_rotate(p, local, 1), 65536);
+static int cloud_cover_fixed(const Planet *p, Vec fixed, uint32_t tick) {
+    Vec n = unit(fixed, 65536);
     int drift = (int)(tick / (HZ * 60U) % 8192U);
     if (p->climate != TEMPERATE && p->climate != FROZEN && p->climate != HYDROGEN &&
         p->climate != DENSE) return 0;
     n.x += drift; n.y -= drift / 2;
     return noise(p->seed ^ 0x434c4f55U, n, 12);
 }
+static int cloud_cover(const Planet *p, Vec local, uint32_t tick) {
+    return cloud_cover_fixed(p, body_rotate(p, local, 1), tick);
+}
+/* Cloud floor altitude and the vertical scale of the convective layer. */
+static int cloud_floor(const Planet *p) { return p->climate == HYDROGEN ? 13000 : 1200; }
+static int cloud_thickness(const Planet *p) { return p->climate == HYDROGEN ? 10000 : 1200; }
+int cloud_spacing(const Planet *p) { return p->climate == HYDROGEN ? 16000 : 2000; }
+static int64_t floor_div(int64_t a, int64_t b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+/* Project a body-fixed point onto one cube face of the cloud shell. Each
+   cell belongs to the face its centre is dominant on, so neighbouring faces
+   tile the sphere without seams or duplicates. */
+int cloud_face_cell(const Planet *p, int face, Vec fixed, int64_t reach, int *u, int *v) {
+    int axis = face / 2, cell = cloud_spacing(p);
+    int64_t size = p->radius + cloud_floor(p);
+    int64_t comp = axis == 0 ? fixed.x : axis == 1 ? fixed.y : fixed.z, a, b;
+    if (face & 1) comp = -comp;
+    if (comp <= 0) return 0;
+    a = (axis == 0 ? fixed.y : fixed.x) * size / comp;
+    b = (axis == 2 ? fixed.y : fixed.z) * size / comp;
+    if (a > size + reach || -a > size + reach || b > size + reach || -b > size + reach) return 0;
+    *u = (int)floor_div(a, cell);
+    *v = (int)floor_div(b, cell);
+    return 1;
+}
+/* The field only changes when the cover noise drifts, once a minute, so the
+   renderer and fog share a small direct-mapped cache of generated clouds. */
+#define CLOUD_CACHE 256
+static struct {
+    uint32_t key, drift;
+    int face, u, v, valid, present;
+    Cloud cloud;
+} cloud_cache[CLOUD_CACHE];
+static int cloud_build(const Planet *p, int face, int u, int v, uint32_t tick, Cloud *c) {
+    int axis = face / 2, cell = cloud_spacing(p), thickness = cloud_thickness(p);
+    int64_t size = p->radius + cloud_floor(p), a, b, s;
+    int strength, radius, height, main, i, sides;
+    uint32_t h = hash32(p->seed ^ 0x43554d55U ^ (uint32_t)face * 0x9e3779b9U ^
+                        hash32((uint32_t)u * 73856093U ^ (uint32_t)v * 19349663U));
+    uint32_t h2 = hash32(h + 0x632be5abU);
+    Vec d, up, east;
+    a = (int64_t)u * cell + cell / 4 + (int)(h % (unsigned)(cell / 2));
+    b = (int64_t)v * cell + cell / 4 + (int)((h >> 11) % (unsigned)(cell / 2));
+    if (a >= size || -a > size || b >= size || -b > size) return 0;
+    s = face & 1 ? -size : size;
+    d = axis == 0 ? vec(s, a, b) : axis == 1 ? vec(a, s, b) : vec(a, b, s);
+    strength = cloud_cover_fixed(p, d, tick) - 1500;
+    if (strength <= 0) return 0;
+    strength = strength >= 1200 ? 256 : strength * 256 / 1200;
+    /* Thin cover leaves scattered fair-weather cumulus; heavy cover packs them. */
+    if ((int)(h >> 24) >= 40 + strength * 3 / 4) return 0;
+    radius = cell * (20 + strength * 16 / 256 + (int)(h2 % 8U)) / 100;
+    height = thickness * (40 + strength * 70 / 256 + (int)((h2 >> 3) % 20U)) / 100;
+    up = unit(d, 16384);
+    east = unit(vec(up.y, -up.x, 0), 16384);
+    if (!length(east)) east = vec(16384, 0, 0);
+    c->base = radial(d, size);
+    c->up = up;
+    c->east = east;
+    c->north = vec((east.y * up.z - east.z * up.y) / 16384, (east.z * up.x - east.x * up.z) / 16384,
+                   (east.x * up.y - east.y * up.x) / 16384);
+    c->strength = (int16_t)strength;
+    /* A broad flat-based core, a narrower tower when the cell convects
+       strongly, and smaller shoulder puffs: the cauliflower cumulus outline. */
+    main = radius * 72 / 100;
+    c->puff[0].x = c->puff[0].y = 0;
+    c->puff[0].radius = (int16_t)main;
+    c->puff[0].z = (int16_t)(main * 55 / 100);
+    c->puffs = 1;
+    if (height > main * 3 / 2) {
+        int top = main * 78 / 100, z = height - top;
+        /* Keep the tower rooted in the core rather than floating above it. */
+        if (z > main * 155 / 100 + top / 2) z = main * 155 / 100 + top / 2;
+        c->puff[1].x = (int16_t)(((int)(h2 >> 8 & 63) - 32) * main / 128);
+        c->puff[1].y = (int16_t)(((int)(h2 >> 14 & 63) - 32) * main / 128);
+        c->puff[1].radius = (int16_t)top;
+        c->puff[1].z = (int16_t)z;
+        c->puffs = 2;
+    } else {
+        c->puff[0].z = (int16_t)(height - main > main / 3 ? height - main : main / 3);
+    }
+    sides = 2 + (strength > 100) + (int)(h2 >> 20 & 1);
+    for (i = 0; i < sides && c->puffs < CLOUD_PUFFS; i++) {
+        uint32_t k = hash32(h2 + (uint32_t)i * 0x2545f491U);
+        int angle = (int)(h2 >> 22) + i * 1024 / sides + (int)(k % 96U) - 48;
+        int r = radius * (42 + (int)(k >> 8 & 15)) / 100;
+        int reach = radius * (40 + (int)(k >> 12 & 15)) / 100;
+        CloudPuff *puff = &c->puff[c->puffs++];
+        puff->x = (int16_t)((int64_t)reach * cosi(angle) / 16384);
+        puff->y = (int16_t)((int64_t)reach * sini(angle) / 16384);
+        puff->radius = (int16_t)r;
+        puff->z = (int16_t)(r * 50 / 100 + (int)(k >> 16) % (r / 3 + 1));
+    }
+    c->radius = (int16_t)(radius + radius * 51 / 100);
+    for (i = 0, height = 1; i < c->puffs; i++)
+        if (c->puff[i].z + c->puff[i].radius > height) height = c->puff[i].z + c->puff[i].radius;
+    c->height = (int16_t)height;
+    return 1;
+}
+const Cloud *cloud_at(const Planet *p, int face, int u, int v, uint32_t tick) {
+    uint32_t key = p->seed ^ (uint32_t)p->climate * 0x01000193U ^ (uint32_t)p->radius;
+    uint32_t drift = tick / (HZ * 60U);
+    unsigned slot = hash32(key ^ (uint32_t)face * 0x27d4eb2dU ^ (uint32_t)u * 0x165667b1U ^
+                           (uint32_t)v * 0xd3a2646cU) % CLOUD_CACHE;
+    if (!p->atmosphere) return 0;
+    if (!cloud_cache[slot].valid || cloud_cache[slot].key != key || cloud_cache[slot].drift != drift ||
+        cloud_cache[slot].face != face || cloud_cache[slot].u != u || cloud_cache[slot].v != v) {
+        cloud_cache[slot].valid = 1;
+        cloud_cache[slot].key = key;
+        cloud_cache[slot].drift = drift;
+        cloud_cache[slot].face = face;
+        cloud_cache[slot].u = u;
+        cloud_cache[slot].v = v;
+        cloud_cache[slot].present = cloud_build(p, face, u, v, tick, &cloud_cache[slot].cloud);
+    }
+    return cloud_cache[slot].present ? &cloud_cache[slot].cloud : 0;
+}
+/* Density rises from just outside each puff's surface to full strength two
+   thirds of the way in, so fog thickens as the faceted shell is crossed. */
 int cloud_density(const Planet *p, Vec local, uint32_t tick) {
     int64_t alt = length(local) - p->radius;
-    int base = p->climate == HYDROGEN ? 18000 : 1800;
-    int thickness = p->climate == HYDROGEN ? 10000 : 1200;
-    int cover = cloud_cover(p, local, tick) - 1500;
-    int64_t d = alt - base;
-    if (d < 0) d = -d;
-    if (!p->atmosphere || cover <= 0 || d >= thickness) return 0;
-    if (cover > 1200) cover = 1200;
-    return (int)((int64_t)cover * (thickness - d) * 256 / (1200LL * thickness));
+    int floor = cloud_floor(p), cell = cloud_spacing(p), face, u, v, du, dv, k, best = 0;
+    Vec fixed;
+    if (!p->atmosphere || alt < floor - cloud_thickness(p) / 4 || alt > floor + cloud_thickness(p) * 2)
+        return 0;
+    fixed = body_rotate(p, local, 1);
+    for (face = 0; face < 6; face++) {
+        if (!cloud_face_cell(p, face, fixed, cell * 2, &u, &v)) continue;
+        for (dv = -1; dv <= 1; dv++) for (du = -1; du <= 1; du++) {
+            const Cloud *c = cloud_at(p, face, u + du, v + dv, tick);
+            Vec rel;
+            int64_t x, y, z;
+            if (!c) continue;
+            rel = sub(fixed, c->base);
+            x = (rel.x * c->east.x + rel.y * c->east.y + rel.z * c->east.z) / 16384;
+            y = (rel.x * c->north.x + rel.y * c->north.y + rel.z * c->north.z) / 16384;
+            z = (rel.x * c->up.x + rel.y * c->up.y + rel.z * c->up.z) / 16384;
+            if (x > c->radius * 2 || -x > c->radius * 2 || y > c->radius * 2 || -y > c->radius * 2)
+                continue;
+            for (k = 0; k < c->puffs; k++) {
+                const CloudPuff *puff = &c->puff[k];
+                int64_t r = (int64_t)puff->radius * 115 / 100, dx = x - puff->x, dy = y - puff->y,
+                        dz = z - puff->z, d2 = dx * dx + dy * dy + dz * dz, value;
+                if (z < -puff->radius / 8 || d2 >= r * r) continue;
+                value = 768 * (r * r - d2) / (r * r);
+                if (value > 256) value = 256;
+                value = value * (160 + c->strength * 96 / 256) / 256;
+                if (value > best) best = (int)value;
+            }
+        }
+    }
+    return best;
 }
 int precipitation(const Planet *p, Vec local, uint32_t tick) {
     int64_t alt = length(local) - p->radius;

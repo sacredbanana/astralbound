@@ -244,6 +244,18 @@ int surface_light(const System *s, const Planet *p, Vec local);
 /* Shared deterministic weather: density 0..256, precipitation 0/1 rain/2 snow. */
 int rayleigh_scattering(const System *s, const Planet *p, Vec local, Vec view);
 int cloud_density(const Planet *p, Vec local, uint32_t tick);
+/* Cumulus field: at most one cloud per cell of a body-fixed cube-face lattice.
+   Puff centres are metres in the cloud's tangent frame above its flat base. */
+#define CLOUD_PUFFS 6
+typedef struct { int16_t x, y, z, radius; } CloudPuff;
+typedef struct {
+    Vec base, east, north, up; /* body-fixed metres; Q14 tangent axes */
+    int16_t puffs, strength, height, radius;
+    CloudPuff puff[CLOUD_PUFFS];
+} Cloud;
+int cloud_spacing(const Planet *p);
+int cloud_face_cell(const Planet *p, int face, Vec fixed, int64_t reach, int *u, int *v);
+const Cloud *cloud_at(const Planet *p, int face, int u, int v, uint32_t tick);
 int precipitation(const Planet *p, Vec local, uint32_t tick);
 int terrain_elevation(const Planet *p, Vec relative_metres);
 int terrain_material(const Planet *p, Vec relative_metres);

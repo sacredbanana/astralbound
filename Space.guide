@@ -359,8 +359,8 @@
   landable and gas giants can have multiple satellites and equatorial rings.
   Stellar geometry controls day/night and planet/moon eclipses. Atmosphere
   colours approximate Rayleigh single scattering above the solar horizon.
-  Temperate/frozen weather has a permeable curved cloud deck, cockpit fog,
-  rain and snow. Flora grows on temperate land, with polar ice and dry rock.
+  Temperate/frozen weather has shaded cumulus clouds that tint the view
+  when flown through, rain and snow. Flora grows on temperate land, with polar ice and dry rock.
   Clouds and precipitation are bounded procedural visual models, without
   fluid dynamics, accumulation or hydrology. Trees/buildings are decorative.
   The renderer uses a depth buffer. Docking walls have swept collisions.

@@ -370,8 +370,8 @@ boot evidence, timings and remaining physical QA are recorded in `docs/validatio
 
 Planetary rotation now moves terrain, flora, surface ports and landed ships. Actual
 stellar geometry controls day/night, eclipses and an indexed Rayleigh scattering
-approximation. Temperate/frozen weather provides curved cloud decks, entry/exit fog,
-rain and snow; gas giants have cloud layers, multiple moons and equatorial ring bands.
+approximation. Temperate/frozen weather provides shaded cumulus fields, a depth-graded
+in-cloud tint, rain and snow; gas giants have cloud layers, multiple moons and equatorial ring bands.
 Weather and vegetation are bounded prototype models. `make environment-preview`
 produces reproducible host frames and portable commander fixtures under `build/evidence`.
 
