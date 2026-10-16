@@ -128,6 +128,12 @@ typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
 #define POLICE_DAMAGE 15
 #define POLICE_INTERVAL (HZ / 2)
 #define POLICE_RANGE 5000
+/* Hyperspace sequence in real ticks: charge in the departure system, the
+   jump itself at the tunnel boundary, then arrival in the new system. */
+#define HYPER_CHARGE (HZ * 3 / 2)
+#define HYPER_TUNNEL (HZ * 5 / 2)
+#define HYPER_EXIT HZ
+#define HYPER_TOTAL (HYPER_CHARGE + HYPER_TUNNEL + HYPER_EXIT)
 typedef struct { Vec pos, vel; int active, good, quantity, mission; } CargoPod;
 typedef struct { Vec pos, vel; int active, target, ttl; } Missile;
 typedef struct { Sector sector; int body, stock; Vec anchor; uint32_t last_tick; } MiningRig;
@@ -174,6 +180,8 @@ typedef struct {
     int police_alert; /* transient: 0 calm, 1 weapons fine issued, 2 police engaging */
     uint32_t police_warned, police_tick; /* transient: fine time; earliest patrol reinforcement */
     uint32_t ui_clock; /* transient real-time ticks for presentation animation */
+    int hyperspace; /* transient: 0 idle, else real ticks into the jump sequence */
+    Sector hyperspace_destination; /* transient: sector the charging jump will reach */
     char message[80];
 } Game;
 typedef struct {
@@ -307,6 +315,8 @@ int cargo_used(const Game *g);
 int trade(Game *g, int good, int buy);
 int accept_mission(Game *g, int index);
 int jump(Game *g, Sector destination);
+const char *jump_refusal(const Game *g, Sector destination);
+int drive_available(const Game *g);
 void refresh_board(Game *g);
 int save_game(const Game *g, const char *path);
 int load_game(Game *g, const char *path);

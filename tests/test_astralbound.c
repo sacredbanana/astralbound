@@ -680,21 +680,36 @@ static void test_system_drive(void) {
     game_action(&g, 'a');
     for (i = 0; i < 25 * HZ; i++) game_tick(&g, c);
     assert(!g.drive_manual && !g.drive_active && length(g.vel) < 8 * FP);
-    /* Atmospheric and nearby-traffic locks retain ordinary local engines. */
+    /* Port and nearby-traffic locks refuse the drive, or disarm it. */
     game_init(&g, 1);
     game_action(&g, 'l');
+    assert(!drive_available(&g));
     game_action(&g, 'a');
     game_tick(&g, c);
-    assert(!g.drive_active && !g.dead);
+    assert(!g.drive_manual && !g.drive_active && !g.dead);
     g.frame_body = -1;
     g.pos = vec(0, AU_METRES * FP, 0);
     g.vel = vec(0, 0, 0);
+    game_action(&g, 'a');
+    assert(g.drive_manual && g.throttle == 4000);
     g.npc[0].active = 1;
     g.npc[0].mission = -1;
     g.npc[0].pos = add(g.pos, vec(0, 0, 1000 * FP));
     g.npc[0].vel = vec(0, 0, 0);
     game_tick(&g, c);
-    assert(!g.drive_active && length(g.vel) < 100 * FP);
+    assert(!g.drive_manual && !g.throttle && !g.drive_active && length(g.vel) < 100 * FP);
+    assert(!strcmp(g.message, "SYSTEM DRIVE DISENGAGED - EXCLUSION ZONE"));
+    /* Running dry mid-cruise disarms the drive and zeroes the set speed. */
+    game_init(&g, 1);
+    g.docked = g.frame_body = -1;
+    g.pos = vec(0, AU_METRES * FP, 0);
+    g.vel = vec(0, 0, 0);
+    game_action(&g, 'a');
+    for (i = 0; i < HZ; i++) game_tick(&g, c);
+    assert(g.drive_manual && g.drive_active);
+    g.fuel = 0;
+    game_tick(&g, c);
+    assert(!g.drive_manual && !g.throttle && !strcmp(g.message, "SYSTEM DRIVE DISENGAGED - NO FUEL"));
     remove(TEST_SAVE);
     remove(TEST_SAVE ".bak");
     puts("PASS System Drive acceleration, braking, cruise saves and mass/traffic locks");
@@ -724,19 +739,80 @@ static void test_independent_drive_autopilot(void) {
         game_tick(&g, c);
         assert(g.autopilot == !ap && g.drive_manual == !drive && !g.dead);
     }
-    /* Arrival stops commanded motion but leaves the drive switch armed. */
+    /* A body waypoint lies inside its exclusion zone: the drive refuses to
+       arm there, and arrival stops commanded motion without it. */
     game_init(&g, 1);
     g.docked = g.target = -1;
     g.target_body = g.body = g.frame_body = 0;
     g.pos = navigation_position(&g);
     g.vel = vec(0, 0, 0);
     game_action(&g, 'a');
+    assert(!g.drive_manual && !strcmp(g.message, "SYSTEM DRIVE UNAVAILABLE - EXCLUSION ZONE"));
     game_action(&g, 'p');
     game_tick(&g, c);
-    assert(!g.autopilot && g.drive_manual && !g.throttle && !g.dead);
+    assert(!g.autopilot && !g.drive_manual && !g.throttle && !g.dead);
     game_tick(&g, c);
-    assert(g.drive_manual && length(g.vel) < 100 * FP);
-    puts("PASS independent autopilot/drive switches, thrust selection and armed arrival");
+    assert(length(g.vel) < 100 * FP);
+    puts("PASS independent autopilot/drive switches, thrust selection and drive-free arrival");
+}
+static int hyperspace_ready(Game *g) {
+    int i;
+    game_init(g, 1);
+    g->docked = g->frame_body = -1;
+    g->pos = vec(0, AU_METRES * FP, 0);
+    g->vel = vec(0, 0, 0);
+    for (i = 0; i < 9; i++) {
+        g->selected = (Sector){i % 3 - 1, 0, i / 3 - 1};
+        if (!jump_refusal(g, g->selected)) return 1;
+    }
+    return 0;
+}
+static void test_hyperspace(void) {
+    Game g;
+    Controls c = {0};
+    uint32_t seed, tick;
+    int i, fuel;
+    /* X charges in the departure system, jumps at the tunnel boundary, holds
+       the simulation in the tunnel and arrives with controls restored. */
+    assert(hyperspace_ready(&g));
+    seed = g.system.seed; fuel = g.fuel;
+    g.page = MAP; g.warp = 64;
+    game_action(&g, 'x');
+    assert(g.hyperspace == 1 && g.page == FLIGHT && g.warp == 1 && g.system.seed == seed);
+    game_action(&g, 'g');
+    game_action(&g, 'a');
+    assert(g.page == FLIGHT && !g.drive_manual); /* the sequence owns the ship */
+    for (i = 0; i < HYPER_CHARGE - 1; i++) game_frame(&g, c, 1);
+    assert(g.hyperspace == HYPER_CHARGE && g.system.seed == seed && g.fuel == fuel);
+    game_frame(&g, c, 1);
+    assert(g.system.seed != seed && g.fuel < fuel && g.hyperspace == HYPER_CHARGE + 1);
+    assert(!strncmp(g.message, "HYPERSPACE TRANSIT", 18));
+    tick = g.tick;
+    for (i = 0; i < HYPER_TUNNEL - 1; i++) game_frame(&g, c, 1);
+    assert(g.tick == tick);
+    game_frame(&g, c, 1);
+    assert(g.tick > tick && !strncmp(g.message, "JUMP COMPLETE", 13));
+    for (i = 0; i < HYPER_EXIT; i++) game_frame(&g, c, 1);
+    assert(!g.hyperspace);
+    game_action(&g, 'g');
+    assert(g.page == MAP);
+    /* Traffic arriving during the charge aborts at release, at no cost. */
+    assert(hyperspace_ready(&g));
+    seed = g.system.seed; fuel = g.fuel;
+    game_action(&g, 'x');
+    g.npc[0].active = 1;
+    g.npc[0].mission = -1;
+    g.npc[0].pos = add(g.pos, vec(0, 0, 1000 * FP));
+    g.npc[0].vel = vec(0, 0, 0);
+    for (i = 0; i < HYPER_CHARGE + 1; i++) game_frame(&g, c, 1);
+    assert(!g.hyperspace && g.system.seed == seed && g.fuel == fuel);
+    assert(!strcmp(g.message, "JUMP ABORTED - TRAFFIC NEARBY"));
+    /* Refusals name their reason and never start the charge. */
+    game_init(&g, 1);
+    g.selected = (Sector){1, 0, 0};
+    game_action(&g, 'x');
+    assert(!g.hyperspace && !strcmp(g.message, "JUMP DENIED - DOCKED"));
+    puts("PASS hyperspace charge, tunnel hold, arrival, traffic abort and refusal reasons");
 }
 static void test_safety(void) {
     Game g, h;
@@ -823,6 +899,7 @@ static void test_unrestricted_warp(void) {
     g.warp = 64;
     game_action(&g, 'p'); assert(g.autopilot && g.warp == 64);
     game_action(&g, 'p'); assert(!g.autopilot && g.warp == 64);
+    g.frame_body = -1; g.pos = vec(0, AU_METRES * FP, 0); g.vel = vec(0, 0, 0);
     game_action(&g, 'a'); assert(g.drive_manual && g.warp == 64);
     game_action(&g, 'a'); assert(!g.drive_manual && g.warp == 64);
     puts("PASS manual, docked, landed, approach, combat and hazard warp with exact local physics");
@@ -1089,6 +1166,7 @@ int main(int argc, char **argv) {
         test_missions();
     test_system_drive();
     test_independent_drive_autopilot();
+    test_hyperspace();
     test_safety();
     test_unrestricted_warp();
     test_flight_input();

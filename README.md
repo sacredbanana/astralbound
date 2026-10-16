@@ -111,12 +111,16 @@ the other. In manual flight, engaging the drive selects full cruise speed; W/S
 adjusts the setting, and **A** again brakes to a stop. With autopilot engaged,
 guidance controls speed using whichever drive setting you select. The drive
 provides up to 4,000,000 m/s² acceleration and braking, with a 200,000,000 m/s cruise ceiling. Gravity wells, atmospheres,
-stations and nearby ships reduce the permitted speed. The HUD shows DRIVE,
-AUTO DRIVE, or DRIVE LOCK when the drive is armed near an exclusion zone.
+stations and nearby ships reduce the permitted speed. Inside an exclusion zone,
+or with an empty tank, the drive cannot run: the **DRIVE** button is greyed out
+and **A** is refused. An armed drive that loses the ability to run disengages
+itself, zeroing the set speed so thrust and the engine note stop together; the
+message line gives the reason. The HUD shows DRIVE or AUTO DRIVE while it runs,
+and DRIVE LOCK while autopilot or weapons fire briefly withhold it.
 Autopilot uses System Drive only when you arm it with **A**; otherwise it uses
 ordinary engines. It limits speed for terrain/star detours, atmospheric flight
-and docking, and brakes for arrival without changing the drive switch. Reaching
-a body waypoint zeros the manual speed setting while leaving the drive armed.
+and docking, and brakes for arrival. Reaching a body waypoint zeros the manual
+speed setting.
 Time warp also works with manual drive control; drive cruise batches are limited
 to one simulated second.
 Drive settings reset on loading, while saved velocity is preserved and fast
@@ -161,7 +165,10 @@ turns it off; time compression remains limited to autopilot flight.
 At a port, **B** opens contracts, **M** opens the market and **U** opens the
 shipyard, where the selected hull turns in a 3D preview beside stat bars compared
 with your current ship (1-6 or Up/Down select, Return buys). **J** lists contracts and destinations. **G** opens the galaxy map;
-select a sector using arrows and press **X** above 12 km altitude to jump. **C**
+select a sector using arrows and press **X** above 12 km altitude to jump. The
+hyperspace drive charges for a second and a half (traffic arriving meanwhile
+aborts the jump at no cost), then the ship crosses a hyperspace tunnel and drops
+out in the destination system; only pause works during the sequence. **C**
 centres the map on the current system. Jump range is six one-light-year sectors.
 Star occupancy follows a four-arm galactic disc; empty sectors reject jumps. Green
 map markers identify visited systems. Unsettled systems have body targets and no

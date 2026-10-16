@@ -2397,6 +2397,134 @@ int render_init(Frame *f) {
     fog_tables(f);
     return 1;
 }
+/* Hyperspace sequence. Every colour comes from the 32 base entries, so the
+   effect reads the same on ECS, AGA and RTG. Coordinates are frame pixels. */
+#define HYPER_RINGS 14
+#define HYPER_SEGMENTS 24
+#define HYPER_DEPTH (HYPER_RINGS * 64)
+static void disc(int cx, int cy, int r, int c) {
+    int y;
+    for (y = -r; y <= r; y++) {
+        int half = (int)isqrt64((uint64_t)(r * r - y * y));
+        if (cy + y >= 0 && cy + y < view_h) rect(cx - half, cy + y, half * 2 + 1, 1, c);
+    }
+}
+/* Ordered dither stands in for a white fade on an indexed display. */
+static void hyper_flash(int level) {
+    static const uint8_t bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+    int x, y;
+    if (level <= 0) return;
+    for (y = 0; y < view_h; y++) {
+        uint8_t *row = frame->pixels + y * frame->w;
+        const uint8_t *b = bayer + (y & 3) * 4;
+        for (x = 0; x < frame->w; x++)
+            if (b[x & 3] < level) row[x] = 31;
+    }
+}
+/* Q8 extra length for star streaks: they stretch as the charge builds and
+   snap back as the ship drops out into the new system. */
+static int hyper_stretch(const Game *g) {
+    int t = g->hyperspace - 1;
+    if (!g->hyperspace) return 0;
+    if (t < HYPER_CHARGE) return 1536 * t * t / (HYPER_CHARGE * HYPER_CHARGE);
+    t -= HYPER_CHARGE + HYPER_TUNNEL;
+    if (t < 0 || t >= HYPER_EXIT) return 0;
+    return 1024 * (HYPER_EXIT - t) * (HYPER_EXIT - t) / (HYPER_EXIT * HYPER_EXIT);
+}
+static void hyper_title(const char *title, const char *detail, int blink) {
+    int w = frame->w;
+    if (blink) text(w / 2 - (int)strlen(title) * 3, 12, 15, title);
+    if (detail) text(w / 2 - (int)strlen(detail) * 3, 22, 12, detail);
+}
+static void hyperspace_charge(int t) {
+    int w = frame->w, cx = w / 2, cy = view_h / 2, i;
+    int p = t * 256 / HYPER_CHARGE, r;
+    /* Light accelerates outward from the bow once the field forms. */
+    if (p > 32) for (i = 0; i < 96; i++) {
+        uint32_t h = hash32((unsigned)i * 2654435761U + 17);
+        int a = (int)(h & 1023), base = (int)((h >> 10) & 255) * w / 640 + w / 32;
+        int run = (p - 32) * (p - 32) * w / (224 * 224) * 3 / 4, len = run / 2 + 2;
+        int r0 = base + run, x0 = cx + cosi(a) * r0 / 16384, y0 = cy + sini(a) * r0 / 16384;
+        line(x0, y0, cx + cosi(a) * (r0 + len) / 16384, cy + sini(a) * (r0 + len) / 16384,
+             i % 3 == 0 ? 15 : i % 3 == 1 ? 13 : 20);
+    }
+    /* Shockwave rings ripple out faster as the charge nears release. */
+    {
+        int period = 16 - p / 24, wave = t % period;
+        int rr = wave * w / (period * 2), j;
+        for (j = 0; j < 24; j++) {
+            int a = j * 1024 / 24, b = (j + 1) * 1024 / 24;
+            line(cx + cosi(a) * rr / 16384, cy + sini(a) * rr / 16384,
+                 cx + cosi(b) * rr / 16384, cy + sini(b) * rr / 16384, wave < period / 2 ? 13 : 27);
+        }
+    }
+    r = w * p / (256 * 40) + (p > 176 ? (p - 176) * w / 640 : 0) + 1;
+    r += sini(t * 96) * r / (16384 * 6);
+    disc(cx, cy, r, 27); disc(cx, cy, r * 3 / 4, 13);
+    disc(cx, cy, r / 2, 15); disc(cx, cy, r / 4, 31);
+    hyper_title("HYPERSPACE CHARGING", NULL, 1);
+    rect(cx - 50, 22, 100, 5, 0);
+    rect(cx - 49, 23, p * 98 / 256, 3, p > 208 ? 31 : 13);
+    if (p > 200) hyper_flash((p - 200) * 17 / 56);
+}
+/* The tunnel bends smoothly: offset grows with the square of depth, and the
+   bend direction drifts slowly, so the throat wanders around the bow. */
+static void tunnel_centre(int t, int z, int *x, int *y) {
+    int bend = z * z / HYPER_DEPTH;
+    *x = frame->w / 2 + sini(t * 6) * (frame->w / 6) / 16384 * bend / HYPER_DEPTH;
+    *y = view_h / 2 + cosi(t * 4) * (view_h / 5) / 16384 * bend / HYPER_DEPTH;
+}
+static void hyperspace_tunnel(const Game *g, int t) {
+    static const uint8_t ramp[10] = {31, 15, 13, 20, 7, 27, 6, 26, 25, 2};
+    int w = frame->w, k, j, i, cx, cy, r;
+    int vx[HYPER_RINGS][HYPER_SEGMENTS], vy[HYPER_RINGS][HYPER_SEGMENTS], colour[HYPER_RINGS];
+    int travel = t < 16 ? t * t * 18 / 32 : (t - 8) * 18;
+    char buf[40];
+    rect(0, 0, w, view_h, 0);
+    for (k = 0; k < HYPER_RINGS; k++) {
+        int z = k * 64 + 64 - travel % 64, rot = t * 4 + z / 6, id = k + travel / 64;
+        int depth = z * 10 / (HYPER_DEPTH + 1);
+        tunnel_centre(t, z, &cx, &cy);
+        r = z > 10 ? w * 24 / z : w * 3;
+        colour[k] = id % 4 == 0 ? (depth < 4 ? 23 : 22) : ramp[depth];
+        for (j = 0; j < HYPER_SEGMENTS; j++) {
+            int a = rot + j * 1024 / HYPER_SEGMENTS;
+            vx[k][j] = cx + cosi(a) * r / 16384;
+            vy[k][j] = cy + sini(a) * r / 16384;
+        }
+    }
+    {   /* Vanishing-point core, pulsing behind the farthest ring. */
+        tunnel_centre(t, HYPER_DEPTH - 48, &cx, &cy);
+        r = w / 30 + sini(t * 48) * (w / 120) / 16384;
+        disc(cx, cy, r * 2, 25); disc(cx, cy, r * 3 / 2, 26); disc(cx, cy, r, 27);
+        disc(cx, cy, r * 2 / 3, 13); disc(cx, cy, r / 3, 31);
+    }
+    for (k = HYPER_RINGS - 1; k >= 0; k--) {
+        for (j = 0; j < HYPER_SEGMENTS; j++) {
+            int n = (j + 1) % HYPER_SEGMENTS;
+            line(vx[k][j], vy[k][j], vx[k][n], vy[k][n], colour[k]);
+            if (k + 1 < HYPER_RINGS && j % 3 == 0)
+                line(vx[k][j], vy[k][j], vx[k + 1][j], vy[k + 1][j], colour[k + 1]);
+        }
+    }
+    /* Streaming light: streaks born at the core rush past the canopy. */
+    for (i = 0; i < 48; i++) {
+        uint32_t h = hash32((unsigned)i * 7919U + 3);
+        int a = (int)(h & 1023), z = 16 + (int)(((h >> 12) % 880 + 880 - (unsigned)(travel * 3) % 880) % 880);
+        int x0, y0, x1, y1, r0 = w * 24 / (z + 20), r1 = w * 24 / z;
+        tunnel_centre(t, z + 20, &x0, &y0);
+        tunnel_centre(t, z, &x1, &y1);
+        line(x0 + cosi(a) * r0 / 16384, y0 + sini(a) * r0 / 16384,
+             x1 + cosi(a) * r1 / 16384, y1 + sini(a) * r1 / 16384, z < 160 ? 31 : z < 400 ? 15 : 13);
+    }
+    snprintf(buf, sizeof(buf), "DESTINATION %.24s", g->system.name);
+    hyper_title("HYPERSPACE", buf, (t / 6) % 4 != 3);
+    if (t < 8) hyper_flash(16 - t * 2);
+    if (t >= HYPER_TUNNEL - 6) hyper_flash((t - (HYPER_TUNNEL - 6)) * 17 / 6);
+}
+static void hyperspace_exit(int t) {
+    if (t < HYPER_EXIT / 2) hyper_flash(16 - t * 32 / HYPER_EXIT);
+}
 void render_game(const Game *g, Frame *f) {
     int i;
     int64_t alt = altitude_at(g, g->pos);
@@ -2426,6 +2554,11 @@ void render_game(const Game *g, Frame *f) {
             return;
         memset(depth_buffer, 0, count * sizeof(*depth_buffer));
     }
+    if (g->hyperspace > HYPER_CHARGE && g->hyperspace <= HYPER_CHARGE + HYPER_TUNNEL) {
+        hyperspace_tunnel(g, g->hyperspace - HYPER_CHARGE - 1);
+        gui();
+        return;
+    }
     {
         const Planet *p = &g->system.planets[g->body];
         Vec local = sub(scale(g->pos, 1, FP), p->center);
@@ -2441,6 +2574,7 @@ void render_game(const Game *g, Frame *f) {
         }
     }
     if (alt > 6000) {
+        int stretch = hyper_stretch(g);
         for (i = 0; i < 120; i++) {
             uint32_t h = hash32((unsigned)i + g->seed);
             Vec p = add(scale(g->pos, 1, FP),
@@ -2449,7 +2583,10 @@ void render_game(const Game *g, Frame *f) {
             if (v.z > 100) {
                 int x = f->w / 2 + (int)(v.x * (f->w / 2) / v.z),
                     y = view_h / 2 - (int)(v.y * (f->w / 2) / v.z);
-                if (y < view_h)
+                if (stretch)
+                    line(x, y, f->w / 2 + (x - f->w / 2) * (256 + stretch) / 256,
+                         view_h / 2 + (y - view_h / 2) * (256 + stretch) / 256, i % 5 ? 20 : 31);
+                else if (y < view_h)
                     pixel(x, y, i % 5 ? 7 : 15);
             }
         }
@@ -2491,6 +2628,10 @@ void render_game(const Game *g, Frame *f) {
         }
         sensors();
     }
+    if (g->hyperspace && g->hyperspace <= HYPER_CHARGE)
+        hyperspace_charge(g->hyperspace - 1);
+    else if (g->hyperspace > HYPER_CHARGE + HYPER_TUNNEL)
+        hyperspace_exit(g->hyperspace - HYPER_CHARGE - HYPER_TUNNEL - 1);
     gui();
 }
 /* Planes are contiguous and MSB-first, independent of host byte order. */
