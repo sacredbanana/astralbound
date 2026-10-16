@@ -207,10 +207,62 @@ static void atmospheric_pad_approach(void) {
     printf("atmospheric pad approach: %d ticks, %d steering swings, hull %d\n", i, swings, g.hull);
     assert(g.docked == port && g.hull == 100 && swings < 20);
 }
+/* Cleared at the gate above a pad, the ship levels its nose and wings with the
+   pad and gravity brings it down onto its gear. It used to dive nose-first at
+   the pad and snap down from up to 35 m. */
+static int64_t along_axis(Vec a, Vec n) {
+    return (a.x * n.x + a.y * n.y + a.z * n.z) / 16384;
+}
+static void level_pad_touchdown(const char *name) {
+    Game g;
+    Controls c = {0};
+    int i, port, steepest = 0;
+    int64_t height = 0, sink = 0;
+    Vec n, nose, right, up;
+    game_init(&g, 0x53504143);
+    game_action(&g, 'l');
+    port = find_port(&g, name);
+    n = g.ports[port].normal;
+    g.frame_body = g.body = g.ports[port].body;
+    g.pos = add(g.ports[port].pos, scale(n, 2000 * FP, 16384));
+    g.vel = port_relative_velocity(&g, port);
+    g.target = port;
+    g.target_body = -1;
+    assert(request_clearance(&g, port));
+    g.dock_stage = 1;
+    g.pitch = -250; /* nose down, as the approach leaves it */
+    g.autopilot = 1;
+    for (i = 0; i < 300 * HZ && g.autopilot && !g.dead; i++) {
+        Vec off = sub(g.pos, g.ports[port].pos);
+        n = g.ports[port].normal;
+        height = along_axis(off, n);
+        sink = -along_axis(sub(g.vel, port_relative_velocity(&g, port)), n);
+        if (height < 300 * FP) {
+            int64_t dip = llabs(along_axis(forward(g.yaw, g.pitch), n));
+            if (dip > steepest) steepest = (int)dip;
+        }
+        game_tick(&g, c);
+    }
+    height -= sink / HZ; /* where the final tick carried the ship */
+    n = g.ports[port].normal;
+    nose = forward(g.yaw, g.pitch);
+    right = vec(cosi(g.yaw), 0, -sini(g.yaw));
+    up = vec(-(int64_t)sini(g.pitch) * sini(g.yaw) / 16384, cosi(g.pitch),
+             -(int64_t)sini(g.pitch) * cosi(g.yaw) / 16384);
+    up = add(scale(right, sini(g.roll), 16384), scale(up, cosi(g.roll), 16384));
+    printf("%s settle: %d ticks, touchdown %lld cm at %lld cm/s, nose %lld, up %lld\n", name, i,
+           (long long)(height * 100 / FP), (long long)(sink * 100 / FP),
+           (long long)along_axis(nose, n), (long long)along_axis(up, n));
+    assert(g.docked == port && g.hull == 100);
+    assert(height < 1 * FP && sink > 0 && sink < 4 * FP);
+    assert(steepest < 600 && llabs(along_axis(nose, n)) < 600 && along_axis(up, n) > 16200);
+}
 int main(void) {
     Game g;
     Controls c = {0};
     int i, system_frame = 0;
+    level_pad_touchdown("B HAVEN");
+    level_pad_touchdown("D REACH");
     remote_cruise();
     moving_target_approach();
     hetha_d_route();

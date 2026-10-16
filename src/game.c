@@ -317,9 +317,68 @@ static Vec autopilot_route(const Game *g, int *detour) {
     *detour = 0;
     return dest;
 }
+static int64_t along(Vec a, Vec unit_axis) {
+    return (a.x * unit_axis.x + a.y * unit_axis.y + a.z * unit_axis.z) / 16384;
+}
+/* Cleared to descend from the gate and still over the pad: the autopilot
+   flies the rest like a lander instead of diving nose-first at the pad. */
+static int pad_settling(const Game *g) {
+    const Port *pad;
+    Vec off;
+    int64_t height;
+    if (!g->autopilot || g->target < 0 || !g->ports[g->target].surface ||
+        !g->dock_stage || g->clearance != g->target)
+        return 0;
+    pad = &g->ports[g->target];
+    off = sub(g->pos, pad->pos);
+    if (length(off) > 2500LL * FP)
+        return 0;
+    height = along(off, pad->normal);
+    return height < 2500LL * FP && length(sub(off, scale(pad->normal, height, 16384))) < 100LL * FP;
+}
+/* Gravity brings the ship down. The engines hold back the sink rate, tapering
+   to a couple of metres per second at the gear, and cancel drift over the
+   pad; they never push the ship towards the ground. */
+static Vec pad_settle_thrust(const Game *g, Vec gravity, int thrust) {
+    const Port *pad = &g->ports[g->target];
+    Vec n = pad->normal, off = sub(g->pos, pad->pos), drift, want, engine;
+    int64_t height = along(off, n), sink, push;
+    drift = sub(off, scale(n, height, 16384));
+    /* Constant 2 m/s^2 braking that meets the pad at 2 m/s. */
+    sink = (int64_t)isqrt64(4ULL * FP * FP + (uint64_t)(height > 0 ? height : 0) * 4 * FP);
+    if (sink > 30 * FP)
+        sink = 30 * FP;
+    want = scale(n, -sink, 16384);
+    want = sub(want, length(drift) > 20 * FP ? unit(drift, 5 * FP) : scale(drift, 1, 4));
+    engine = sub(scale(sub(want, sub(g->vel, port_relative_velocity(g, g->target))), 4, 1), gravity);
+    push = along(engine, n);
+    if (push < 0)
+        engine = sub(engine, scale(n, push, 16384));
+    return length(engine) > thrust ? unit(engine, thrust) : engine;
+}
+/* Turn an attitude angle at most three table steps per tick. */
+static int slew_angle(int angle, int goal) {
+    return (angle + clamp(((goal - angle + 1536) & 1023) - 512, -3, 3)) & 1023;
+}
+/* Level the wings and nose against the pad's up, keeping the current heading
+   (or, when the nose points straight down at the pad, the right wing). */
+static void level_attitude(Game *g, Vec up) {
+    Vec heading = forward(g->yaw, 0), nose, right;
+    int yaw = g->yaw, pitch;
+    nose = sub(heading, scale(up, along(heading, up), 16384));
+    if (length(nose) < 4096) {
+        right = vec(cosi(g->yaw), 0, -sini(g->yaw));
+        nose = sub(right, scale(up, along(right, up), 16384));
+    }
+    aim_angles(nose, &yaw, &pitch);
+    right = vec(cosi(yaw), 0, -sini(yaw));
+    g->yaw = slew_angle(g->yaw, yaw);
+    g->pitch = clamp(g->pitch + clamp(pitch - g->pitch, -3, 3), -250, 250);
+    g->roll = slew_angle(g->roll, attitude_angle(along(up, right), along(up, level_up(yaw, pitch))));
+}
 void game_tick(Game *g, Controls c) {
     Vec acceleration = vec(0, 0, 0), gravity, old, frame_delta;
-    int i;
+    int i, touchdown;
     int64_t r, dist, alt, ground_alt;
     Vec local, center;
     const Planet *planet;
@@ -434,8 +493,8 @@ void game_tick(Game *g, Controls c) {
     thrust = drive_thrust(g);
     g->drive_active = thrust == SYSTEM_DRIVE_ACCEL * FP;
     if (g->autopilot) {
-        g->roll = 0;
         Vec target;
+        int settling;
         if (g->target >= 0 && g->clearance == g->target) {
             Vec gate = sub(
                 add(g->ports[g->target].pos, scale(g->ports[g->target].normal, 2000 * FP, 16384)),
@@ -446,9 +505,14 @@ void game_tick(Game *g, Controls c) {
         }
         int detour;
         target = autopilot_route(g, &detour);
+        settling = pad_settling(g);
+        if (settling)
+            level_attitude(g, g->ports[g->target].normal);
+        else
+            g->roll = slew_angle(g->roll, 0);
         /* Hold the nose while settling onto a gate or pad: the bearing of a
            point a few metres away swings wildly with every correction. */
-        if (g->tick % 4 == 0 && length(sub(target, g->pos)) > 100 * FP) {
+        if (!settling && g->tick % 4 == 0 && length(sub(target, g->pos)) > 100 * FP) {
             int yaw = g->yaw, pitch = g->pitch, turn;
             aim_angles(sub(target, g->pos), &yaw, &pitch);
             turn = ((yaw - g->yaw + 1536) & 1023) - 512;
@@ -526,6 +590,8 @@ void game_tick(Game *g, Controls c) {
         acceleration = sub(acceleration, gravity);
         if (length(acceleration) > thrust)
             acceleration = unit(acceleration, thrust);
+        if (settling)
+            acceleration = pad_settle_thrust(g, gravity, thrust);
         if (g->target >= 0 && length(sub(g->ports[g->target].pos, g->pos)) < 500 * FP)
             g->gear = 1;
     } else {
@@ -568,10 +634,12 @@ void game_tick(Game *g, Controls c) {
         }
         g->vel = add(air, scale(sub(g->vel, air), 1048576 - density, 1048576));
     }
-    for (i = 0; i < port_count(g); i++)
+    /* A settling autopilot docks on touchdown, not by snapping down 35 m. */
+    for (i = 0, touchdown = pad_settling(g); i < port_count(g); i++)
         if (length(sub(g->pos, g->ports[i].pos)) < 35 * FP &&
             length(sub(g->vel, port_relative_velocity(g, i))) < 8 * FP && g->gear &&
-            (g->ports[i].surface || g->clearance == i)) {
+            (g->ports[i].surface || g->clearance == i) &&
+            (!touchdown || i != g->target || along(sub(g->pos, g->ports[i].pos), g->ports[i].normal) < 1 * FP)) {
             g->pos = g->ports[i].pos;
             g->vel = port_relative_velocity(g, i);
             g->body = g->ports[i].body;

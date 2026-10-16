@@ -840,3 +840,20 @@ start 26 km up and ten degrees from the pad fell from 8,226 large steering steps
 to 0. Hetha D arrives after 96,685 ticks (was 206,012) and the interplanetary route
 after 57,825 (was 168,048). `make test`, `make sanitize`, `make fpu-test` and
 `make navigation-test` pass. Native emulator/hardware runtime is untested.
+
+### Level pad touchdown (2026-10-16)
+
+Cleared at the gate 2 km above a surface pad, autopilot steered the nose at the
+pad, so the whole final descent was flown nose-down and the pad captured the
+ship from up to 35 m above the gear. While cleared and within 100 m of the pad's
+axis, autopilot now slews the nose and wings level with the pad (three table
+steps per tick, keeping the heading) and gravity brings the ship down: the
+engines cancel drift and hold the sink rate to a 2 m/s² braking curve that meets
+the pad at 2 m/s, and never push towards the ground. The pad docks the settling
+ship within 1 m of the gear. Outside the descent, autopilot slews roll back to
+level instead of snapping it.
+
+`navigation-test` lands from the gate on both Hetha pads: B Haven touches down
+at 3.4 m/s after 2,383 ticks, and the tilted D Reach pad at 3.4 m/s after 2,494
+ticks, its nose held within 2° of the pad horizon below 300 m and 0.3° at
+touchdown. `make test` and the sanitized navigation build pass.
