@@ -3,7 +3,7 @@
 python3 tools/import_solar.py build/catalog/satellites.html build/catalog/satellite-physical.html
 No dependency beyond Python. Preserve source precision and unknown values.
 """
-import csv,sys
+import csv,sys,json
 from html.parser import HTMLParser
 class Tables(HTMLParser):
  def __init__(self):super().__init__();self.cell=False;self.rows=[];self.row=[];self.txt=''
@@ -29,7 +29,8 @@ for r in read(sys.argv[1]):
  rows.append([r[2],r[1],r[3],r[7],r[13],r[11],r[10],radius,gm,r[5],r[6],r[8],r[9],r[12],r[16],r[17]])
 # Puck is listed under two alternative ephemerides in the source table.
 # Keep the final published solution for each NAIF identity.
-rows=list({row[2]:row for row in rows}.values())
+selected=set(json.load(open('data/solar-selection.json'))['moons'])
+rows=[row for row in {row[2]:row for row in rows}.values() if row[0] in selected]
 with open('data/solar-moons.csv','w') as f:
  w=csv.writer(f,lineterminator='\n');w.writerow(['name','parent','naif','a_km','period_days','inclination_deg','mean_anomaly_deg','radius_km','gm_km3_s2','frame','epoch_tdb','eccentricity','periapsis_deg','node_deg','pole_ra_deg','pole_dec_deg']);w.writerows(rows)
 print(len(rows),'moons;',len(physical),'physical records')

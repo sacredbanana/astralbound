@@ -10,7 +10,7 @@
 typedef struct {
     unsigned char data[24576];
     size_t pos;
-    int read, error;
+    int read, error, relocated;
 } Stream;
 static uint32_t word(Stream *s, uint32_t value) {
     int i;
@@ -105,8 +105,12 @@ static void payload(Stream *s, Game *g, uint32_t version) {
     FIELD(g->seed);
     FIELD(g->tick);
     sector(s, &sector_id);
-    if (s->read)
+    if (s->read) {
+        if(version<9 && !galaxy_exists(g->seed,sector_id)) {
+            sector_id=(Sector){0,0,0};s->relocated=1;
+        }
         setup_system(g, sector_id);
+    }
     vector(s, &g->pos);
     vector(s, &g->vel);
     FIELD(g->yaw);
@@ -228,6 +232,67 @@ static int good_sector(Sector s) {
 static int good_vec(Vec v, int64_t bound) {
     return v.x >= -bound && v.x <= bound && v.y >= -bound && v.y <= bound && v.z >= -bound &&
            v.z <= bound;
+}
+/* Version 9 keeps the binary payload but changes population and Sol layout.
+   Remap retained bodies by identity; removed local frames return safely to Earth. */
+static int migrate_catalog(Game *g,int relocated) {
+    uint32_t visited[16]={0},surveyed[16]={0};
+    int i,frame_removed=0,board_removed=relocated;
+    for(i=0;i<512;i++) {
+        uint32_t bit=1U<<(i%32);int body=solar_legacy_body(i);
+        if((g->solar_surveyed[i/32]&bit) && !(g->solar_visited[i/32]&bit)) return 0;
+        if(i>=solar_legacy_count() && ((g->solar_visited[i/32]|g->solar_surveyed[i/32])&bit)) return 0;
+        if(body>=0) {
+            if(g->solar_visited[i/32]&bit) visited[body/32]|=1U<<(body%32);
+            if(g->solar_surveyed[i/32]&bit) surveyed[body/32]|=1U<<(body%32);
+        }
+    }
+    memcpy(g->solar_visited,visited,sizeof(visited));memcpy(g->solar_surveyed,surveyed,sizeof(surveyed));
+    if(!relocated && same_sector(g->system.sector,catalog_sector(0))) {
+        if(g->target_body< -1 || g->target_body>=solar_legacy_count() || g->frame_body< -1 || g->frame_body>=solar_legacy_count()) return 0;
+        if(g->target_body>=0) {
+            g->target_body=solar_legacy_body(g->target_body);
+            if(g->target_body<0) { g->target=-1;g->target_body=2;g->autopilot=0; }
+        }
+        if(g->frame_body>=0) {
+            g->frame_body=solar_legacy_body(g->frame_body);
+            if(g->frame_body<0) { frame_removed=1;g->frame_body=2; }
+        }
+        if(frame_removed) {
+            const Planet *earth=&g->system.planets[2];
+            g->docked=-1;g->pos=add(scale(earth->center,FP,1),vec(0,((int64_t)earth->radius+200000)*FP,0));
+            g->vel=vec(0,0,0);g->target=-1;g->target_body=2;g->autopilot=0;g->throttle=0;
+        }
+    }
+    if(relocated) {
+        g->docked=0;g->frame_body=g->ports[0].body;g->target=0;g->target_body=-1;
+        g->pos=g->ports[0].pos;g->vel=vec(0,0,0);g->gear=1;g->throttle=g->autopilot=0;g->warp=1;
+        g->clearance=-1;g->dock_stage=0;
+        memset(g->npc,0,sizeof(g->npc));memset(g->pods,0,sizeof(g->pods));
+        memset(g->projectiles,0,sizeof(g->projectiles));
+        for(i=0;i<MAX_MISSIONS;i++) g->contracts[i].spawned=0;
+    }
+    for(i=0;i<g->rig_count;i++) {
+        MiningRig *rig=&g->rigs[i];int remove=!galaxy_exists(g->seed,rig->sector);
+        if(same_sector(rig->sector,catalog_sector(0))) {
+            rig->body=solar_legacy_body(rig->body);if(rig->body<0) remove=1;
+        }
+        if(remove) {
+            int j;for(j=i+1;j<g->rig_count;j++) g->rigs[j-1]=g->rigs[j];g->rig_count--;i--;
+            if(g->credits<=99999500) g->credits+=500;
+        }
+    }
+    /* A deleted destination must not leave a passenger/freight slot locked.
+       Cancel without the normal failure reputation penalty. */
+    for(i=0;i<MAX_MISSIONS;i++) {
+        Mission *m=&g->contracts[i];
+        if(m->state==ACTIVE && !galaxy_exists(g->seed,m->destination)) m->state=FAILED;
+        if(g->board[i].state==OFFERED && !galaxy_exists(g->seed,g->board[i].destination)) board_removed=1;
+    }
+    if(board_removed) refresh_board(g);
+    if(!galaxy_exists(g->seed,g->selected)) g->selected=g->system.sector;
+    if(g->waypoint_set && !galaxy_exists(g->seed,g->waypoint)) g->waypoint_set=0;
+    return 1;
 }
 static int valid(const Game *g) {
     int i;
@@ -411,7 +476,7 @@ int load_game(Game *g, const char *path) {
     if (word(&s, 0) != 0x53504331)
         return 0;
     version = word(&s, 0);
-    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != 6 && version != 7 && version != SAVE_VERSION)
+    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != SAVE_VERSION)
         return 0;
     size = word(&s, 0);
     crc = word(&s, 0);
@@ -419,6 +484,7 @@ int load_game(Game *g, const char *path) {
         return 0;
     game_init(&copy, 1);
     payload(&s, &copy, version);
+    if(version<9 && !s.error && !migrate_catalog(&copy,s.relocated)) return 0;
     if (s.error || s.pos != len || !valid(&copy))
         return 0;
     copy.body = nearest_body(&copy, copy.pos);

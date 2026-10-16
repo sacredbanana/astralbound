@@ -2248,10 +2248,10 @@ static void galaxy_map(void) {
     if(game->galaxy_extent>1000000) {
         int arm,r;
         /* Dim arm contours describe aggregate disc density at overview scale. */
-        for(arm=0;arm<4;arm++) for(r=1000;r<30000;r+=500) {
-            int a=r/50+arm*256,b=(r+500)/50+arm*256;
+        for(arm=0;arm<4;arm++) for(r=1000;r<GALAXY_RADIUS;r+=250) {
+            int a=r/16+arm*256,b=(r+250)/16+arm*256;
             galaxy_line(vec((int64_t)r*1000*sini(a)/16384,0,(int64_t)r*1000*cosi(a)/16384),
-                vec((int64_t)(r+500)*1000*sini(b)/16384,0,(int64_t)(r+500)*1000*cosi(b)/16384),2);
+                vec((int64_t)(r+250)*1000*sini(b)/16384,0,(int64_t)(r+250)*1000*cosi(b)/16384),2);
         }
     }
     for(i=0;i<32;i++) {
@@ -2262,7 +2262,7 @@ static void galaxy_map(void) {
     if(game->waypoint_set) galaxy_line(home,galaxy_position(game->waypoint),13);
     galaxy_line(home,galaxy_position(game->selected),12);
     for(i=0;i<n;i++) {
-        int c=stellar_colour((StellarType)m[i].type),r=m[i].catalog>=0?1:0;
+        int c=stellar_colour((StellarType)m[i].type),r=m[i].catalog>=0 && game->galaxy_extent<1000000?1:0;
         x=m[i].x; y=m[i].y;
         if(m[i].catalog>=0 && (m[i].type==ST_GIANT || m[i].type==ST_RED_GIANT)) r=2;
         if(m[i].type==ST_BLACK_HOLE && (m[i].catalog>=0 || game->galaxy_extent<=4000)) { line(x-2,y-2,x+2,y-2,25); line(x-2,y+2,x+2,y+2,25); pixel(x-2,y,13); pixel(x+2,y,13); }

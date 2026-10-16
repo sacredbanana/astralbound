@@ -192,12 +192,16 @@
   holes have distinct types. HYG J2000 positions retain 0.001 ly precision;
   companion orbits and flight radii are game approximations. Catalog data
   is CC BY-SA 4.0 (David Nash / Astronomy Nexus); see data/README.md.
-  Sol has eight planets, five dwarf planets, all 459 unique moons from
-  the retrieved JPL planetary table, four more dwarf moons and eight minor
-  bodies: 484 navigable bodies plus the Sun. Planets use eccentric Kepler
-  orbits, real radii and periods. Unknown small-moon sizes are labelled
-  proxy geometry. Earth/Mars/Moon ports are fictional. Small asteroid moons
-  absent from the planetary table are outside this bounded catalog.
+  The galaxy has exactly 1,000,000,000 systems, including the 94 real
+  entries and nine starter systems. Generated systems occupy a finite
+  fictional disc 20,000 ly across and 600 ly thick. Space beyond is empty.
+  Sol has eight planets, five dwarf planets and 21 major moons:
+  34 navigable bodies plus the Sun. Minor bodies and small irregular or
+  provisional moons are omitted. Planets use eccentric Kepler orbits,
+  real radii and periods. Earth/Mars/Moon ports are fictional.
+  Old saves remap retained bodies. Removed bodies move you to Earth orbit;
+  removed systems return to Hetha's starting port. Removed rigs refund
+  500 CR and contracts to removed systems cancel without reputation loss.
   Unsettled systems have no ports; use Q and P to explore their bodies.
   Green map markers show previously visited systems. The commander
   journal records up to 128 systems and their visited/surveyed bodies.
@@ -333,8 +337,9 @@
   Native modes restore the OS for file access, then resume takeover.
   The save includes its format/generator version and checksum, exploration
   journal, local frame, accumulated fuel impulse, docking approach and markets.
-  Save format 8 stores the galaxy waypoint, all Sol body survey masks and
-  ship roll. Generated planetary streams retain version 3. Version 3 commanders load
+  Save format 9 stores the galaxy waypoint, Sol survey masks and ship roll,
+  and migrates the reduced population/body catalog from earlier saves.
+  Generated planetary streams retain version 3. Version 3 commanders load
   with saved supply assigned to the docked port; other ports use generated
   supply. Old version 2 prototype commanders remain incompatible.
   A rejected or corrupt load leaves the current game unchanged.

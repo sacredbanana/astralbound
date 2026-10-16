@@ -16,17 +16,17 @@ static uint32_t next(uint32_t *s) {
 }
 const char *body_names[BODY_TYPES] = {"ROCK", "OCEAN", "DESERT", "ICE", "GAS GIANT", "MOON"};
 /* Density is an integer four-arm spiral with a disc and central bulge.
-   One map sector is one light year; the procedural disc spans 30000 sectors. */
+   One map sector is one light year; the finite procedural disc has a 10000-light-year radius. */
 int galaxy_density(Sector s) {
     int64_t radial = length(vec(s.x, 0, s.z)), height = s.y < 0 ? -(int64_t)s.y : s.y;
     int yaw = 0, pitch = 0, arm, disc;
-    if (radial > 30000 || height > 3000)
-        return 1;
+    if (radial >= GALAXY_RADIUS || height >= GALAXY_HEIGHT)
+        return 0;
     aim_angles(vec(s.x, 0, s.z), &yaw, &pitch);
-    arm = (yaw - (int)(radial / 50)) & 255;
+    arm = (yaw - (int)(radial / 16)) & 255;
     if (arm > 128)
         arm = 256 - arm;
-    disc = (int)((30000 - radial) * (3000 - height) / 900000);
+    disc = (int)((GALAXY_RADIUS - radial) * (GALAXY_HEIGHT - height) / 30000);
     return 5 + disc + (128 - arm) / 3 + (radial < 2000 ? 25 : 0);
 }
 /* Q30 sine polynomial for analytic orbits. The flight Q14 table is too
@@ -140,10 +140,8 @@ void generate_system(uint32_t seed, Sector s, System *out) {
     out->economy = next(&r) % 4;
     out->government = next(&r) % 4;
     out->density = galaxy_density(s);
-    /* Sparse cells in the disc/arms contain stars; the local inhabited
-       bubble remains connected for the initial courier/trading routes. */
-    if (catalog_index(s)<0 && frontier && hash32(out->seed ^ 0x47414c58U) % 100 >= (unsigned)out->density)
-        return;
+    /* Map, jump validation and generation share the exact finite population. */
+    if (!galaxy_exists(seed,s)) return;
     out->stars = 1 + (next(&r) % 4 == 0);
     out->star[0].radius = 696000000;
     if (out->stars == 2) {

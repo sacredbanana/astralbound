@@ -3,6 +3,9 @@
 #define ASTRALBOUND_GALAXY_H
 #include "astralbound.h"
 #define MAX_STARS 6
+#define GALAXY_SYSTEMS 1000000000U
+#define GALAXY_RADIUS 10000
+#define GALAXY_HEIGHT 300
 #define GALAXY_MARKERS 5100
 #define GALAXY_SEARCH 256
 #define GAL_SEARCH 12000
@@ -38,6 +41,8 @@ int catalog_index(Sector s);
 Vec galaxy_position(Sector s);
 int64_t galaxy_distance(Sector a, Sector b);
 void galaxy_name(uint32_t seed, Sector s, char name[24]);
+uint32_t galaxy_system_count(void);
+int galaxy_system_at(uint32_t seed, uint32_t id, Sector *s);
 int galaxy_exists(uint32_t seed, Sector s);
 StellarType stellar_type(const char *s);
 StellarType galaxy_type(uint32_t seed, Sector s);

@@ -914,3 +914,47 @@ Final integration review also fixed Sol's local orbit scale: unrelated eccentric
 outer bodies no longer expand the Earth/Moon view. The focused regression checks
 its lunar extent and passes normally and under ASan/UBSan; all native variants
 rebuild successfully with the correction.
+
+
+## 2026-10-17: one billion systems and a smaller Sol catalog
+
+The finite population is exactly 1,000,000,000 systems for every seed: 94 real
+catalog destinations, nine starter systems and 999,999,897 procedural systems.
+Offline integer apportionment assigns cell quotas within a fictional 20,000 ly
+diameter, 600 ly thick disc. Reversible integer permutations choose unique sector
+keys, excluding reserved destinations. Generation, map and jump occupancy share
+this population. Overview draws 600 indexed system samples; no generated systems
+remain beyond the finite boundary. Real-star coordinates and jump range/fuel are
+unchanged. Seed 123's starter 17-sector cube contains 102 systems.
+
+Sol now contains 34 bodies: eight planets, five dwarf planets and 21 selected major
+moons. Minor bodies, small irregular/provisional moons and other dwarf moons were
+removed. The importer enforces an explicit selection, and retained bodies preserve
+their terrain seeds. Save v9 remaps v8 body/rig/survey indices, clears deleted
+waypoints, refunds removed rigs and cancels contracts to removed systems without
+reputation loss. Removed body frames move safely to Earth orbit; removed systems
+move to Hetha's starting port. Historical exploration/trade records remain.
+
+Verified in this worktree:
+
+- Full `make test` passes: galaxy, music, UI, careers, presentation, renderer and
+  core suites. Population regressions check the exact total, indexed uniqueness,
+  shared occupancy, boundaries and local sparsity over multiple seeds. Migration
+  regressions exercise retained/removed body frames, survey masks, rigs, deleted
+  systems, contracts, selected systems, waypoints and older save formats.
+- Full `make sanitize` passes under ASan/UBSan, including the complete AU-scale
+  navigation route (8,558,417 ticks, arrival within 4 m). After reducing overview
+  markers to 600, the galaxy suite also passes in a fresh sanitized build.
+- `./build-amiga.sh -j4 all variants tests` builds all six CPU games and native
+  regression programs with warnings treated as errors after the final map changes.
+- Offline satellite import and both catalog compilers reproduce their checked-in
+  outputs byte for byte. The guide checker reports zero errors/warnings and
+  `git diff --check` passes.
+- Host screenshots were inspected for the local field, sparse overview and final
+  Sol moon-list page. Evidence: `build/evidence/reduced-galaxy-local.png`,
+  `reduced-galaxy-overview.png` and `reduced-sol-moons.png`.
+
+Native emulator runtime was not verified in this pass: input/window control of
+the existing AmiKit/Amiberry instance failed before test execution could be
+confirmed. The native results above are compilation evidence. Release archives
+and ADF were not rebuilt; there is no physical-hardware runtime claim.

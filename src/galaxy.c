@@ -28,10 +28,6 @@ void galaxy_name(uint32_t seed,Sector s,char name[24]) {
     r=hash32(r+0x9e3779b9U);a=r%16;r=hash32(r+0x9e3779b9U);b=r%16;
     snprintf(name,24,"%s%s",first[a],last[b]);
 }
-int galaxy_exists(uint32_t seed,Sector s) {
-    if(catalog_index(s)>=0 || length(vec(s.x,s.y,s.z))<=8) return 1;
-    return hash32(sector_seed(seed,s)^0x47414c58U)%100 < (unsigned)galaxy_density(s);
-}
 StellarType stellar_type(const char *s) {
     if(s[0]=='D') return ST_WHITE_DWARF;
     if(s[0]=='L'||s[0]=='T'||s[0]=='Y') return ST_BROWN_DWARF;
@@ -163,6 +159,15 @@ const GalaxyMarker *galaxy_markers(const Game *g,const Frame *f,int *n) {
             if(abs(s.x)>1000000 || abs(s.y)>1000000 || abs(s.z)>1000000) continue;
             add_cell(s);
         }
+        if(g->galaxy_extent>=1000000) {
+            /* Overview samples actual indexed systems, rather than inventing
+               markers or missing the now-sparse field by probing empty cells. */
+            for(i=0;i<600;i++) {
+                Sector sample;
+                uint32_t id=(uint32_t)(((uint64_t)(unsigned)i*galaxy_system_count())/600U);
+                if(galaxy_system_at(g->seed,id,&sample)) add_cell(sample);
+            }
+        }
         cache_center=g->galaxy_center; cache_extent=g->galaxy_extent; cache_seed=g->seed; cache_ready=1;
     }
     /* Navigation and journal entries are always represented, even in overview. */
@@ -251,7 +256,7 @@ int galaxy_key(Game *g,int k) {
     case GAL_WAYPOINT: g->waypoint_set=!(g->waypoint_set && same_sector(g->waypoint,g->selected)); g->waypoint=g->selected; break;
     case GAL_FOCUS: case 'f': galaxy_focus(g,g->selected); break;
     case GAL_HOME: case 'c': galaxy_focus(g,g->system.sector); break;
-    case GAL_OVERVIEW: g->galaxy_center=vec(0,0,0); g->galaxy_extent=40000000; g->galaxy_pitch=190; break;
+    case GAL_OVERVIEW: g->galaxy_center=vec(0,0,0); g->galaxy_extent=14000000; g->galaxy_pitch=190; break;
     case '+': case '=': if(g->galaxy_extent>2000) g->galaxy_extent=g->galaxy_extent*2/3; if(g->galaxy_extent<2000) g->galaxy_extent=2000; break;
     case '-': if(g->galaxy_extent<60000000) g->galaxy_extent=g->galaxy_extent*3/2; if(g->galaxy_extent>60000000) g->galaxy_extent=60000000; break;
     case 1001: galaxy_rotate(g,0,-8); break;

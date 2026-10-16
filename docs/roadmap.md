@@ -13,11 +13,13 @@ Implemented in the current development build:
   selection, independent persistent waypoint and physical jump distances.
 - [x] 94 catalog entries with J2000 positions, up to six stellar components,
   normal/giant/red-giant/white-dwarf/brown-dwarf/neutron/black-hole types.
-- [x] Sol: eight planets, five dwarf planets, 459 unique JPL planetary moons,
-  four supplemental dwarf moons and eight representative minor bodies; eccentric
+- [x] Exactly one billion systems in a finite disc, with indexed overview sampling,
+  real catalog positions and nine preserved starter systems.
+- [x] Sol: eight planets, five dwarf planets and 21 major moons; eccentric
   fixed-point Kepler orbits and long periods. See `data/README.md` for limits.
-- [x] Save v8 waypoint/Sol surveys, 3-7 migration, 512 catalog-body capacity,
-  original 12-body procedural cap and bounded 12-slot terrain globe cache.
+- [x] Save v9 body-identity migration and safe relocation from removed systems/bodies,
+  waypoint/Sol surveys, 512 catalog-body capacity, original 12-body procedural cap
+  and bounded 12-slot terrain globe cache.
 
 - [x] Astronomical metre scales, translated hierarchical local frames, and a central star
   (or a binary pair orbiting the system barycentre).

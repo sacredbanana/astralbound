@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "astralbound.h"
+#include "galaxy.h"
 #include "flight_input.h"
 #include <assert.h>
 #include <stdio.h>
@@ -163,7 +164,9 @@ static void test_world(void) {
     int i, j, empty = 0, binaries = 0, moons = 0, rings = 0;
     Vec previous;
     for (i = 1; i <= 40; i++) {
-        generate_system((unsigned)i, (Sector){1000, 0, 1000}, &s);
+        Sector sector;
+        assert(galaxy_system_at((unsigned)i,1000000U+(unsigned)i,&sector));
+        generate_system((unsigned)i, sector, &s);
         empty += system_port_count(&s) == 0;
         binaries += s.stars == 2;
         for (j = 0; j < s.count; j++) {
@@ -185,7 +188,7 @@ static void test_world(void) {
     }
     assert(empty > 20 && binaries && moons && rings);
     assert(galaxy_density((Sector){0, 0, 0}) > galaxy_density((Sector){10000, 2000, 0}));
-    assert(galaxy_density((Sector){40000, 0, 0}) == 1);
+    assert(galaxy_density((Sector){40000, 0, 0}) == 0);
     game_init(&g, 123);
     previous = g.pos;
     for (i = 0; i < 50; i++)
@@ -238,7 +241,9 @@ static void test_world(void) {
     /* Journals and orbital/approach state survive the portable format. */
     game_init(&g, 123);
     for (i = 1000; i < 1100; i++) {
-        generate_system(g.seed, (Sector){i, 0, 1000}, &s);
+        Sector sector;
+        assert(galaxy_system_at(g.seed,1000000U+(unsigned)i,&sector));
+        generate_system(g.seed, sector, &s);
         if (s.count && !system_port_count(&s))
             break;
     }

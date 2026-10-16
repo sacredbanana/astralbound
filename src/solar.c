@@ -11,9 +11,14 @@ typedef struct {
     uint32_t spin;
     int known;
     int32_t basis[6];
+    int legacy_index;
 } SolarBody;
 #include "solar_catalog.inc"
 int solar_body_count(void) { return sizeof(solar_bodies)/sizeof(solar_bodies[0]); }
+int solar_legacy_body(int body) {
+    return body>=0 && body<(int)(sizeof(solar_v8_to_current)/sizeof(solar_v8_to_current[0]))?solar_v8_to_current[body]:-1;
+}
+int solar_legacy_count(void) { return sizeof(solar_v8_to_current)/sizeof(solar_v8_to_current[0]); }
 int solar_body_index(const System *s,const char *name) {
     int i; for(i=0;i<s->count;i++) if(!strcmp(s->planets[i].name,name)) return i;
     return -1;
@@ -24,7 +29,7 @@ void solar_system(System *s) {
     s->count=solar_body_count();
     for(i=0;i<s->count;i++) {
         const SolarBody *d=&solar_bodies[i]; Planet *p=&s->planets[i];
-        p->seed=hash32(0x534f4c00U+(unsigned)i); p->parent=d->parent;
+        p->seed=hash32(0x534f4c00U+(unsigned)d->legacy_index); p->parent=d->parent;
         p->radius=d->radius; p->gravity=d->gravity; p->type=(BodyType)d->type;
         p->climate=(AtmosphereType)d->climate; p->atmosphere=d->atmosphere;
         p->orbit=d->orbit; p->period=d->period; p->phase=d->phase;

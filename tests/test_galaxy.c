@@ -16,6 +16,75 @@ static int star(const char *name) {
 static void put_word(unsigned char *p,uint32_t v) {
     p[0]=(unsigned char)(v>>24);p[1]=(unsigned char)(v>>16);p[2]=(unsigned char)(v>>8);p[3]=(unsigned char)v;
 }
+static void population(void) {
+    Sector samples[1000],a,b;uint32_t seeds[]={0,123,0xffffffffU};int i,j,k,n=0;
+    assert(galaxy_system_count()==GALAXY_SYSTEMS);
+    for(k=0;k<3;k++) {
+        for(i=0;i<1000;i++) {
+            uint32_t id=i<104?(unsigned)i:i==999?GALAXY_SYSTEMS-1:hash32((unsigned)i)%GALAXY_SYSTEMS;
+            assert(galaxy_system_at(seeds[k],id,&a) && galaxy_exists(seeds[k],a));
+            assert(galaxy_system_at(seeds[k],id,&b) && same_sector(a,b));
+            for(j=0;j<i;j++) assert(!same_sector(a,samples[j]));
+            samples[i]=a;
+        }
+        assert(!galaxy_system_at(seeds[k],GALAXY_SYSTEMS,&a));
+        assert(!galaxy_exists(seeds[k],(Sector){10000,0,10000}));
+        assert(!galaxy_exists(seeds[k],(Sector){0,301,0}));
+    }
+    for(i=-8;i<=8;i++) for(j=-8;j<=8;j++) for(k=-8;k<=8;k++)
+        n+=galaxy_exists(123,(Sector){i,j,k});
+    assert(n>=9 && n<200);
+    printf("PASS exactly one billion systems; indexed samples unique and occupied; %d systems in starter 17-ly cube\n",n);
+}
+/* The v8 and v9 payload layouts match. Patch the fixed body fields and tail
+   into genuine v8 IDs, then recompute the checksum as a legacy writer would. */
+static void legacy_fixture(int old_body,int removed_sector,int version) {
+    unsigned char data[24576];size_t size,k;uint32_t sum=2166136261U;
+    const int body_offset=148+GOODS*8+MAX_MISSIONS*104+MAX_NPC*68+44;
+    FILE *f;
+    assert(save_game(&g,"galaxy-test.sav"));f=fopen("galaxy-test.sav","rb");assert(f);
+    size=fread(data,1,sizeof(data),f);fclose(f);
+    if(old_body>=0) {
+        put_word(data+body_offset,(unsigned)old_body);put_word(data+body_offset+4,(unsigned)old_body);
+        memset(data+size-144,0,128);
+        put_word(data+size-144+(old_body/32)*8,1U<<(old_body%32));
+        put_word(data+size-144+(old_body/32)*8+4,1U<<(old_body%32));
+    }
+    if(removed_sector) { put_word(data+24,40000);put_word(data+28,0);put_word(data+32,40000); }
+    if(version<8) size-=144;
+    put_word(data+4,(unsigned)version);put_word(data+8,(unsigned)(size-16));
+    for(k=16;k<size;k++) sum=(sum^data[k])*16777619U;
+    put_word(data+12,sum);f=fopen("galaxy-test.sav","wb");assert(f && fwrite(data,1,size,f)==size);fclose(f);
+}
+static void migration(void) {
+    Sector sol=catalog_sector(star("Sol"));int moon,old_moon=21;
+    game_init(&g,123);setup_system(&g,sol);moon=solar_body_index(&g.system,"Moon");
+    g.docked=-1;g.target=-1;g.target_body=g.frame_body=g.body=moon;
+    g.pos=add(scale(g.system.planets[moon].center,FP,1),vec(0,(g.system.planets[moon].radius+200000LL)*FP,0));
+    g.vel=vec(0,0,0);g.waypoint=catalog_sector(star("Sirius"));g.waypoint_set=1;
+    legacy_fixture(old_moon,0,8);assert(load_game(&h,"galaxy-test.sav"));
+    assert(h.target_body==moon && h.frame_body==moon && h.solar_surveyed[moon/32]&(1U<<(moon%32)));
+    assert(!memcmp(&g.pos,&h.pos,sizeof(Vec)) && h.waypoint_set);
+    g.rig_count=3;
+    g.rigs[0]=(MiningRig){sol,21,0,{0,0,0},g.tick};
+    g.rigs[1]=(MiningRig){sol,13,0,{0,0,0},g.tick};
+    g.rigs[2]=(MiningRig){{40000,0,40000},0,0,{0,0,0},g.tick};
+    g.selected=g.waypoint=(Sector){40000,0,40000};
+    g.contracts[0]=g.board[0];g.contracts[0].state=ACTIVE;g.contracts[0].destination=g.waypoint;
+    legacy_fixture(old_moon,0,8);assert(load_game(&h,"galaxy-test.sav"));
+    assert(h.rig_count==1 && h.rigs[0].body==moon && h.credits==g.credits+1000);
+    assert(!h.waypoint_set && same_sector(h.selected,sol) && h.contracts[0].state==FAILED);
+    assert(!memcmp(h.reputation,g.reputation,sizeof(g.reputation)));
+    g.rig_count=0;
+    legacy_fixture(13,0,8);assert(load_game(&h,"galaxy-test.sav")); /* removed Vesta frame */
+    assert(h.target_body==2 && h.frame_body==2 && h.docked==-1 && altitude_at(&h,h.pos)>100000);
+    legacy_fixture(old_moon,1,8);assert(load_game(&h,"galaxy-test.sav"));
+    assert(same_sector(h.system.sector,(Sector){0,0,0}) && h.docked==0 && h.target==0);
+    game_init(&g,123);g.roll=321;
+    legacy_fixture(-1,0,7);assert(load_game(&h,"galaxy-test.sav") && h.roll==321 && !h.waypoint_set);
+    remove("galaxy-test.sav");remove("galaxy-test.sav.bak");
+    puts("PASS legacy saves remap major moons, relocate removed bodies/systems, and retain v7 compatibility");
+}
 static void catalog(void) {
     int i,j,types=0; Sector sol=catalog_sector(star("Sol"));
     assert(star_catalog_count>=50);
@@ -32,8 +101,9 @@ static void catalog(void) {
         for(j=i+1;j<star_catalog_count;j++) assert(!same_sector(catalog_sector(i),catalog_sector(j)));
     }
     for(i=0;i<3000;i++) {
-        Sector sector={i,18,19};
-        if(!galaxy_exists(123,sector)) continue;
+        Sector sector;
+        assert(galaxy_system_at(123,hash32((unsigned)i)%GALAXY_SYSTEMS,&sector));
+        assert(galaxy_exists(123,sector));
         generate_system(123,sector,&s);
         assert(s.stars && s.star[0].type==galaxy_type(123,sector));
         { char name[24];galaxy_name(123,sector,name);assert(!strcmp(name,s.name)); }
@@ -43,15 +113,15 @@ static void catalog(void) {
     puts("PASS catalog identities, all stellar classes, precise distances and generated/real system consistency");
 }
 static void solar(void) {
-    int i,j,earth,moon,sedna,moons=0;
+    int i,j,earth,moon,eris,moons=0;
     Sector sol=catalog_sector(star("Sol"));
     generate_system(123,sol,&s);
-    assert(s.count==484 && s.count<=MAX_PLANETS);
-    earth=solar_body_index(&s,"Earth"); moon=solar_body_index(&s,"Moon"); sedna=solar_body_index(&s,"Sedna");
+    assert(s.count==34 && s.count<=MAX_PLANETS);
+    earth=solar_body_index(&s,"Earth"); moon=solar_body_index(&s,"Moon"); eris=solar_body_index(&s,"Eris");
     { Vec earth_pos=body_position(&s,earth,0);
       assert(earth_pos.x>AU_METRES*96/100 && earth_pos.x<AU_METRES*99/100);
       assert(earth_pos.z< -AU_METRES*15/100 && earth_pos.z> -AU_METRES*20/100); }
-    assert(earth==2 && s.planets[moon].parent==earth && sedna>=0);
+    assert(earth==2 && s.planets[moon].parent==earth && eris>=0);
     assert(s.planets[earth].radius==6371000 && llabs(s.planets[earth].orbit-AU_METRES)<1000000);
     assert(s.planets[solar_body_index(&s,"Neptune")].orbit>29*AU_METRES);
     assert(s.planets[solar_body_index(&s,"Pluto")].period>4000000000ULL);
@@ -65,33 +135,30 @@ static void solar(void) {
         for(j=i+1;j<s.count;j++) assert(strcmp(b->name,s.planets[j].name));
         moons+=b->parent>=0;
     }
-    assert(moons==463);
-    game_init(&g,123); setup_system(&g,sol); g.target=-1; g.target_body=sedna; g.docked=-1;
-    g.frame_body=g.body=sedna; g.pos=add(scale(g.system.planets[sedna].center,FP,1),vec(0,(g.system.planets[sedna].radius+200000LL)*FP,0));
+    assert(moons==21);
+    assert(solar_body_index(&s,"Vesta")==-1 && solar_body_index(&s,"Sedna")==-1);
+    assert(solar_body_index(&s,"Nix")==-1 && solar_body_index(&s,"Puck")==-1);
+    assert(solar_body_index(&s,"Titan")>=0 && solar_body_index(&s,"Triton")>=0);
+    game_init(&g,123); setup_system(&g,sol); g.target=-1; g.target_body=eris; g.docked=-1;
+    g.frame_body=g.body=eris; g.pos=add(scale(g.system.planets[eris].center,FP,1),vec(0,(g.system.planets[eris].radius+200000LL)*FP,0));
     { Vec origin; int64_t extent; int parent;
       g.target_body=earth;g.map_local=1;
       ui_orbit_geometry(&g,&origin,&extent,&parent);
       assert(parent==earth && extent>384400000 && extent<500000000);
-      g.target_body=sedna;g.map_local=0; }
+      g.target_body=eris;g.map_local=0; }
     g.vel=vec(0,0,0); g.waypoint=catalog_sector(star("Sirius"));g.waypoint_set=1;
-    /* Exercise body IDs well beyond 32 and long orbital periods through saves. */
-    g.body=480; record_exploration(&g);
-    assert(g.solar_visited[15]&1U);
+    /* Exercise the second survey word and long orbital periods through saves. */
+    g.body=solar_body_index(&g.system,"Charon"); record_exploration(&g);
+    assert(g.solar_visited[1]&2U);
     assert(save_game(&g,"galaxy-test.sav")); assert(load_game(&h,"galaxy-test.sav"));
-    assert(h.waypoint_set && same_sector(h.waypoint,g.waypoint) && h.target_body==sedna);
+    assert(h.waypoint_set && same_sector(h.waypoint,g.waypoint) && h.target_body==eris);
     assert(!memcmp(g.solar_visited,h.solar_visited,sizeof(g.solar_visited)));
-    { unsigned char data[24576];size_t size,k;uint32_t sum=2166136261U;FILE *f=fopen("galaxy-test.sav","rb");
-      assert(f);size=fread(data,1,sizeof(data),f);fclose(f);assert(size>160);size-=144;
-      put_word(data+4,7);put_word(data+8,(uint32_t)(size-16));
-      for(k=16;k<size;k++) sum=(sum^data[k])*16777619U;
-      put_word(data+12,sum);f=fopen("galaxy-test.sav","wb");assert(f && fwrite(data,1,size,f)==size);fclose(f);
-      assert(load_game(&h,"galaxy-test.sav") && !h.waypoint_set && !h.solar_visited[15] && h.roll==g.roll);
-      g.solar_visited[15]|=1U<<31;assert(!save_game(&g,"galaxy-test.sav"));g.solar_visited[15]&=~(1U<<31); }
+    g.solar_visited[15]|=1U<<31;assert(!save_game(&g,"galaxy-test.sav"));g.solar_visited[15]&=~(1U<<31);
     remove("galaxy-test.sav");
     { Frame f={320,200,0,NULL,{0}}; Controls controls={0};
       f.pixels=malloc(320*200);assert(f.pixels && render_init(&f));
       for(i=0;i<3;i++) {
-          int body=i==0?earth:i==1?moon:sedna;
+          int body=i==0?earth:i==1?moon:eris;
           g.frame_body=g.body=body; g.target=-1;g.target_body=body;g.page=FLIGHT;
           g.pos=add(scale(g.system.planets[body].center,FP,1),vec(0,(g.system.planets[body].radius+500000LL)*FP,0));
           g.vel=vec(0,0,0);g.pitch=-200;
@@ -99,7 +166,7 @@ static void solar(void) {
       }
       free(f.pixels);render_shutdown(); }
 
-    puts("PASS Sol planets, all 459 JPL moons plus dwarf moons, minor bodies, ellipses, long periods and v8 saves");
+    puts("PASS Sol 13 planets/dwarfs, 21 major moons, ellipses, long periods and v9 saves");
 }
 static void click(Frame *f,int action) {
     UiWidget v[UI_MAX_WIDGETS]; int n=ui_widgets(&g,f,v),i,scale=ui_scale(f);
@@ -139,7 +206,7 @@ static void interaction(Frame *f) {
     assert(g.galaxy_extent==60000000);
     for(i=0;i<100;i++) game_action(&g,'+');
     assert(g.galaxy_extent==2000);
-    click(f,GAL_OVERVIEW); assert(g.galaxy_extent==40000000);
+    click(f,GAL_OVERVIEW); assert(g.galaxy_extent==14000000);
     click(f,GAL_FOCUS); assert(galaxy_project(&g,f,galaxy_position(g.selected),&x,&y,&d));
     /* Search aliases and long names stay accessible independently of zoom. */
     strcpy(g.galaxy_query,"alpha centauri");assert(galaxy_search(&g,result,GALAXY_SEARCH)==2);
@@ -153,7 +220,7 @@ static void jumping(void) {
     g.pos=add(scale(g.system.planets[0].center,FP,1),vec(0,(g.system.planets[0].radius+200000LL)*FP,0));
     g.selected=catalog_sector(star("Sol"));before=g.fuel;
     assert(!strcmp(galaxy_jump_status(&g,g.selected),"JUMP READY"));
-    assert(jump(&g,g.selected)); assert(!strcmp(g.system.name,"Sol") && g.system.count==484 && g.fuel==before-2);
+    assert(jump(&g,g.selected)); assert(!strcmp(g.system.name,"Sol") && g.system.count==34 && g.fuel==before-2);
     g.waypoint=g.selected;g.waypoint_set=1;
     assert(!jump(&g,catalog_sector(star("Sirius")))) ;
     /* The map's keyboard and mouse jump action must retain master's charge,
@@ -170,5 +237,5 @@ static void jumping(void) {
 }
 int main(void) {
     Frame f={320,200,0,NULL,{0}};
-    catalog();solar();interaction(&f);f.h=256;interaction(&f);f.w=640;f.h=480;f.enhanced=1;interaction(&f);jumping();return 0;
+    population();catalog();solar();migration();interaction(&f);f.h=256;interaction(&f);f.w=640;f.h=480;f.enhanced=1;interaction(&f);jumping();return 0;
 }

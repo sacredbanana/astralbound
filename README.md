@@ -196,14 +196,19 @@ Arcturus, Aldebaran, Polaris, Rigel, Betelgeuse and Deneb. Multiple systems supp
 up to six stellar components. Stellar classes include normal O/B/A/F/G/K/M stars,
 giants/red giants, white and brown dwarfs, neutron stars and black holes. Catalog
 stars use HYG J2000 positions rounded to 0.001 ly; their close binary orbits and
-flight radii are gameplay approximations. Sol contains eight planets, five dwarf
-planets, all 459 unique moons in the retrieved JPL planetary satellite table, four
-additional dwarf moons, and eight representative minor bodies: 484 navigable bodies.
-Sol uses eccentric Kepler orbits and real radii/periods where available; unknown
-small-moon sizes use explicitly labelled proxy geometry. Earth/Mars/Moon ports are
+flight radii are gameplay approximations. The galaxy contains exactly **1,000,000,000
+systems**, including the 94 real catalog entries and nine starter systems. Generated
+systems occupy a finite fictional disc 20,000 ly across and 600 ly thick, with empty
+space beyond it. Sol contains **34 navigable bodies**: eight planets, five dwarf
+planets, and 21 major moons. Minor bodies and small irregular/provisional moons are
+omitted. Sol uses eccentric Kepler orbits and real radii/periods; Earth/Mars/Moon ports are
 fictional. See [catalog provenance](data/README.md) for epochs and limitations. Unsettled systems have body targets and no
 markets or contract boards. The commander journal preserves up to 128 systems with
 visited/surveyed body masks. Close approaches below 100 km mark a body surveyed.
+Save format 9 remaps retained Sol bodies from older saves. Commanders on removed
+bodies move to a safe Earth orbit; removed systems return to Hetha's starting port.
+Removed mining rigs are refunded and contracts to removed systems are canceled
+without a reputation penalty. Exploration history is retained.
 
 Distances are metres, radii are kilometres, and planetary spacing is in AU. System Drive greatly shortens interplanetary journeys; local atmospheric
 and docking legs retain ordinary flight speeds. Remote cruise batches time
@@ -326,7 +331,8 @@ fuel point per second in the upper two thirds of a hydrogen atmosphere at
 civilian economy and strategic faction wars are not simulated.
 
 Read [Astralbound.guide](Astralbound.guide) on the Amiga for the controls and prototype limits.
-Save format 8 adds the independent galaxy waypoint and complete Sol survey masks.
+Save format 9 stores the independent galaxy waypoint and Sol survey masks, and
+migrates the reduced population and body catalog from earlier saves.
 It preserves ship roll as well as crew, cabins, mount upgrades, factions, legal status,
 contract stages, cargo pods, missiles, mining rigs and finite asteroid deposits,
 alongside exploration, markets, frame, fuel-impulse and approach state. Formats

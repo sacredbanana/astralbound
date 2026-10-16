@@ -29,9 +29,9 @@ int main(void) {
     write_frame(&f,"build/evidence/sol-earth.ppm");
     g.target_body=solar_body_index(&g.system,"Titan");
     write_frame(&f,"build/evidence/sol-titan.ppm");
-    g.target_body=solar_body_index(&g.system,"Sedna");
-    write_frame(&f,"build/evidence/sol-sedna.ppm");
-    g.system_display=0;g.target_body=480;
+    g.target_body=solar_body_index(&g.system,"Eris");
+    write_frame(&f,"build/evidence/sol-eris.ppm");
+    g.system_display=0;g.target_body=solar_body_index(&g.system,"Charon");
     write_frame(&f,"build/evidence/sol-moons.ppm");
     free(f.pixels);render_shutdown();return 0;
 }

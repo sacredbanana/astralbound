@@ -5,6 +5,9 @@ from pathlib import Path
 AU=149597870700
 prim=list(csv.DictReader(open('data/solar-primary.csv')))
 moon=list(csv.DictReader(open('data/solar-moons.csv')))
+legacy=list(csv.DictReader(open('data/solar-v8-layout.csv')))
+legacy_ids={r['name']:int(r['old_index']) for r in legacy}
+active_names=[r['name'] for r in prim]+[r['name'] for r in moon]
 def angle(d):return round(float(d)*1024/360)
 def matmul(a,b):return [[sum(a[i][k]*b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
 def rz(deg):
@@ -23,7 +26,7 @@ def basis(inc,node,peri,ref=None):
  return [round(m[i][j]*16384) for j in (1,0) for i in (1,2,0)]
 def entry(name,parent,a,period,radius,gravity,typ,clim,atm,inc,phase,e,node,peri,spin,known,ref=None):
  axes=basis(inc,node,peri,ref)
- return '    {%s,%d,%dLL,%dULL,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,{%s}},'%(json.dumps(name),parent,round(a),round(period),round(radius),gravity,typ,clim,round(atm),angle(inc),angle(phase),round(float(e)*1000000),angle(node),angle(peri),round(spin),known,','.join(map(str,axes)))
+ return '    {%s,%d,%dLL,%dULL,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,{%s},%d},'%(json.dumps(name),parent,round(a),round(period),round(radius),gravity,typ,clim,round(atm),angle(inc),angle(phase),round(float(e)*1000000),angle(node),angle(peri),round(spin),known,','.join(map(str,axes)),legacy_ids[name])
 def epoch_shift(r):
  # Catalog epochs are TDB calendar dates. Advance each mean anomaly to J2000.
  d=r['epoch_tdb'].split('.')
@@ -38,11 +41,9 @@ for r in moon:
  rad=float(r['radius_km'])*1000 if r['radius_km'] else 1000
  gravity=round(float(r['gm_km3_s2'].lstrip('<>'))*1e9/rad**2) if r['gm_km3_s2'] else 1
  lines.append(entry(r['name'],parent,float(r['a_km'])*1000,float(r['period_days'])*86400,rad,max(1,gravity),'MOON','VACUUM',0,r['inclination_deg'],epoch_shift(r),r['eccentricity'],r['node_deg'],r['periapsis_deg'],float(r['period_days'])*86400,1 if r['radius_km'] else 2,(float(r['pole_ra_deg']),float(r['pole_dec_deg'])) if r['frame']=='Laplace' else ({'Uranus':(257.311,-15.175),'Pluto':(132.993,-6.163)}[r['parent']]) if r['frame']=='equatorial' else None))
-# Four well established dwarf-planet satellites outside the planetary table.
-for name,parent,a,days,radius in [('Dysnomia','Eris',37350,15.786,350),('Hiʻiaka','Haumea',49880,49.46,160),('Namaka','Haumea',25657,18.2783,85),('MK2','Makemake',21000,12.4,87.5)]:
- name=name.replace('ʻi',"'i")
- lines.append(entry(name,next(i for i,p in enumerate(prim) if p['name']==parent),a*1000,days*86400,radius*1000,1,'MOON','VACUUM',0,0,0,0,0,0,days*86400,2))
-lines+=['};']
-assert len(prim)+len(moon)+4<=512
+lines+=['};','static const int16_t solar_v8_to_current[] = {',
+    '    '+','.join(str(active_names.index(r['name'])) if r['name'] in active_names else '-1' for r in legacy), '};']
+assert len(active_names)==34 and len(set(active_names))==34
+assert set(r["name"] for r in moon)==set(json.loads(Path("data/solar-selection.json").read_text())["moons"])
 Path('src/solar_catalog.inc').write_text('\n'.join(lines)+'\n')
-print(len(prim)+len(moon)+4,'bodies')
+print(len(active_names),'bodies,',len(moon),'major moons')

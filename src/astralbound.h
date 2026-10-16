@@ -23,7 +23,7 @@
 #define MAX_EXPLORED 128
 #define MAX_MARKETS 128
 #define MARKET_INTERVAL (HZ * 3600U)
-#define SAVE_VERSION 8
+#define SAVE_VERSION 9
 #define SHIPS 6
 #define FACTIONS 3
 #define MAX_PODS 8

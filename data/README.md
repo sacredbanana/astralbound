@@ -52,34 +52,51 @@ planetary systems are fictional. Overview points sample occupied sectors; zoomin
 to 8 ly or closer resolves every system in the local 17-sector cube. Real catalog,
 visited, current, target and waypoint entries are included independently of sampling.
 
+## Finite population
+
+The total is exactly **1,000,000,000 systems for every seed**, including all 94
+catalog destinations and nine starter systems. `tools/compile_population.py`
+apportions the remaining 999,999,897 systems across a finite fictional disc,
+20,000 ly in diameter and 600 ly thick. Only cells completely inside the radial
+boundary receive population; real catalog positions remain unchanged even outside
+that disc. There is no generated background population beyond the boundary.
+
+`src/population.inc` contains exact integer cell quotas. An invertible integer
+permutation selects unique sector keys in each cell. Reserved catalog/starter keys
+are skipped by the permutation and counted separately. The same existence test
+is used by generation, maps and jumps. The inverse mapping lets the overview
+sample actual systems without storing a billion records. Regenerate the quotas
+when changing the real-star catalog:
+
+```sh
+python3 tools/compile_population.py
+```
+
 ## Sol
 
-Sol contains the Sun plus **484 navigable bodies**:
+Sol contains the Sun plus **34 navigable bodies**:
 
 - Eight planets, with J2000 orbital elements, mean radii and sidereal periods.
 - Five recognized dwarf planets: Ceres, Pluto, Eris, Haumea and Makemake.
-- Every unique satellite in the retrieved **JPL planetary satellite mean-element
-  table: 459 moons**, including provisional designations and Pluto's five moons.
-- Dysnomia, Hi'iaka, Namaka and Makemake's MK2: **463 moons in total**.
-- Vesta, Pallas, Hygiea, Eros, Halley, 67P, Arrokoth and Sedna.
+- Moon, Phobos, Deimos, Io, Europa, Ganymede and Callisto.
+- Mimas, Enceladus, Tethys, Dione, Rhea, Titan and Iapetus.
+- Miranda, Ariel, Umbriel, Titania, Oberon, Triton and Charon.
+
+These 21 major moons are the explicit gameplay selection in `solar-selection.json`.
+Minor bodies, small irregular/provisional moons and the other dwarf-planet moons
+are omitted from the active catalog. `solar-v8-layout.csv` contains old names and
+indices only for save migration; it does not generate any bodies.
 
 Sources:
 [JPL planetary orbital elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html),
 [JPL physical parameters](https://ssd.jpl.nasa.gov/planets/phys_par.html),
 [JPL satellite elements](https://ssd.jpl.nasa.gov/sats/elem/),
-[JPL satellite physical parameters](https://ssd.jpl.nasa.gov/sats/phys_par/),
-[NASA dwarf planet moons](https://science.nasa.gov/solar-system/moons/facts/).
+[JPL satellite physical parameters](https://ssd.jpl.nasa.gov/sats/phys_par/).
 
-`solar-moons.csv` retains NAIF IDs, source epochs, reference frames, eccentricities,
-angles, and missing physical measurements. Puck appears twice under alternative
-solutions in the source HTML; the final published row is retained once. This is
-complete for that planetary satellite table, not an exhaustive catalog of satellites
-of small asteroids, dwarf-planet candidates, or discoveries absent from the table.
-
-`solar-primary.csv` records the planets, dwarf planets and representative minor
-bodies. Planet elements follow the JPL J2000 table; minor-body elements and phases
-are representative rather than date-accurate Horizons solutions. Four dwarf moons
-outside the JPL table have approximate sizes/orbits and unknown phase/plane.
+`solar-moons.csv` retains the selected moons' NAIF IDs, source epochs, reference
+frames, eccentricities, angles and physical measurements. The importer applies the
+selection file so a future source refresh cannot silently restore the full small
+moon catalog. `solar-primary.csv` records the eight planets and five dwarf planets.
 
 The fixed-point Kepler solver includes eccentricity, periapsis, inclination and
 ascending node. Satellite mean anomalies are advanced from their individual source
@@ -88,23 +105,19 @@ planetary gravity and rotation remain bounded game models. There are no N-body
 perturbations, tidal dynamics, planetary oblateness, real axial tilts, comet tails,
 or DE440 accuracy. Atmospheres and Earth/Mars/Moon ports are game approximations.
 
-Only 46 satellite rows have physical parameters in the physical table. Other small
-moons use a 1 km collision/render proxy and minimum game gravity; DATA labels these
-as **unknown/proxy geometry**. They are not claimed to have measured 1 km radii.
-The four supplemental dwarf moons also carry this label. Small catalog bodies omit
-procedural terrain mountains to avoid terrain larger than the body itself.
-
-Reproduce the satellite extract from downloaded HTML:
+Reproduce the selected satellite extract from downloaded HTML:
 
 ```sh
 python3 tools/import_solar.py /path/to/elements.html /path/to/physical.html
 python3 tools/compile_solar.py
 ```
 
-The compiler is offline and needs only Python's standard library. The C data is
+The compilers are offline and need only Python's standard library. C data is
 embedded into every executable; Amiga users need no CSV files or network access.
-Sol's body capacity is 512, while procedural generation retains its 12-body cap.
-Terrain globe caches retain 12 slots and skip unresolved catalog bodies. Sol's full
-survey bitset and the optional galaxy waypoint are stored in save format 8; formats
-3–7 migrate with empty new records. Native regression fixtures need a 1 MiB stack;
+Sol's body capacity remains 512, while procedural generation retains its 12-body
+cap and terrain globe caches retain 12 slots. Save format 9 remaps old Sol survey,
+target, flight-frame and rig indices by identity. Removed bodies relocate a local
+commander to Earth; removed systems relocate to Hetha. Removed rigs refund 500 CR;
+contracts to removed destinations cancel without a reputation penalty. Historical
+exploration and trade records remain. Native regression fixtures need a 1 MiB stack;
 the game retains its documented 256 KiB CLI/Workbench stack requirement.
