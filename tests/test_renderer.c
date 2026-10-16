@@ -703,8 +703,74 @@ static void rolled_camera(void) {
     free(f.pixels); render_shutdown();
     puts("PASS rolled front/rear cameras, stable turret/external cameras and inverse terrain rays");
 }
+/* Observer 3 km above open ground, looking along a meridian at view_pitch;
+   the star sits at sun_pitch ahead of the observer, or behind it. */
+static void sky_view(Game *g, Frame *f, int climate, int sun_pitch, int behind, int view_pitch) {
+    static const int32_t air[6] = {0, 80000, 20000, 150000, 8000, 400000};
+    Vec up = unit(vec(0, 16000, 3000), 16384), north = unit(vec(0, -3000, 16000), 16384), view, sun;
+    Planet *p;
+    game_init(g, 0x53504143);
+    p = &g->system.planets[0];
+    p->climate = (AtmosphereType)climate;
+    p->atmosphere = air[climate];
+    g->docked = -1; g->system.count = 1; g->system.stars = 1; g->body = 0;
+    g->pos = add(scale(p->center, FP, 1),
+                 scale(up, (p->radius + terrain_height(p, scale(up, p->radius, 16384)) + 3000LL) * FP, 16384));
+    view = add(scale(north, cosi(view_pitch), 16384), scale(up, sini(view_pitch), 16384));
+    aim_angles(view, &g->yaw, &g->pitch);
+    sun = add(scale(north, behind ? -cosi(sun_pitch) : cosi(sun_pitch), 16384), scale(up, sini(sun_pitch), 16384));
+    g->system.star[0].center = add(scale(g->pos, 1, FP), scale(sun, 150000000000LL, 16384));
+    g->system.star[0].type = ST_G;
+    render_game(g, f);
+}
+/* Open-sky pixels (no geometry) within [lo, hi], or isolated star points. */
+static int sky_pixels(const Frame *f, int lo, int hi, int stars) {
+    int x, y, n = 0;
+    for (y = 45; y < view_h - 30; y++)
+        for (x = 1; x < f->w - 1; x++) {
+            int c = f->pixels[y * f->w + x];
+            if (depth_buffer[y * f->w + x]) continue;
+            if (stars ? (c == 7 || c == 15) && f->pixels[y * f->w + x - 1] != c &&
+                            f->pixels[y * f->w + x + 1] != c && f->pixels[(y - 1) * f->w + x] != c &&
+                            f->pixels[(y + 1) * f->w + x] != c
+                      : c >= lo && c <= hi)
+                n++;
+        }
+    return n;
+}
+static void night_and_twilight_skies(void) {
+    static Game g;
+    Frame f = {320, 256, 1, 0, {0}};
+    static const uint8_t ecs_warm[4] = {21, 22, 14, 12};
+    int i, warm = 0;
+    f.pixels = calloc(320 * 256, 1); assert(f.pixels && render_init(&f));
+    /* Stars come out at night through clear air and on airless ground, never
+       under a noon sky or the cloud deck of a DENSE world. */
+    sky_view(&g, &f, TEMPERATE, -200, 0, 200); assert(sky_pixels(&f, 0, 0, 1) >= 3);
+    sky_view(&g, &f, VACUUM, 100, 1, 200); assert(sky_pixels(&f, 0, 0, 1) >= 3);
+    sky_view(&g, &f, TEMPERATE, 100, 1, 200); assert(!sky_pixels(&f, 0, 0, 1));
+    sky_view(&g, &f, DENSE, -200, 0, 200); assert(!sky_pixels(&f, 0, 0, 1));
+    sky_view(&g, &f, HYDROGEN, -200, 0, 200); assert(!sky_pixels(&f, 0, 0, 1));
+    /* Sunset colour follows composition: N2/O2 burns orange-red, thin CO2 dust
+       glows blue round the sun, and both bands sit towards the sun. */
+    sky_view(&g, &f, TEMPERATE, 3, 0, 0);
+    assert(sky_pixels(&f, 128, 159, 0) > 1000);
+    sky_view(&g, &f, TEMPERATE, 3, 1, 0);
+    assert(sky_pixels(&f, 128, 159, 0) < 1000);
+    sky_view(&g, &f, THIN, 3, 0, 0);
+    assert(sky_pixels(&f, 160, 191, 0) > 1000 && !sky_pixels(&f, 128, 159, 0));
+    sky_view(&g, &f, TEMPERATE, 100, 0, 0);
+    assert(!sky_pixels(&f, 128, 159, 0));
+    f.enhanced = 0; assert(render_init(&f));
+    sky_view(&g, &f, TEMPERATE, 3, 0, 0);
+    for (i = 0; i < 4; i++) warm += sky_pixels(&f, ecs_warm[i], ecs_warm[i], 0);
+    assert(warm > 1000);
+    free(f.pixels); render_shutdown();
+    puts("PASS stars by night and in vacuum, hidden by day and cloud; composition-tinted sunsets");
+}
 int main(void) {
     persistent_target_markers();
+    night_and_twilight_skies();
     Frame f = {64, 120, 1, 0, {0}};
     Tri ground = {{0, 64, 0}, {0, 0, 64}, {1000, 1000, 1000}, 1000, 8, NULL, {0}, {0}, {0}, 0};
     Tri wall = {{0, 64, 0}, {0, 0, 64}, {400, 2000, 400}, 1200, 16, NULL, {0}, {0}, {0}, 0};

@@ -1219,6 +1219,18 @@ static void test_environment(void) {
     assert(!surface_light(&g.system,&g.system.planets[0],scale(local,-1,1)));
     assert(rayleigh_scattering(&g.system,&g.system.planets[0],local,vec(0,1,0)) > 0);
     assert(!rayleigh_scattering(&g.system,&g.system.planets[0],scale(local,-1,1),vec(0,1,0)));
+    { /* A low star lights the horizon band; cloud decks hide the stars. */
+        Planet air = g.system.planets[0];
+        Vec sun = vec(0,0,0);
+        air.climate = TEMPERATE; air.atmosphere = 80000;
+        assert(!twilight(&g.system,&air,local,&sun));
+        assert(twilight(&g.system,&air,vec(0,air.radius + 100,0),&sun) > 200 && sun.x > 16000);
+        assert(!twilight(&g.system,&air,scale(local,-1,1),&sun));
+        assert(!twilight(&g.system,&air,vec(0,air.radius + 90000,0),&sun));
+        assert(sky_opacity(&air,100) > 0 && sky_opacity(&air,100) < 256);
+        air.climate = DENSE;
+        assert(sky_opacity(&air,100) > 640 && !sky_opacity(&air,air.atmosphere));
+    }
     g.system.count = 2; g.system.planets[1].center = add(g.system.planets[0].center,vec(100000000,0,0));
     g.system.planets[1].radius = 1000000;
     assert(!surface_light(&g.system,&g.system.planets[0],local));
@@ -1267,7 +1279,7 @@ static void test_environment(void) {
         found_cloud |= cloud_density(&g.system.planets[0],local,g.tick)>100;
     }
     assert(!g.dead && found_cloud && !cloud_density(&g.system.planets[0],local,g.tick));
-    puts("PASS body-fixed terrain, rotating ports/ground saves, day/night/eclipse, scattering, cloud entry/exit, rain/snow");
+    puts("PASS body-fixed terrain, rotating ports/ground saves, day/night/eclipse, scattering, twilight, star extinction, cloud entry/exit, rain/snow");
 }
 int main(int argc, char **argv) {
     quick = argc > 1 && !strcmp(argv[1], "--quick");

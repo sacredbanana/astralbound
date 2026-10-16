@@ -487,3 +487,34 @@ int rayleigh_scattering(const System *s, const Planet *p, Vec local, Vec view) {
     if (density < 32) phase = phase * density / 32;
     return phase > 31 ? 31 : phase;
 }
+/* Same density units as the air column; the sulphuric cloud of DENSE worlds
+   and the haze of HYDROGEN giants hide the sky until well above their floor. */
+int sky_opacity(const Planet *p, int64_t altitude) {
+    int density = atmosphere_density(p, altitude);
+    return p->climate == DENSE || p->climate == HYDROGEN ? density * 4 : density;
+}
+/* Peaks while a star sits within about 3 degrees of the horizon, holds into
+   civil twilight to about 11 degrees below it and fades by 17 degrees above.
+   Eclipses are ignored: the band is lit by air beyond the local shadow. */
+int twilight(const System *s, const Planet *p, Vec local, Vec *sun) {
+    Vec up = unit(local, 16384);
+    int i, best = 0, density = atmosphere_density(p, length(local) - p->radius);
+    if (!density) return 0;
+    for (i = 0; i < s->stars; i++) {
+        Vec d;
+        int elevation, glow;
+        if (s->star[i].type == ST_BLACK_HOLE) continue;
+        d = unit(sub(s->star[i].center, add(p->center, local)), 16384);
+        elevation = ((int)up.x * (int)d.x + (int)up.y * (int)d.y + (int)up.z * (int)d.z) / 16384;
+        glow = elevation <= -3200 || elevation >= 5000 ? 0
+               : elevation < 0                         ? 256 * (elevation + 3200) / 3200
+               : elevation <= 1000                     ? 256
+                                                       : 256 * (5000 - elevation) / 4000;
+        if (glow > best) {
+            best = glow;
+            *sun = d;
+        }
+    }
+    /* Thin CO2 and nitrogen still colour their horizon, only more faintly. */
+    return density >= 16 ? best : best * (96 + density * 10) / 256;
+}

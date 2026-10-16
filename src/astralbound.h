@@ -293,6 +293,10 @@ Vec surface_velocity(const Planet *p, Vec local);
 int surface_light(const System *s, const Planet *p, Vec local);
 /* Shared deterministic weather: density 0..256, precipitation 0/1 rain/2 snow. */
 int rayleigh_scattering(const System *s, const Planet *p, Vec local, Vec view);
+/* Starlight extinction overhead (0 = clear vacuum) and twilight glow 0..256
+   with the direction (Q14) of the star near the horizon that drives it. */
+int sky_opacity(const Planet *p, int64_t altitude);
+int twilight(const System *s, const Planet *p, Vec local, Vec *sun);
 int cloud_density(const Planet *p, Vec local, uint32_t tick);
 /* Cumulus field: at most one cloud per cell of a body-fixed cube-face lattice.
    Puff centres are metres in the cloud's tangent frame above its flat base. */

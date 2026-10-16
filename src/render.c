@@ -2737,9 +2737,134 @@ static void system_body_labels(void) {
         text(lx, ly, star ? 12 : 7, name);
     }
 }
+/* Sky. Day ramps follow each air's main scatterer: Rayleigh blue for N2/O2 and
+   nitrogen-methane, suspended dust over thin CO2, sulphur-yellowed CO2 cloud,
+   ammonia haze over hydrogen. Low sun lights a horizon band in what survives
+   the long path: N2/O2 leaves orange-red, Martian dust forward-scatters blue
+   round the sun, SO2 deepens to ochre, methane hazes absorb red and turn blue.
+   Bands are sines of elevation (Q14); DENSE glow fills most of the sky. */
+static const struct { uint8_t day, glow, steps, warm; uint16_t band; } sky_tint[] = {
+    {32, 32, 32, 0, 0},       /* VACUUM */
+    {32, 128, 32, 1, 4800},   /* TEMPERATE */
+    {192, 160, 32, 0, 3600},  /* THIN */
+    {128, 96, 16, 1, 11000},  /* DENSE */
+    {32, 160, 32, 0, 3000},   /* FROZEN */
+    {192, 80, 16, 0, 8000}};  /* HYDROGEN */
+static const uint8_t ecs_glow[2][4] = {{25, 26, 27, 20}, {21, 22, 14, 12}};
+#define SKY_COLUMNS 40
+#define SKY_ROWS 128
+static struct {
+    int scatter, opacity, glow, band, daylight;
+    Vec up, sun; /* world Q14 */
+} sky_state;
+static uint16_t sky_ray[SKY_ROWS][SKY_COLUMNS];
+static int sky_ray_w, sky_ray_h;
+static int sky_intensity(int y) {
+    return sky_state.scatter * (view_h + y) / (2 * view_h);
+}
+/* Strongest at and below the horizon towards the star, a faint ring all round. */
+static int sky_glow(int elevation, int sun_cosine) {
+    int v, a;
+    if (!sky_state.glow || elevation >= sky_state.band) return 0;
+    v = elevation <= 0 ? 256 : 256 * (sky_state.band - elevation) / sky_state.band;
+    a = (sun_cosine + 16384) >> 7;
+    a = 32 + 224 * a * a / 65536;
+    return sky_state.glow * (v * v >> 8) * a >> 16;
+}
+/* Diffuse daylight 0..31 that drowns stars wherever the view looks: it rises
+   from about 11 degrees below the horizon, an eclipse cuts it back to the
+   twilight level and thinner air scatters proportionally less of it. */
+static int sky_daylight(const Planet *p, Vec local) {
+    int i, elevation = -16384, density = atmosphere_density(p, length(local) - p->radius), light;
+    for (i = 0; i < game->system.stars; i++) {
+        const Star *s = &game->system.star[i];
+        int e;
+        if (s->type == ST_BLACK_HOLE) continue;
+        e = (int)(dot(sky_state.up, unit(sub(s->center, add(p->center, local)), 16384)) / 16384);
+        if (e > elevation) elevation = e;
+    }
+    if (elevation > 0) elevation = surface_light(&game->system, p, local);
+    if (!density || elevation <= -3200) return 0;
+    light = (elevation + 3200) * 32 / 8000;
+    if (light > 31) light = 31;
+    return density >= 32 ? light : light * density / 32;
+}
+static int sky_row(int tint, int y) {
+    int intensity = sky_intensity(y);
+    return !intensity ? 0 : frame->enhanced ? sky_tint[tint].day + intensity : 1 + intensity * 6 / 31;
+}
+static void sky(void) {
+    const Planet *p = &game->system.planets[game->body];
+    Vec local = sub(scale(game->pos, 1, FP), p->center), cu, cs, eye;
+    int tint = p->climate, w = frame->w, x, y, bw = w / SKY_COLUMNS, bh = bw / 2, cx, cy;
+    int columns = bw ? (w + bw - 1) / bw : 0, rows = bh ? (view_h + bh - 1) / bh : 0;
+    sky_state.scatter = rayleigh_scattering(&game->system, p, local, forward(camera_yaw, camera_pitch));
+    sky_state.opacity = sky_opacity(p, length(local) - p->radius);
+    sky_state.up = unit(local, 16384);
+    sky_state.glow = twilight(&game->system, p, local, &sky_state.sun);
+    sky_state.band = sky_tint[tint].band;
+    sky_state.daylight = sky_daylight(p, local);
+    if (bw < 4 || bh > 16 || columns > SKY_COLUMNS || rows > SKY_ROWS) sky_state.glow = 0;
+    if (!sky_state.glow) {
+        for (y = 0; y < view_h; y++) memset(frame->pixels + y * w, sky_row(tint, y), (size_t)w);
+        return;
+    }
+    /* Blocks bound the cost on 68k: one elevation and sun angle each from the
+       camera-space ray, with ray lengths cached per frame size. */
+    if (sky_ray_w != w || sky_ray_h != view_h) {
+        for (cy = 0; cy < rows; cy++)
+            for (cx = 0; cx < columns; cx++) {
+                int64_t rx = cx * bw + bw / 2 - w / 2, ry = view_h / 2 - (cy * bh + bh / 2), rz = w / 2;
+                sky_ray[cy][cx] = (uint16_t)isqrt64((uint64_t)(rx * rx + ry * ry + rz * rz));
+            }
+        sky_ray_w = w;
+        sky_ray_h = view_h;
+    }
+    eye = scale(camera_position, 1, FP);
+    cu = camera(add(eye, sky_state.up));
+    cs = camera(add(eye, sky_state.sun));
+    /* Q14 units and screen offsets both fit 16 bits: native muls.w on 68000. */
+    int16_t ux = (int16_t)cu.x, uy = (int16_t)cu.y, sx = (int16_t)cs.x, sy = (int16_t)cs.y;
+    int up_z = w / 2 * (int)cu.z, sun_z = w / 2 * (int)cs.z;
+    for (cy = 0; cy < rows; cy++) {
+        int16_t ry = (int16_t)(view_h / 2 - (cy * bh + bh / 2));
+        int up_y = ry * uy + up_z, sun_y = ry * sy + sun_z, top = cy * bh;
+        uint8_t base[16];
+        for (y = top; y < top + bh && y < view_h; y++) base[y - top] = (uint8_t)sky_row(tint, y);
+        for (cx = 0; cx < columns; cx++) {
+            int16_t rx = (int16_t)(cx * bw + bw / 2 - w / 2);
+            int len = sky_ray[cy][cx], left = cx * bw;
+            int elevation = (rx * ux + up_y) / len, sun_cosine = (rx * sx + sun_y) / len;
+            int glow = sky_glow(elevation, sun_cosine), mix = glow * 17 >> 8;
+            int n = w - left < bw ? w - left : bw;
+            int colour = frame->enhanced
+                             ? sky_tint[tint].glow + sky_tint[tint].steps * (4 + glow * 27 / 256) / 32
+                             : ecs_glow[sky_tint[tint].warm][glow * 4 / 257];
+            for (y = top; y < top + bh && y < view_h; y++) {
+                uint8_t pattern[4], *out = frame->pixels + y * w + left;
+                for (x = 0; x < 4; x++)
+                    pattern[x] = bayer4[(y & 3) * 4 + ((left + x) & 3)] < mix ? (uint8_t)colour : base[y - top];
+                for (x = 0; x + 4 <= n; x += 4) memcpy(out + x, pattern, 4);
+                for (; x < n; x++) out[x] = pattern[x & 3];
+            }
+        }
+    }
+}
+/* A star shows where the sky is darker than it is: the bright fifth survive
+   early twilight, and the air column thickens towards the horizon. */
+static int star_visible(Vec d, int y, int bright) {
+    int elevation = (int)(dot(d, sky_state.up) / 16384), glare = sky_intensity(y);
+    if (sky_state.opacity) {
+        if (elevation <= 0) return 0;
+        if (sky_state.opacity * 16384 / (elevation < 2048 ? 2048 : elevation) > (bright ? 640 : 256))
+            return 0;
+    }
+    if (glare < sky_state.daylight) glare = sky_state.daylight;
+    glare += sky_glow(elevation, (int)(dot(d, sky_state.sun) / 16384)) / 16;
+    return glare < (bright ? 6 : 2);
+}
 void render_game(const Game *g, Frame *f) {
     int i;
-    int64_t alt = altitude_at(g, g->pos);
     frame = f;
     game = g;
     if (g->page != FLIGHT) {
@@ -2771,30 +2896,18 @@ void render_game(const Game *g, Frame *f) {
         gui();
         return;
     }
+    sky();
     {
-        const Planet *p = &g->system.planets[g->body];
-        Vec local = sub(scale(g->pos, 1, FP), p->center);
-        int scatter = rayleigh_scattering(&g->system, p, local,
-                                         forward(camera_yaw, camera_pitch));
-        for (i = 0; i < view_h; i++) {
-            int c = 0, intensity = scatter * (view_h + i) / (2 * view_h);
-            if (intensity) {
-                int base = p->climate == DENSE ? 128 : p->climate == HYDROGEN ? 192 : 32;
-                c = f->enhanced ? base + intensity : 1 + intensity * 6 / 31;
-            }
-            rect(0, i, f->w, 1, c);
-        }
-    }
-    if (alt > 6000) {
         int stretch = hyper_stretch(g);
         for (i = 0; i < 120; i++) {
             uint32_t h = hash32((unsigned)i + g->seed);
-            Vec p = add(scale(g->pos, 1, FP),
-                        scale(forward(h % 1024, (int)((h >> 16) % 512) - 256), 1000000, 16384));
-            Vec v = camera(p);
+            Vec d = forward(h % 1024, (int)((h >> 16) % 512) - 256);
+            Vec v = camera(add(scale(g->pos, 1, FP), scale(d, 1000000, 16384)));
             if (v.z > 100) {
                 int x = f->w / 2 + (int)(v.x * (f->w / 2) / v.z),
                     y = view_h / 2 - (int)(v.y * (f->w / 2) / v.z);
+                if (!star_visible(d, y, i % 5 == 0))
+                    continue;
                 if (stretch)
                     line(x, y, f->w / 2 + (x - f->w / 2) * (256 + stretch) / 256,
                          view_h / 2 + (y - view_h / 2) * (256 + stretch) / 256, i % 5 ? 20 : 31);
