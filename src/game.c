@@ -348,6 +348,69 @@ static int64_t along(Vec a, Vec unit_axis) {
            scale(vec(a.y,0,0),unit_axis.y,16384).x +
            scale(vec(a.z,0,0),unit_axis.z,16384).x;
 }
+/* Descending into an atmosphere from space arms an emergency brake. It sheds
+   the air-relative descent at ENTRY_BRAKE_ACCEL, braking harder whenever the
+   room left demands it, so the descent always stops above ENTRY_BRAKE_FLOOR.
+   It corrects the integrated velocity before displacement, and caps one
+   tick's descent at the room left, so no single fast tick crosses the floor.
+   Thin shells (frozen worlds) arm at twice the floor to leave braking room. */
+static void entry_brake(Game *g) {
+    const Planet *p;
+    Vec local, up, air;
+    int64_t descent, room, envelope, limit;
+    int i;
+    if (g->autopilot) {
+        g->entry_brake = 0;
+        return;
+    }
+    for (i = 0; !g->entry_brake && i < g->system.count; i++) {
+        int64_t interface;
+        p = &g->system.planets[i];
+        interface = (int64_t)p->radius + (p->atmosphere > 2 * ENTRY_BRAKE_FLOOR
+                                              ? p->atmosphere : 2 * ENTRY_BRAKE_FLOOR);
+        local = sub(scale(g->pos, 1, FP), p->center);
+        /* Inclusive: a tick ending exactly on the interface (whole metres)
+           must still arm on the next one. Only inbound motion counts. */
+        if (p->atmosphere && length(local) >= interface &&
+            swept_sphere(scale(g->pos, 1, FP), scale(add(g->pos, scale(g->vel, 1, HZ)), 1, FP),
+                         p->center, interface) &&
+            along(sub(g->vel, sub(body_velocity(&g->system, i, g->tick), frame_velocity(g))),
+                  unit(local, 16384)) < 0) {
+            g->entry_brake = i + 1;
+            g->throttle = 0;
+            say(g, "ATMOSPHERIC ENTRY - EMERGENCY BRAKE");
+        }
+    }
+    if (g->entry_brake > g->system.count)
+        g->entry_brake = 0;
+    if (!g->entry_brake)
+        return;
+    p = &g->system.planets[g->entry_brake - 1];
+    local = sub(scale(g->pos, 1, FP), p->center);
+    up = unit(local, 16384);
+    air = add(surface_velocity(p, local),
+              sub(body_velocity(&g->system, g->entry_brake - 1, g->tick), frame_velocity(g)));
+    descent = -along(sub(g->vel, air), up);
+    /* 50 m of margin absorbs Q8 rounding and the release tick's gravity. */
+    room = length(local) - p->radius - ENTRY_BRAKE_FLOOR - 50;
+    envelope = room > 0 ? (int64_t)isqrt64((uint64_t)(2 * ENTRY_BRAKE_ACCEL * room)) * FP : 0;
+    if (envelope > room * FP * HZ)
+        envelope = room > 0 ? room * FP * HZ : 0;
+    limit = descent - ENTRY_BRAKE_ACCEL * FP / HZ;
+    if (limit > envelope)
+        limit = envelope;
+    if (limit < 0)
+        limit = 0;
+    if (descent > limit)
+        g->vel = add(g->vel, scale(up, descent - limit, 16384));
+    if (!limit) {
+        /* Hand back a hover: assist at zero throttle holds the air speed. */
+        g->entry_brake = 0;
+        g->assist = 1;
+        g->throttle = 0;
+        say(g, "DESCENT ARRESTED - ASSIST HOLDING ALTITUDE");
+    }
+}
 /* Cleared to descend from the gate and still over the pad: the autopilot
    flies the rest like a lander instead of diving nose-first at the pad. */
 static int pad_settling(const Game *g) {
@@ -456,6 +519,7 @@ void game_tick(Game *g, Controls c) {
     }
     if (g->docked != -1) {
         g->drive_manual = g->drive_active = 0;
+        g->entry_brake = 0;
         if (g->docked == -2) {
             const Planet *p = &g->system.planets[g->body];
             Vec local_ground;
@@ -669,6 +733,7 @@ void game_tick(Game *g, Controls c) {
         if (length(relative) > ATMOSPHERE_SPEED * FP)
             g->vel = add(air, radial(relative, ATMOSPHERE_SPEED * FP));
     }
+    entry_brake(g);
     g->pos = add(g->pos, scale(g->vel, 1, HZ));
     /* Atmospheric drag remains density-dependent; overspeed causes no damage. */
     if (alt < planet->atmosphere && alt > 0) {
@@ -1057,6 +1122,7 @@ int jump(Game *g, Sector d) {
     g->frame_body = -1;
     g->autopilot = 0;
     g->throttle = 0;
+    g->entry_brake = 0;
     g->target = g->nports ? (g->nports > 1 ? 1 : 0) : -1;
     g->target_body = g->nports ? -1 : 0;
     g->warp = 1;

@@ -11,6 +11,9 @@
 #define LIGHT_SPEED 299792458LL
 #define SYSTEM_DRIVE_SPEED (30LL * LIGHT_SPEED)
 #define ATMOSPHERE_SPEED 1200
+/* An entry from space arms a brake that halts the descent above this floor. */
+#define ENTRY_BRAKE_FLOOR 10000
+#define ENTRY_BRAKE_ACCEL 30
 #define MAX_FRAME_STEPS 128
 #define TERRAIN_MAX_HEIGHT 8000
 #define TERRAIN_DETAIL_ALTITUDE (12000 + TERRAIN_MAX_HEIGHT)
@@ -202,6 +205,7 @@ typedef struct {
     int waypoint_set;
     int hyperspace; /* transient: 0 idle, else real ticks into the jump sequence */
     Sector hyperspace_destination; /* transient: sector the charging jump will reach */
+    int entry_brake; /* transient: 1 + body whose entry brake is armed, 0 idle */
     char message[80];
 } Game;
 typedef struct {

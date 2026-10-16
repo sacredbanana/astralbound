@@ -696,6 +696,60 @@ static void test_atmosphere_speed_limit(void) {
     }
     puts("PASS atmospheric speed cap, rotating air, vacuum entry and no overspeed damage");
 }
+static void test_entry_brake(void) {
+    static const int64_t descents[] = {2000000, 1200, 300, 20};
+    Game g;
+    int thin, d, push, i;
+    for (thin = 0; thin <= 1; thin++)
+        for (d = 0; d < 4; d++)
+            for (push = 0; push <= 1; push++) {
+                Planet *p;
+                Controls c = {0};
+                int64_t interface, lowest = INT64_MAX;
+                int armed = 0;
+                game_init(&g, 1);
+                g.docked = -1; g.frame_body = g.body = 0;
+                g.assist = 0; g.tick = HZ - 1;
+                memset(g.npc, 0, sizeof(g.npc));
+                p = &g.system.planets[0];
+                if (thin) { p->climate = FROZEN; p->atmosphere = 8000; }
+                interface = p->atmosphere > 2 * ENTRY_BRAKE_FLOOR ? p->atmosphere
+                                                                  : 2 * ENTRY_BRAKE_FLOOR;
+                g.pos = add(scale(p->center, FP, 1),
+                            vec(0, ((int64_t)p->radius + interface + 500) * FP, 0));
+                g.vel = vec(900 * FP, -descents[d] * FP, 0);
+                if (push) {
+                    /* Full manual thrust held straight down through the brake. */
+                    aim_angles(vec(0, -1, 0), &g.yaw, &g.pitch);
+                    c.thrust = 1;
+                }
+                for (i = 0; i < HZ * 600 && (!armed || g.entry_brake); i++) {
+                    int64_t sea;
+                    game_tick(&g, c);
+                    armed |= g.entry_brake != 0;
+                    sea = length(sub(scale(g.pos, 1, FP), p->center)) - p->radius;
+                    if (sea < lowest) lowest = sea;
+                    assert(!g.dead && g.hull == 100);
+                }
+                assert(armed && !g.entry_brake);
+                assert(lowest >= ENTRY_BRAKE_FLOOR);
+                assert(altitude_at(&g, g.pos) >= ENTRY_BRAKE_FLOOR);
+                assert(g.assist && strstr(g.message, "DESCENT ARRESTED"));
+                /* Released into an assisted hover rather than a free fall. */
+                c.thrust = 0;
+                for (i = 0; i < HZ * 5; i++) game_tick(&g, c);
+                assert(altitude_at(&g, g.pos) >= ENTRY_BRAKE_FLOOR - 200);
+            }
+    /* Autopilot descents to surface pads are flown by guidance instead. */
+    game_init(&g, 1);
+    g.docked = -1; g.frame_body = g.body = 0; g.autopilot = 1; g.entry_brake = 1;
+    {
+        Controls c = {0};
+        game_tick(&g, c);
+    }
+    assert(!g.entry_brake);
+    puts("PASS emergency entry brake stops every descent above 10 km");
+}
 static void test_thirty_c(void) {
     Game g, h;
     Controls c = {0};
@@ -1239,6 +1293,7 @@ int main(int argc, char **argv) {
     if (!quick)
         test_missions();
     test_atmosphere_speed_limit();
+    test_entry_brake();
     test_thirty_c();
     test_system_drive();
     test_independent_drive_autopilot();
