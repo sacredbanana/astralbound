@@ -48,7 +48,7 @@ static int write_icon(const char *name, int type, const char *tool, STRPTR *type
 int main(void) {
     static STRPTR ecs[] = {(STRPTR)"MODE=ECS", NULL};
     static STRPTR install[] = {(STRPTR)"MINUSER=AVERAGE", (STRPTR)"APPNAME=Space", NULL};
-    static const char *tools[] = {"Space.000", "Space.020", "Space.030", "Space.040", "Space.060"};
+    static const char *tools[] = {"Space.000", "Space.020", "Space.030", "Space.020fpu", "Space.040", "Space.060"};
     static const char *scripts[] = {"Play-AGA", "Play-RTG", "Play-RTG16", "Play-ECS-Lowres"};
     int x, y, i, ok = 1;
     IconBase = OpenLibrary((CONST_STRPTR)"icon.library", 39);
@@ -63,7 +63,7 @@ int main(void) {
         }
     }
     dot(3, 3, 1); dot(27, 4, 1); dot(5, 10, 1); dot(26, 12, 1);
-    for (i = 0; i < 5; i++) ok &= write_icon(tools[i], WBTOOL, NULL, ecs);
+    for (i = 0; i < 6; i++) ok &= write_icon(tools[i], WBTOOL, NULL, ecs);
     for (i = 0; i < 4; i++) ok &= write_icon(scripts[i], WBPROJECT, "C:IconX", NULL);
     ok &= write_icon("Install", WBPROJECT, "SYS:Utilities/Installer", install);
     ok &= write_icon("Space.guide", WBPROJECT, "SYS:Utilities/MultiView", NULL);

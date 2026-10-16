@@ -756,3 +756,40 @@ confirming nose-up/nose-down respectively; see `build/invert-y-native-pitch.txt`
 and `build/invert-y-native-down.png`. Installed `OUT:Space.*` binaries were
 updated with previous copies in `build/evidence/out-programs-before-invert-y`.
 Physical controller and live AGA/RTG input checks remain untested.
+
+### FPU builds (2026-10-16)
+
+`./build-amiga.sh all variants benchmarks tests release-tools` now produces
+`Space.000`, `Space.020` and `Space.030` (soft float) plus `Space.020fpu`
+(68020/030 + 68881/2), `Space.040` and `Space.060` (`-m68881`; this GCC defaults
+to soft float even for `-m68040`/`-m68060`). Previously `Space.030` and
+`Space.040` linked the 68000 libgcc multilib; 030/040 now link the 020 libraries,
+and 060 links the 060 libgcc so no 64-bit MULU/DIVU forms (which the 68060 traps)
+are present. No FPU object references libgcc soft-float helpers; the 040 build
+contains no FINTRZ and none of the FPU builds use transcendental instructions.
+
+FPU builds use an FSQRT-plus-correction `isqrt64` (bit-identical to the
+integer loop, checked by `test_isqrt` over edge cases and 200000 random values),
+reciprocal projection in `emit`, FPU facet lighting and a cached ray matrix for
+terrain colour lookup. All builds now interpolate textured spans and scanline
+edges in 32 bits when exact, instead of a 64-bit division per pixel.
+
+`make test` and `make fpu-test` (host suites with `-DSPACE_FPU`) pass, including
+the terrain colour stability tests. The host orbit benchmark hash is unchanged
+(`981fbe0b`) for the integer and FPU paths.
+
+`Space-benchmark.<cpu>` was run from the AmiKit shell (emulated 68040 + FPU at
+maximum speed, so only the ratios matter). Surface render, ms per frame:
+
+| Build | Before | After | Surface hash |
+| --- | --- | --- | --- |
+| 000 | 150.4 | 131.9 | `9026613f` (unchanged) |
+| 020 | 91.5 | 90.8 | `9026613f` (unchanged) |
+| 030 | — | 89.5 | `9026613f` |
+| 020fpu | — | 64.2 | `4218d80c` |
+| 040 | 94.8 (soft float) | 69.0 | `4218d80c` |
+| 060 | — | 99.9 | `4218d80c` |
+
+The 060 figure is not representative: the emulated 68040 traps the 060's FINTRZ to
+software. Orbit and C2P hashes are unchanged on every build. Cycle-exact 6888x
+timing and real 6888x/040/060 hardware remain unverified.

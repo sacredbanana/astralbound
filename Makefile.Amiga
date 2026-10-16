@@ -3,88 +3,74 @@ AMIGA_CC ?= m68k-amigaos-gcc
 AMIGA_LDFLAGS = -Wl,-u,___stkinit
 CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/ui.c src/render.c
 SOURCES = $(CORE) src/platform/amiga.c
-CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -msoft-float -D__AMIGAOS3__ -MMD -MP
+CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -D__AMIGAOS3__ -MMD -MP
 ifeq ($(DEBUG),1)
 CFLAGS := $(filter-out -O2,$(CFLAGS)) -Og -g -DDEBUG
 endif
-OBJECTS_020 = $(patsubst %.c,build/amiga/020/%.o,$(SOURCES))
-OBJECTS_000 = $(patsubst %.c,build/amiga/000/%.o,$(SOURCES))
-TEST_OBJECTS = $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_space.o
+# Each CPU variant compiles with CPU_x and links with LINK_x, which selects the
+# libgcc/libnix multilib. The toolchain only ships 68000, 020, 020+881 and 060
+# libraries; 030/040 would otherwise fall back to the slow 68000 64-bit division.
+# GCC defaults to soft float even for -m68040/-m68060, so FPU builds say -m68881.
+VARIANTS = 000 020 030 020fpu 040 060
+FPU = -m68881 -fno-math-errno
+CPU_000 = -m68000 -msoft-float
+LINK_000 = -m68000 -msoft-float
+CPU_020 = -m68020 -msoft-float
+LINK_020 = -m68020 -msoft-float
+CPU_030 = -m68030 -msoft-float
+LINK_030 = -m68020 -msoft-float
+CPU_020fpu = -m68020 $(FPU)
+LINK_020fpu = -m68020 -m68881
+CPU_040 = -m68040 $(FPU)
+LINK_040 = -m68020 -m68881
+CPU_060 = -m68060 $(FPU)
+# The 060 traps 64-bit MULU/DIVU, which the 020 libgcc uses. FPU code calls no
+# float helpers (tools/check_fpu_objects.sh), so the soft-float 060 library is safe.
+LINK_060 = -m68060 -msoft-float
 .PHONY: all clean tests variants release-tools benchmarks music-folders
 all: dist/amiga/Space.020 dist/amiga/Space.000 music-folders
 music-folders:
 	mkdir -p dist/amiga/music/battle dist/amiga/music/planetary-flight dist/amiga/music/space-flight dist/amiga/music/docked dist/amiga/music/game-over
 	cp music/README.txt dist/amiga/music/README.txt
 tests: dist/amiga/Space-music-tests.020 dist/amiga/Space-ui-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-RunTests
-variants: dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060
-benchmarks: dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020
+variants: dist/amiga/Space.030 dist/amiga/Space.020fpu dist/amiga/Space.040 dist/amiga/Space.060
+benchmarks: $(foreach v,$(VARIANTS),dist/amiga/Space-benchmark.$(v))
 release-tools: dist/amiga/Space-Icons
-build/amiga/020/%.o: %.c
-	mkdir -p $(dir $@)
-	$(AMIGA_CC) $(CFLAGS) -m68020 -c $< -o $@
-build/amiga/000/%.o: %.c
-	mkdir -p $(dir $@)
-	$(AMIGA_CC) $(CFLAGS) -m68000 -c $< -o $@
-dist/amiga/Space.020: $(OBJECTS_020)
+
+define variant
+OBJECTS_$(1) = $$(patsubst %.c,build/amiga/$(1)/%.o,$$(SOURCES))
+build/amiga/$(1)/%.o: %.c
+	mkdir -p $$(dir $$@)
+	$$(AMIGA_CC) $$(CFLAGS) $$(CPU_$(1)) -c $$< -o $$@
+dist/amiga/Space.$(1): $$(OBJECTS_$(1))
 	mkdir -p dist/amiga
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
-dist/amiga/Space.000: $(OBJECTS_000)
+	$$(AMIGA_CC) $$(AMIGA_LDFLAGS) -noixemul $$(LINK_$(1)) $$^ -lamiga -o $$@
+dist/amiga/Space-benchmark.$(1): $$(patsubst %.c,build/amiga/$(1)/%.o,$$(CORE)) build/amiga/$(1)/tools/native_benchmark.o
 	mkdir -p dist/amiga
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68000 -msoft-float $^ -lamiga -o $@
-dist/amiga/Space-tests.020: $(TEST_OBJECTS)
+	$$(AMIGA_CC) $$(AMIGA_LDFLAGS) -noixemul $$(LINK_$(1)) $$^ -lamiga -o $$@
+dist/amiga/Space-tests.$(1): $$(patsubst %.c,build/amiga/$(1)/%.o,$$(CORE)) build/amiga/$(1)/tests/test_space.o
 	mkdir -p dist/amiga
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+	$$(AMIGA_CC) $$(AMIGA_LDFLAGS) -noixemul $$(LINK_$(1)) $$^ -lamiga -o $$@
+-include $$(OBJECTS_$(1):.o=.d) build/amiga/$(1)/tools/native_benchmark.d build/amiga/$(1)/tests/test_space.d
+endef
+$(foreach v,$(VARIANTS),$(eval $(call variant,$(v))))
+
 clean:
-	rm -f dist/amiga/Space-music-tests.020
 	rm -rf build/amiga
-	rm -f dist/amiga/Space-ui-tests.020 dist/amiga/Space.000 dist/amiga/Space.020 dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060 dist/amiga/Space-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020 dist/amiga/Space-Icons dist/amiga/Space-RunTests
--include $(OBJECTS_020:.o=.d) $(OBJECTS_000:.o=.d) build/amiga/020/tests/test_space.d
+	rm -f $(foreach v,$(VARIANTS),dist/amiga/Space.$(v) dist/amiga/Space-benchmark.$(v) dist/amiga/Space-tests.$(v))
+	rm -f dist/amiga/Space-music-tests.020 dist/amiga/Space-ui-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-Icons dist/amiga/Space-RunTests
 
 dist/amiga/Space-presentation-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_presentation.o
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 
 dist/amiga/Space-music-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_music.o
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
-
-OBJECTS_030 = $(patsubst %.c,build/amiga/030/%.o,$(SOURCES))
-build/amiga/030/%.o: %.c
-	mkdir -p $(dir $@)
-	$(AMIGA_CC) $(CFLAGS) -m68030 -c $< -o $@
-dist/amiga/Space.030: $(OBJECTS_030)
-	mkdir -p dist/amiga
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68030 -msoft-float $^ -lamiga -o $@
--include $(OBJECTS_030:.o=.d)
-
-OBJECTS_040 = $(patsubst %.c,build/amiga/040/%.o,$(SOURCES))
-build/amiga/040/%.o: %.c
-	mkdir -p $(dir $@)
-	$(AMIGA_CC) $(CFLAGS) -m68040 -c $< -o $@
-dist/amiga/Space.040: $(OBJECTS_040)
-	mkdir -p dist/amiga
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68040 -msoft-float $^ -lamiga -o $@
--include $(OBJECTS_040:.o=.d)
-
-OBJECTS_060 = $(patsubst %.c,build/amiga/060/%.o,$(SOURCES))
-build/amiga/060/%.o: %.c
-	mkdir -p $(dir $@)
-	$(AMIGA_CC) $(CFLAGS) -m68060 -c $< -o $@
-dist/amiga/Space.060: $(OBJECTS_060)
-	mkdir -p dist/amiga
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68060 -msoft-float $^ -lamiga -o $@
--include $(OBJECTS_060:.o=.d)
-
-dist/amiga/Space-benchmark.000: $(patsubst %.c,build/amiga/000/%.o,$(CORE)) build/amiga/000/tools/native_benchmark.o
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68000 -msoft-float $^ -lamiga -o $@
-
-dist/amiga/Space-benchmark.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tools/native_benchmark.o
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 
 dist/amiga/Space-Icons: build/amiga/000/tools/icons.o
 	mkdir -p dist/amiga
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68000 $^ -lamiga -o $@
 -include build/amiga/020/tests/test_presentation.d build/amiga/000/tools/icons.d
 -include build/amiga/020/tests/test_music.d
--include build/amiga/020/tools/native_benchmark.d build/amiga/000/tools/native_benchmark.d
 
 # The runner gives child tests a 256 KiB CLI stack before loading them.
 dist/amiga/Space-RunTests: build/amiga/000/tools/run_tests.o
@@ -93,9 +79,9 @@ dist/amiga/Space-RunTests: build/amiga/000/tools/run_tests.o
 -include build/amiga/000/tools/run_tests.d
 
 dist/amiga/Space-career-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_careers.o
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 -include build/amiga/020/tests/test_careers.d
 
 dist/amiga/Space-ui-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_ui.o
-	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 -include build/amiga/020/tests/test_ui.d

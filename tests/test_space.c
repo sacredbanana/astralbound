@@ -34,6 +34,43 @@ static void test_hetha_departure(void) {
     assert(length(g.vel) > 600 * FP);
     puts("PASS Hetha D downward bearing and atmospheric departure");
 }
+/* FPU builds take a square-root shortcut; it must match the integer loop. */
+static uint64_t reference_isqrt(uint64_t n) {
+    uint64_t r = 0, b = (uint64_t)1 << 62;
+    while (b > n)
+        b >>= 2;
+    for (; b; b >>= 2) {
+        if (n >= r + b) {
+            n -= r + b;
+            r = (r >> 1) + b;
+        } else
+            r >>= 1;
+    }
+    return r;
+}
+static void test_isqrt(void) {
+    uint64_t n, k;
+    int i, shift;
+    for (n = 0; n < 70000; n++)
+        assert(isqrt64(n) == reference_isqrt(n));
+    for (shift = 0; shift < 32; shift++)
+        for (i = -2; i <= 2; i++) {
+            k = ((uint64_t)1 << shift) + (uint64_t)(int64_t)i;
+            if (k > 0xffffffffU) continue;
+            for (n = k * k - (k ? 1 : 0); n <= k * k + 1; n++)
+                assert(isqrt64(n) == reference_isqrt(n));
+        }
+    for (k = 0xfffffff0U; k <= 0xffffffffU; k++) {
+        assert(isqrt64(k * k) == k && isqrt64(k * k - 1) == k - 1);
+        if (k < 0xffffffffU) assert(isqrt64(k * k + 2 * k) == k);
+    }
+    assert(isqrt64(UINT64_MAX) == 0xffffffffU);
+    for (i = 0, n = 0x9e3779b97f4a7c15ULL; i < 200000; i++) {
+        n = n * 6364136223846793005ULL + 1442695040888963407ULL;
+        assert(isqrt64(n >> (i % 64)) == reference_isqrt(n >> (i % 64)));
+    }
+    puts("PASS integer square roots match the reference on every CPU build");
+}
 static void test_universe(void) {
     System a, b, c;
     int i;
@@ -1030,6 +1067,7 @@ int main(int argc, char **argv) {
     quick = argc > 1 && !strcmp(argv[1], "--quick");
     setvbuf(stdout, NULL, _IONBF, 0);
     puts(quick ? "SPACE QUICK SMOKE SUITE" : "SPACE FULL CORE SUITE");
+    test_isqrt();
     test_universe();
     test_landforms();
     test_environment();

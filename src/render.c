@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "space.h"
 #include "ui.h"
+#include "fpu.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +32,7 @@ static int draw_scale = 1;
 static Vec camera_position;
 static int camera_yaw, camera_pitch, camera_roll;
 /* Q4 coordinates retain fractional ray hits between fixed mesh vertices. */
+#ifndef SPACE_FPU
 static Vec camera_to_local(const Planet *p, Vec v) {
     int sy = sini(camera_yaw), cy = cosi(camera_yaw);
     int sp = sini(camera_pitch), cp = cosi(camera_pitch);
@@ -44,6 +46,7 @@ static Vec camera_to_local(const Planet *p, Vec v) {
     Vec world = vec((v.x * cy + z * sy) / 16384, y, (z * cy - v.x * sy) / 16384);
     return body_rotate(p, add(world, sub(scale(camera_position, 1, FP / 16), scale(p->center, 16, 1))), 1);
 }
+#endif
 
 static void (*platform_pump)(void);
 static uint32_t plane_low[256], plane_high[256];
@@ -226,6 +229,22 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     t = &triangles[nt];
     t->surface = terrain_surface;
     t->slope = (int8_t)slope;
+#ifdef SPACE_FPU
+    /* One reciprocal replaces six 64-bit divisions per vertex. Clipping
+       guarantees z >= 8, so every projected quantity stays finite. */
+    for (i = 0; i < 3; i++) {
+        double reciprocal = 1.0 / fpu_double(v[i].z);
+        double px = fpu_double(v[i].x) * reciprocal, py = fpu_double(v[i].y) * reciprocal;
+        t->inverse_z[i] = (uint32_t)(int32_t)(1073741824.0 * reciprocal);
+        t->x[i] = screen_coord(frame->w / 2 + fpu_int(px * (frame->w / 2), 65536));
+        t->y[i] = screen_coord(view_h / 2 - fpu_int(py * (frame->w / 2), 65536));
+        if (t->surface) {
+            t->surface_depth[i] = fpu_int64(274877906944.0 * reciprocal);
+            t->surface_x[i] = frame->w * 128 + fpu_int(px * (frame->w * 128), 1 << 30);
+            t->surface_y[i] = (view_h / 2) * 256 - fpu_int(py * (frame->w * 128), 1 << 30);
+        }
+    }
+#else
     for (i = 0; i < 3; i++) {
         t->inverse_z[i] = (uint32_t)(1073741824LL / v[i].z);
         t->x[i] = screen_coord(frame->w / 2 + v[i].x * (frame->w / 2) / v[i].z);
@@ -236,6 +255,7 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
             t->surface_y[i] = (view_h / 2) * 256 - (int)(v[i].y * (frame->w * 128) / v[i].z);
         }
     }
+#endif
     if ((t->x[0] < 0 && t->x[1] < 0 && t->x[2] < 0) ||
         (t->x[0] >= frame->w && t->x[1] >= frame->w && t->x[2] >= frame->w) ||
         (t->y[0] < 0 && t->y[1] < 0 && t->y[2] < 0) ||
@@ -257,6 +277,38 @@ static int64_t clip_distance(Vec v, int plane) {
     }
 }
 static Vec cross(Vec a, Vec b);
+#ifdef SPACE_FPU
+/* Same Q14 facet lighting as the integer path, with one square root per
+   direction instead of length/unit chains of 64-bit divisions. */
+static void fpu_unit(Vec v, double *out) {
+    double x = fpu_double(v.x), y = fpu_double(v.y), z = fpu_double(v.z);
+    double l = fpu_sqrt(x * x + y * y + z * z);
+    l = l > 0 ? 1.0 / l : 0;
+    out[0] = x * l; out[1] = y * l; out[2] = z * l;
+}
+static int terrain_face_slope(const Planet *p, Vec a, Vec b, Vec c) {
+    Vec local = sub(a,p->center);
+    double up[3], e1[3], e2[3], normal[3], sun[3], l;
+    int i, slope=0;
+    if (length(local) < p->radius || !surface_light(&game->system,p,local)) return 0;
+    fpu_unit(local, up);
+    fpu_unit(sub(b,a), e1);
+    fpu_unit(sub(c,a), e2);
+    normal[0] = e1[1] * e2[2] - e1[2] * e2[1];
+    normal[1] = e1[2] * e2[0] - e1[0] * e2[2];
+    normal[2] = e1[0] * e2[1] - e1[1] * e2[0];
+    l = fpu_sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+    if (normal[0] * up[0] + normal[1] * up[1] + normal[2] * up[2] < 0) l = -l;
+    l = l ? 1.0 / l : 0;
+    for (i = 0; i < 3; i++) normal[i] = normal[i] * l - up[i];
+    for (i=0;i<game->system.stars;i++) {
+        fpu_unit(sub(game->system.star[i].center,a), sun);
+        slope+=(int)(16384.0 * (normal[0]*sun[0]+normal[1]*sun[1]+normal[2]*sun[2]));
+    }
+    slope=slope*14/16384;
+    return slope < -12 ? -12 : slope > 12 ? 12 : slope;
+}
+#else
 static int terrain_face_slope(const Planet *p, Vec a, Vec b, Vec c) {
     Vec local = sub(a,p->center), up, normal, delta;
     int i, slope=0;
@@ -272,6 +324,7 @@ static int terrain_face_slope(const Planet *p, Vec a, Vec b, Vec c) {
     slope=slope*14/16384;
     return slope < -12 ? -12 : slope > 12 ? 12 : slope;
 }
+#endif
 static void triangle(Vec a, Vec b, Vec c, int color) {
     Vec vertices[2][10];
     int plane, i, count = 3, current = 0;
@@ -319,6 +372,86 @@ static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u,
 }
 /* Reconstruct the hit from the pixel ray and subpixel depth. Rounded polygon
    vertices must not move the colour plane independently of the camera ray. */
+#ifdef SPACE_FPU
+/* camera_to_local folded into one matrix: camera roll/pitch/yaw, then the
+   inverse body spin, applied to the Q4 ray and planet offset. It is rebuilt
+   only when the camera or body changes, normally once per frame. */
+static struct {
+    const Planet *planet;
+    Vec camera, center;
+    int yaw, pitch, roll;
+    int32_t spin_sin, spin_cos, radius;
+    double m[3][3], t[3];
+} ray;
+static void fpu_camera_to_world(const double in[3], double out[3]) {
+    double sy = sini(camera_yaw) / 16384.0, cy = cosi(camera_yaw) / 16384.0;
+    double sp = sini(camera_pitch) / 16384.0, cp = cosi(camera_pitch) / 16384.0;
+    double x = in[0], y = in[1], z = in[2], yy, zz;
+    if (camera_roll) {
+        double cr = cosi(camera_roll) / 16384.0, sr = sini(camera_roll) / 16384.0;
+        double rx = x * cr + y * sr;
+        y = y * cr - x * sr;
+        x = rx;
+    }
+    yy = y * cp + z * sp;
+    zz = z * cp - y * sp;
+    out[0] = x * cy + zz * sy;
+    out[1] = yy;
+    out[2] = zz * cy - x * sy;
+}
+static void fpu_body_inverse(const Planet *p, double v[3]) {
+    double sn = -p->spin_sin / 1073741824.0, cs = p->spin_cos / 1073741824.0, x;
+    if (!p->spin_sin && !p->spin_cos) return;
+    x = v[0] * cs - v[1] * sn;
+    v[1] = v[0] * sn + v[1] * cs;
+    v[0] = x;
+}
+static void ray_prepare(const Planet *p) {
+    Vec offset = sub(scale(camera_position, 1, FP / 16), scale(p->center, 16, 1));
+    int i, j;
+    for (i = 0; i < 3; i++) {
+        double basis[3] = {i == 0, i == 1, i == 2}, column[3];
+        fpu_camera_to_world(basis, column);
+        fpu_body_inverse(p, column);
+        for (j = 0; j < 3; j++) ray.m[j][i] = column[j];
+    }
+    ray.t[0] = fpu_double(offset.x);
+    ray.t[1] = fpu_double(offset.y);
+    ray.t[2] = fpu_double(offset.z);
+    fpu_body_inverse(p, ray.t);
+    ray.planet = p; ray.camera = camera_position; ray.center = p->center;
+    ray.yaw = camera_yaw; ray.pitch = camera_pitch; ray.roll = camera_roll;
+    ray.spin_sin = p->spin_sin; ray.spin_cos = p->spin_cos; ray.radius = p->radius;
+}
+/* Q4 camera-space point to Q4 body-fixed planet coordinates. */
+static void ray_local(const Planet *p, double x, double y, double z, double q[3]) {
+    int i;
+    if (ray.planet != p || ray.yaw != camera_yaw || ray.pitch != camera_pitch ||
+        ray.roll != camera_roll || ray.spin_sin != p->spin_sin || ray.spin_cos != p->spin_cos ||
+        ray.radius != p->radius || ray.camera.x != camera_position.x ||
+        ray.camera.y != camera_position.y || ray.camera.z != camera_position.z ||
+        ray.center.x != p->center.x || ray.center.y != p->center.y || ray.center.z != p->center.z)
+        ray_prepare(p);
+    for (i = 0; i < 3; i++)
+        q[i] = ray.m[i][0] * x + ray.m[i][1] * y + ray.m[i][2] * z + ray.t[i];
+}
+static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
+                           int *face, int *u, int *v) {
+    double z, k, q[3], dominant, s;
+    int axis = 0;
+    z = depth > 0 ? 4398046511104.0 / fpu_double(depth) : 1;
+    k = z / (frame->w / 2);
+    ray_local(p, (x - frame->w / 2) * k, (view_h / 2 - y) * k, z, q);
+    dominant = __builtin_fabs(q[0]);
+    if (__builtin_fabs(q[1]) > dominant) { axis = 1; dominant = __builtin_fabs(q[1]); }
+    if (__builtin_fabs(q[2]) > dominant) { axis = 2; dominant = __builtin_fabs(q[2]); }
+    *face = axis * 2 + (q[axis] < 0);
+    if (dominant < 1) { *u = *v = 0; return; }
+    s = p->radius / dominant;
+    *u = (int)((axis == 0 ? q[1] : q[0]) * s);
+    *v = (int)((axis == 2 ? q[1] : q[2]) * s);
+}
+#else
 static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
                            int *face, int *u, int *v) {
     int64_t z = depth > 0 ? 4398046511104LL / depth : 1;
@@ -328,6 +461,7 @@ static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
     int64_t value[3] = {local.x, local.y, local.z};
     surface_uv(p, value, face, u, v);
 }
+#endif
 static void raster(const Tri *t) {
     int y, miny = t->y[0], maxy = t->y[0], i;
     int64_t ax = t->x[1] - t->x[0], ay = t->y[1] - t->y[0];
@@ -371,8 +505,12 @@ static void raster(const Tri *t) {
         for (i = 0; i < 3; i++) {
             j = (i + 1) % 3;
             if ((t->y[i] <= y && t->y[j] > y) || (t->y[j] <= y && t->y[i] > y)) {
-                xs[n] = t->x[i] +
-                        (int)((int64_t)(y - t->y[i]) * (t->x[j] - t->x[i]) / (t->y[j] - t->y[i]));
+                int dx = t->x[j] - t->x[i];
+                /* Clamped coordinates keep |y - y[i]| below 65536; a 32-bit
+                   product is exact unless a clipped edge spans 32768 pixels. */
+                xs[n] = t->x[i] + (abs(dx) < 32768
+                    ? (y - t->y[i]) * dx / (t->y[j] - t->y[i])
+                    : (int)((int64_t)(y - t->y[i]) * dx / (t->y[j] - t->y[i])));
                 n++;
             }
         }
@@ -432,11 +570,17 @@ static void raster(const Tri *t) {
                                            &face1, &u1, &v1);
                         else { face1 = face0; u1 = u0; v1 = v0; }
                         footprint = stop > block ? (abs(u1-u0) + abs(v1-v0)) / (stop-block) : 0;
+                        /* Blocks span at most eight pixels, so ordinary lattice
+                           deltas interpolate exactly without 64-bit division. */
+                        int narrow = abs(u1 - u0) < INT32_MAX / 8 && abs(v1 - v0) < INT32_MAX / 8;
                         for (x = block; x <= stop; x++, pixels++, depths++, z += dz) {
                             int face = face0, u = u0, v = v0;
                             if (z < 0 || (uint32_t)(z >> 8) < *depths) continue;
                             if (face0 != face1) {
                                 surface_ray_uv(t->surface, x, y, z, &face, &u, &v);
+                            } else if (stop > block && narrow) {
+                                u += (u1 - u0) * (x - block) / (stop - block);
+                                v += (v1 - v0) * (x - block) / (stop - block);
                             } else if (stop > block) {
                                 u += (int)((int64_t)(u1 - u0) * (x - block) / (stop - block));
                                 v += (int)((int64_t)(v1 - v0) * (x - block) / (stop - block));

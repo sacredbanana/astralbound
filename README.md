@@ -322,10 +322,26 @@ with the stick centred to recalibrate; C is the camera key when this option is a
 Analogue steering preserves fractional turn rates. Physical analogue and CD32 devices
 remain unverified. Poseidon analogue reports are accepted in RTG, where USB tasks run.
 
-`./build-amiga.sh all variants tests benchmarks release-tools` builds 68000, 020,
-030, 040 and 060 software-integer executables, test programs, native benchmarks and
-`Space-Icons`. Choose the CPU binary for the installed processor; no FPU is required.
-`Space-benchmark.020` (or `.000`) measures C2P into Chip RAM and orbit/surface rendering.
+`./build-amiga.sh all variants tests benchmarks release-tools` builds the CPU
+executables, test programs, native benchmarks and `Space-Icons`. Choose the binary
+for the installed processor:
+
+| Executable | CPU | FPU |
+| --- | --- | --- |
+| `Space.000` | 68000 or newer | none |
+| `Space.020`, `Space.030` | 68020/68030 or newer, including LC/EC040 and LC/EC060 | none |
+| `Space.020fpu` | 68020/68030 | 68881/68882 required |
+| `Space.040` | full 68040 | built-in FPU required |
+| `Space.060` | full 68060 | built-in FPU required |
+
+The FPU builds replace the renderer's chains of 64-bit libgcc divisions and the
+bit-by-bit integer square root with FPU arithmetic. Square roots are corrected to
+the exact integer result, so simulation, saves and generated worlds are identical on
+every build; only rendered pixels may round differently. The 030/040 builds link the
+020 libgcc instead of the 68000 fallback, and the 060 build uses the 060 libgcc, which
+avoids the 64-bit MULU/DIVU forms the 68060 traps. `make fpu-test` runs the host
+suites through the FPU code paths.
+`Space-benchmark.<cpu>` measures C2P into Chip RAM and orbit/surface rendering.
 `Space.020 --aga --lowres --profile` exits after 120 frames and reports render and
 output/synchronization times; native uses CIA display ticks, RTG uses EClock.
 Emulated acceleration does not establish physical-machine frame rates.

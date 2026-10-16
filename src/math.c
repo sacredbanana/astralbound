@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "space.h"
 #include "trig.h"
+#include "fpu.h"
 uint32_t hash32(uint32_t x) {
     x ^= x >> 16;
     x *= 0x7feb352dU;
@@ -12,6 +13,21 @@ uint32_t sector_seed(uint32_t seed, Sector s) {
     return hash32(seed ^ hash32((uint32_t)s.x) ^ hash32((uint32_t)s.y + 0x9e3779b9U) ^
                   hash32((uint32_t)s.z + 0x85ebca6bU));
 }
+#ifdef SPACE_FPU
+/* FSQRT lands within one of the root; the integer correction keeps results
+   bit-identical to the shift-subtract loop, so cross-CPU golden values hold. */
+uint64_t isqrt64(uint64_t n) {
+    double s = fpu_sqrt(fpu_udouble(n));
+    uint32_t r = s >= 4294967295.0 ? 0xffffffffU
+               : s >= 2147483648.0 ? (uint32_t)(int32_t)(s - 2147483648.0) + 0x80000000U
+                                   : (uint32_t)(int32_t)s;
+    while ((uint64_t)r * r > n)
+        r--;
+    while (r < 0xffffffffU && (uint64_t)(r + 1) * (r + 1) <= n)
+        r++;
+    return r;
+}
+#else
 uint64_t isqrt64(uint64_t n) {
     uint64_t r = 0, b = (uint64_t)1 << 62;
     while (b > n)
@@ -26,6 +42,7 @@ uint64_t isqrt64(uint64_t n) {
     }
     return r;
 }
+#endif
 Vec vec(int64_t x, int64_t y, int64_t z) {
     Vec a = {x, y, z};
     return a;

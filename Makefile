@@ -46,7 +46,7 @@ amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
 	rm -f build/music-tests build/music-tests-sanitize
-	rm -f build/ui-tests build/ui-tests-sanitize build/space build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/*.ppm
+	rm -f build/ui-tests build/ui-tests-sanitize build/space build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 .PHONY: benchmark package
 build/benchmark: $(CORE) $(HEADERS) tools/benchmark.c src/space.h src/trig.h | build
@@ -55,6 +55,16 @@ benchmark: build/benchmark
 	./build/benchmark
 package:
 	./package.sh
+
+# Host run of the FPU code paths used by Space.020fpu/.040/.060.
+.PHONY: fpu-test
+build/fpu-tests: $(CORE) $(HEADERS) tests/test_space.c | build
+	$(CC) $(CPPFLAGS) -DSPACE_FPU $(CFLAGS) $(CORE) tests/test_space.c -o $@
+build/fpu-renderer-tests: $(CORE) $(HEADERS) tests/test_renderer.c | build
+	$(CC) $(CPPFLAGS) -DSPACE_FPU $(CFLAGS) $(filter-out src/render.c,$(CORE)) tests/test_renderer.c -o $@
+fpu-test: build/fpu-tests build/fpu-renderer-tests
+	./build/fpu-renderer-tests
+	./build/fpu-tests
 
 .PHONY: navigation-test
 build/navigation-tests: $(CORE) $(HEADERS) tests/test_navigation.c src/space.h src/trig.h | build

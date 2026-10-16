@@ -326,7 +326,8 @@
   This is the portable RTG path; direct registers differ between cards.
 
   Simulation uses integer coordinates, a lookup trig table and fixed
-  physics ticks. The 68000 and 68020 executables require no FPU.
+  physics ticks. Space.000/.020/.030 require no FPU. The FPU builds give
+  identical simulation results and only speed up rendering maths.
 
 @endnode
 
@@ -417,11 +418,13 @@
   centred at startup; press C to recalibrate. Physical devices need QA.
 
   @{b}Release and timing@{ub}
-  CPU builds: Space.000/.020/.030/.040/.060, all without an FPU requirement.
+  CPU builds: Space.000 (68000), Space.020/.030 (no FPU; also LC040/LC060),
+  Space.020fpu (68020/030 + 68881/68882), Space.040 and Space.060 (full
+  CPU with FPU). The FPU builds are faster at rendering on those machines.
   --rtg16 opens high-colour output through the CGX/P96 driver. The renderer
   still uses its original indexed scene palette. --rtg retains 8-bit output.
   --profile exits after 120 frames and reports render/output timings.
-  Space-benchmark.000/.020 measures scene rendering and C2P into Chip RAM.
+  Space-benchmark.<cpu> measures scene rendering and C2P into Chip RAM.
 
   Open Install with SYS:Utilities/Installer V42.12+ and choose a drawer.
   Existing space.sav is preserved. CPU icons accept MODE=ECS/AGA/RTG/RTG16

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 root = Path(__file__).resolve().parents[1]
-files = [root/'dist/amiga'/('Space.'+cpu) for cpu in ('000','020','030','040','060')]
+files = [root/'dist/amiga'/('Space.'+cpu) for cpu in ('000','020','030','020fpu','040','060')]
 files += [
          root/'Space.guide', root/'LICENSE', root/'README.md', root/'THIRD_PARTY.txt']
 files += sorted((root/'docs').glob('*.md'))
