@@ -235,7 +235,7 @@ void police_patrols(Game *g) {
             if (i == MAX_NPC) return;
             n = &g->npc[i];
             memset(n, 0, sizeof(*n));
-            n->active = 1; n->hull = 60; n->mission = -1; n->cooldown = HZ * 3;
+            n->active = 1; n->hull = POLICE_HULL; n->mission = -1; n->cooldown = HZ * 3;
             n->hostile = g->police_alert == 2;
             g->npc_role[i] = POLICE; g->npc_ship[i] = 3; g->npc_port[i] = j;
             n->pos = patrol_point(g, i);
@@ -307,7 +307,8 @@ static int spawn(Game *g, int mission, int role, int distance) {
         Npc *n = &g->npc[i];
         memset(n, 0, sizeof(*n));
         n->pos = add(g->pos, scale(forward(g->yaw, g->pitch), distance * FP, 16384));
-        n->vel = g->vel; n->active = 1; n->hull = role == INSTALLATION_TARGET ? 150 : 60;
+        n->vel = g->vel; n->active = 1;
+        n->hull = role == INSTALLATION_TARGET ? 150 : role == POLICE ? POLICE_HULL : 60;
         n->hostile = role != CIVILIAN;
         n->mission = mission; n->cooldown = HZ * 3;
         g->npc_role[i] = role; g->npc_ship[i] = role == POLICE ? 3 : role == CIVILIAN ? 1 : 0;
@@ -428,7 +429,10 @@ void damage_npc(Game *g, int index, int damage) {
         g->wanted[f] = clamp(g->wanted[f] + 200, 0, 1000000);
         g->reputation[f] = clamp(g->reputation[f] - 2, -100, 100);
     }
-    if (role == POLICE) police_hostile(g, "POLICE FIRED UPON - PATROLS ENGAGING");
+    if (role == POLICE) {
+        police_hostile(g, "POLICE FIRED UPON - PATROLS ENGAGING");
+        damage = damage / POLICE_ARMOUR > 1 ? damage / POLICE_ARMOUR : 1;
+    }
     n->hull -= damage;
     if (n->hull > 0) return;
     n->hull = 0; n->active = 0;
@@ -600,7 +604,12 @@ void career_tick(Game *g, Vec old) {
         } else if (terrain_impact(g, from, m->pos, nearest_body(g, m->pos))) m->active = 0;
     }
     if (g->docked != -1) return;
-    if (g->tick % HZ == 0) police_patrols(g);
+    if (g->tick % HZ == 0) {
+        /* Police damage control outpaces anything short of a sustained barrage. */
+        for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && g->npc_role[i] == POLICE)
+            g->npc[i].hull = clamp(g->npc[i].hull + POLICE_REPAIR, 0, POLICE_HULL);
+        police_patrols(g);
+    }
     if (equipped(g, SCOOP) && g->tick % HZ == 0 && g->fuel < 100) {
         const Planet *p = &g->system.planets[g->body];
         int64_t alt = altitude_at(g, g->pos);

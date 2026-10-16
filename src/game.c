@@ -748,8 +748,10 @@ void game_tick(Game *g, Controls c) {
             acceleration = guidance(n->pos, sub(n->vel, port_relative_velocity(g, g->npc_port[i])),
                                     patrol_point(g, i), 40 * FP, 400 * FP);
         } else {
+            int police = g->npc_role[i] == POLICE;
             desired = sub(g->pos, unit(rel, 1200 * FP));
-            acceleration = guidance(n->pos, sub(n->vel, g->vel), desired, 50 * FP, 500 * FP);
+            acceleration = guidance(n->pos, sub(n->vel, g->vel), desired, (police ? 80 : 50) * FP,
+                                    (police ? 800 : 500) * FP);
         }
         avoid = avoidance(rel, rv, 50 * FP, 300 * FP);
         if (length(avoid))
@@ -765,12 +767,23 @@ void game_tick(Game *g, Controls c) {
         if (swept_sphere(scale(sub(nold, old), 1, FP), scale(sub(n->pos, g->pos), 1, FP),
                          vec(0, 0, 0), 30)) {
             g->hull -= 20;
-            n->active = 0;
             say(g, "COLLISION DAMAGE");
+            if (g->npc_role[i] == POLICE)
+                n->vel = add(g->vel, unit(sub(n->pos, g->pos), 200 * FP)); /* armour shrugs off a ram */
+            else
+                n->active = 0;
         }
         if (n->cooldown)
             n->cooldown--;
-        if (n->hostile && l < 2500 * FP && l > 400 * FP && !n->cooldown) {
+        if (g->npc_role[i] == POLICE) {
+            if (n->hostile && l < POLICE_RANGE * FP && l > 400 * FP && !n->cooldown) {
+                n->cooldown = POLICE_INTERVAL;
+                if (g->shield > 0)
+                    g->shield = clamp(g->shield - POLICE_DAMAGE, 0, 100);
+                else
+                    g->hull -= POLICE_DAMAGE;
+            }
+        } else if (n->hostile && l < 2500 * FP && l > 400 * FP && !n->cooldown) {
             n->cooldown = HZ * 3;
             if (g->shield > 0)
                 g->shield = clamp(g->shield - 8, 0, 100);

@@ -248,7 +248,9 @@ patrol scans confiscates contraband and fines 100 CR per tonne. Two police ships
 circle every port and station while you are within 50 km. Firing a laser or missile
 within 10 km of police costs a 500 CR fine; firing again after a two-second warning,
 or shooting at a police ship, sets every patrol on you until the fine is paid with
-F at a port. Returning fire on an attacker is lawful. Destroyed police are replaced
+F at a port. Returning fire on an attacker is lawful. Police hulls are armoured
+against a tenth of any hit and repair themselves, and engaged patrols fire twice a
+second out to 5 km, so fighting them is near suicide. Destroyed police are replaced
 after three minutes, and fines of 1000 CR or more count as a warrant near ports.
 Cargo attracts pirates in lawless orbital space.
 Nearby traffic flies the same hull models as the shipyard, pointed along its course

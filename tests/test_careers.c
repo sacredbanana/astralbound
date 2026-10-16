@@ -316,9 +316,9 @@ static void park(Game *g, int port, int metres) {
     g->vel = port_relative_velocity(g, port);
 }
 static void test_police_patrols(void) {
-    Game g;
+    Game g, h;
     Controls c = {0};
-    int i, f, port = 1, raider;
+    int i, j, f, port = 1, raider;
     Vec out, side = vec(16384, 0, 0); /* level aim, clear of the patrol circle below */
     game_init(&g, 1); orbit(&g); g.credits = 100000;
     f = system_faction(&g);
@@ -359,12 +359,21 @@ static void test_police_patrols(void) {
     g.npc[i].pos = add(g.pos, scale(side, 1500 * FP, 16384)); g.npc[i].vel = g.vel;
     hold_fire(&g, side, 6);
     assert(g.police_alert == 2 && g.wanted[f] >= 500 && police_count(&g, 1) >= 2);
+    /* Armour shrugs off lasers and missiles, and damage control repairs the rest. */
+    h = g;
+    damage_npc(&h, i, 90);
+    assert(h.npc[i].active && h.npc[i].hull == g.npc[i].hull - 90 / POLICE_ARMOUR);
+    for (j = 0; j < HZ * 2; j++) game_tick(&h, c);
+    assert(h.npc[i].active && h.npc[i].hull == POLICE_HULL);
+    /* Engaged patrols kill an unarmoured commander within seconds. */
+    for (j = 0; j < HZ * 10 && !h.dead; j++) game_tick(&h, c);
+    assert(h.dead && j < HZ * 8);
     /* Passive patrols stand down once the commander leaves the port behind. */
     g.docked = port; assert(settle_fine(&g)); g.docked = -1;
     park(&g, port, 200000);
     for (i = 0; i < HZ * 2; i++) game_tick(&g, c);
     assert(!police_count(&g, 0) && !police_count(&g, 1));
-    puts("PASS port police patrols, weapons fines, warnings, pursuit, self-defence and recall");
+    puts("PASS port police patrols, fines, warnings, armoured lethal pursuit, self-defence and recall");
 }
 int main(void) {
     test_ships_crew(); test_terms_passengers(); test_rescue_escort();

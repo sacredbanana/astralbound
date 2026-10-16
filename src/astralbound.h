@@ -120,6 +120,14 @@ typedef struct {
 } ShipSpec;
 typedef enum { CABIN, MINING, SCOOP, MISSILE_RACK, COUNTERMEASURE, DORSAL, VENTRAL, ESCAPE_POD, EQUIP_TYPES } Equipment;
 typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
+/* Police are heavily armoured interceptors: hull, damage divisor and hull
+   repaired per second; then shot damage, interval and range against the commander. */
+#define POLICE_HULL 1000
+#define POLICE_ARMOUR 10
+#define POLICE_REPAIR 15
+#define POLICE_DAMAGE 15
+#define POLICE_INTERVAL (HZ / 2)
+#define POLICE_RANGE 5000
 typedef struct { Vec pos, vel; int active, good, quantity, mission; } CargoPod;
 typedef struct { Vec pos, vel; int active, target, ttl; } Missile;
 typedef struct { Sector sector; int body, stock; Vec anchor; uint32_t last_tick; } MiningRig;
