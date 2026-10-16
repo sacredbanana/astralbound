@@ -88,7 +88,7 @@ static void sound_close(void) {
     if (engine_pcm) FreeMem(engine_pcm, 256);
     engine_pcm = NULL;
     for (n = 1; n < SOUND_COUNT; n++) {
-        if (effect_pcm[n]) FreeMem(effect_pcm[n], EFFECT_SAMPLES);
+        if (effect_pcm[n]) FreeMem(effect_pcm[n], audio_effect_length(n));
         effect_pcm[n] = NULL;
     }
 }
@@ -130,9 +130,9 @@ static int sound_open(void) {
         music_mix((int8_t *)stream_pcm[1], STREAM_SAMPLES);
         for (t = 0; t < 256; t++) engine_pcm[t] = audio_engine((unsigned)t);
         for (n = 1; n < SOUND_COUNT; n++) {
-            effect_pcm[n] = AllocMem(EFFECT_SAMPLES, MEMF_CHIP);
+            effect_pcm[n] = AllocMem(audio_effect_length(n), MEMF_CHIP);
             if (!effect_pcm[n]) return 0;
-            for (t = 0; t < EFFECT_SAMPLES; t++) effect_pcm[n][t] = audio_effect(n, (unsigned)t);
+            for (t = 0; t < (int)audio_effect_length(n); t++) effect_pcm[n][t] = audio_effect(n, (unsigned)t);
         }
     }
     return 1;
@@ -177,12 +177,14 @@ static void sound_update(void) {
         hw->aud[0].ac_vol = hw->aud[1].ac_vol = sound.paused ? 0 : 48;
         hw->aud[3].ac_vol = sound.active && !sound.paused ? sound.throttle * 18 / 4000 : 0;
         if (effect && !sound.paused) {
-            unsigned size = effect == SOUND_LASER ? 1200 : EFFECT_SAMPLES;
+            unsigned size = audio_effect_length(effect);
             audio_channel(2, effect_pcm[effect], size, 48);
             effect_until = ((ULONG)clock_now() + (size * clock_rate + AUDIO_RATE - 1) / AUDIO_RATE) & 0xffffffUL;
             if (!effect_until) effect_until = 1;
         }
-        if (sound.paused) { hw->dmacon = 4; effect_until = 0; }
+        if (sound.paused || (!sound.effect && effect_until)) {
+            hw->dmacon = 4; hw->aud[2].ac_vol = 0; effect_until = 0;
+        }
         sound_pump();
     }
 }

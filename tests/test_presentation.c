@@ -36,10 +36,22 @@ static void sound_tests(void) {
     for (i = 0; i < sizeof(whole); i++) assert(whole[i] == 0);
     for (effect = 1; effect < SOUND_COUNT; effect++) {
         nonzero = 0;
-        for (i = 0; i < EFFECT_SAMPLES; i++) nonzero |= audio_effect(effect, i) != 0;
-        assert(nonzero && audio_effect(effect, EFFECT_SAMPLES) == 0);
+        for (i = 0; i < audio_effect_length(effect); i++) nonzero |= audio_effect(effect, i) != 0;
+        assert(nonzero && audio_effect(effect, audio_effect_length(effect)) == 0);
     }
-    puts("PASS procedural effects, event priority, chunk continuity and pause");
+    /* The charge and tunnel effects span their sequence phases. */
+    assert(audio_effect_length(SOUND_HYPERSPACE) == AUDIO_RATE * HYPER_CHARGE / HZ);
+    assert(audio_effect_length(SOUND_JUMP) == AUDIO_RATE * HYPER_TUNNEL / HZ);
+    game_init(&g, 0x53504143);
+    audio_init(&a, &g);
+    g.hyperspace = 1;
+    assert(audio_observe(&a, &g) == SOUND_HYPERSPACE);
+    g.hyperspace = 0; /* aborted charge */
+    assert(audio_observe(&a, &g) == SOUND_NONE && a.effect == SOUND_NONE);
+    g.docked = -1; g.page = FLIGHT; g.throttle = 4000; g.fuel = 0;
+    audio_observe(&a, &g);
+    assert(a.active && !a.throttle); /* a dry tank has no engine note */
+    puts("PASS procedural effects, event priority, chunk continuity, pause, hyperspace and dry tank");
 }
 static void controller_tests(void) {
     Controller p = {0};

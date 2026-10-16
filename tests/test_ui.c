@@ -44,6 +44,11 @@ static void workflow(Frame *f) {
     remove("ui-roundtrip.sav");
     click(f,UI_NAV+'v'); assert(g.page==FLIGHT && !g.camera_mode);
     click(f,'l'); assert(g.docked==-1);
+    /* The drive cannot run inside the departure port's exclusion zone. */
+    n=ui_widgets(&g,f,v);
+    for(i=0;i<n;i++) if(v[i].action=='a') assert(!v[i].enabled);
+    click(f,'a'); assert(!g.drive_manual);
+    g.frame_body=-1; g.pos=vec(0,AU_METRES*FP,0); g.vel=vec(0,0,0);
     click(f,'p'); assert(g.autopilot && !g.drive_manual);
     click(f,'a'); assert(g.autopilot && g.drive_manual);
     click(f,'p'); assert(!g.autopilot && g.drive_manual);

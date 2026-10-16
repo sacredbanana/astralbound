@@ -176,6 +176,27 @@ static int64_t drive_limit(const Game *g) {
         return limit < SYSTEM_DRIVE_SPEED ? limit : SYSTEM_DRIVE_SPEED;
     }
 }
+/* Physical reasons the drive cannot produce cruise thrust. Autopilot
+   handover, detours and laser fire only withhold an armed drive briefly. */
+static const char *drive_fault(const Game *g) {
+    if (g->dead || g->docked != -1) return "DOCKED";
+    if (g->fuel <= 0) return "NO FUEL";
+    if (drive_limit(g) <= 4000) return "EXCLUSION ZONE";
+    return NULL;
+}
+int drive_available(const Game *g) {
+    return !drive_fault(g);
+}
+/* An armed drive that can no longer run disarms itself and zeroes the set
+   speed, so cruise thrust and the engine note stop together. */
+static void drive_watchdog(Game *g) {
+    const char *fault;
+    if (!g->drive_manual || !(fault = drive_fault(g)))
+        return;
+    g->drive_manual = 0;
+    g->throttle = 0;
+    snprintf(g->message, sizeof(g->message), "SYSTEM DRIVE DISENGAGED - %s", fault);
+}
 static Vec autopilot_route(const Game *g, int *detour);
 static int autopilot_detour(const Game *g) {
     int detour;
@@ -458,6 +479,7 @@ void game_tick(Game *g, Controls c) {
         career_missions(g);
         return;
     }
+    drive_watchdog(g);
     g->body = nearest_body(g, g->pos);
     planet = &g->system.planets[g->body];
     {
@@ -880,7 +902,9 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
 static void cruise_step(Game *g, int ticks) {
     int destination = g->target >= 0 ? g->ports[g->target].body : g->target_body;
     Vec motion = g->system.planets[destination].cruise_velocity;
-    int thrust = drive_thrust(g);
+    int thrust;
+    drive_watchdog(g);
+    thrust = drive_thrust(g);
     int64_t room = altitude_at(g, g->pos) -
                    g->system.planets[nearest_body(g, g->pos)].atmosphere - 20000;
     int64_t maxspeed = room > 0 ? (int64_t)isqrt64((uint64_t)room * 60) : 600;
@@ -930,12 +954,39 @@ static void cruise_step(Game *g, int ticks) {
     career_time(g);
     career_missions(g);
 }
+/* Advances the jump sequence in real time; nonzero while the ship is inside
+   the tunnel, where no system exists to simulate. The jump is re-validated
+   at the boundary, so traffic or a dock during the charge aborts it. */
+static int hyperspace_frame(Game *g, int ticks) {
+    int before = g->hyperspace;
+    g->warp = g->effective_warp = 1;
+    g->hyperspace += ticks;
+    if (before <= HYPER_CHARGE && g->hyperspace > HYPER_CHARGE) {
+        const char *refusal = jump_refusal(g, g->hyperspace_destination);
+        if (refusal) {
+            g->hyperspace = 0;
+            snprintf(g->message, sizeof(g->message), "JUMP ABORTED - %s", refusal);
+            return 0;
+        }
+        jump(g, g->hyperspace_destination);
+        snprintf(g->message, sizeof(g->message), "HYPERSPACE TRANSIT - %.24s", g->system.name);
+    }
+    if (before <= HYPER_CHARGE + HYPER_TUNNEL && g->hyperspace > HYPER_CHARGE + HYPER_TUNNEL)
+        say(g, "JUMP COMPLETE - T SELECTS PORT / P AUTOPILOT");
+    if (g->hyperspace >= HYPER_TOTAL)
+        g->hyperspace = 0;
+    return g->hyperspace > HYPER_CHARGE && g->hyperspace <= HYPER_CHARGE + HYPER_TUNNEL;
+}
 void game_frame(Game *g, Controls c, int ticks) {
     uint32_t before = g->tick;
     int i, steps = 0;
     if (ticks > 0)
         g->ui_clock += (uint32_t)ticks; /* real time, independent of warp and pause */
+    if (g->dead)
+        g->hyperspace = 0;
     if (ticks <= 0 || g->paused || g->dead || g->ui_quit)
+        return;
+    if (g->hyperspace && hyperspace_frame(g, ticks))
         return;
     for (i = 0; i < ticks && steps < MAX_FRAME_STEPS; i++) {
         int w = safe_warp(g), advanced = 0;
@@ -958,24 +1009,26 @@ void game_frame(Game *g, Controls c, int ticks) {
         g->effective_warp = 1;
 }
 
-int jump(Game *g, Sector d) {
-    int i, cost;
-    System destination;
-    int64_t distance = galaxy_distance(d,g->system.sector);
-    if (g->dead || g->docked != -1 || distance == 0 || distance > 6000 || d.x < -1000000 ||
-        d.x > 1000000 || d.y < -1000000 || d.y > 1000000 || d.z < -1000000 || d.z > 1000000 ||
-        altitude_at(g, g->pos) < 12000)
-        return 0;
+/* NULL when the jump may proceed, else the reason shown to the commander. */
+const char *jump_refusal(const Game *g, Sector d) {
+    int i;
+    int64_t distance = galaxy_distance(g->system.sector,d);
+    if (g->dead || g->docked != -1) return "DOCKED";
+    if (distance == 0 || distance > 6000 || d.x < -1000000 || d.x > 1000000 ||
+        d.y < -1000000 || d.y > 1000000 || d.z < -1000000 || d.z > 1000000)
+        return "OUT OF RANGE";
+    if (altitude_at(g, g->pos) < 12000) return "ALTITUDE BELOW 12 KM";
     for (i = 0; i < MAX_NPC; i++)
         if (g->npc[i].active && !police_patrol(g, i) &&
             length(sub(g->npc[i].pos, g->pos)) < 20000 * FP)
-            return 0;
-    generate_system(g->seed, d, &destination);
-    if (!destination.count)
-        return 0;
-    cost = galaxy_jump_cost(g,d);
-    if (g->fuel < cost)
-        return 0;
+            return "TRAFFIC NEARBY";
+    if (!galaxy_exists(g->seed,d)) return "EMPTY SECTOR";
+    if (g->fuel < galaxy_jump_cost(g,d)) return "INSUFFICIENT FUEL";
+    return NULL;
+}
+int jump(Game *g, Sector d) {
+    int cost = galaxy_jump_cost(g,d);
+    if (jump_refusal(g, d)) return 0;
     g->fuel -= cost;
     g->tick += HZ * 300;
     career_time(g);
@@ -1001,6 +1054,9 @@ void game_action(Game *g, int k) {
         return;
     }
     if (g->dead)
+        return;
+    /* Only pause reaches the ship while the hyperspace sequence runs. */
+    if (g->hyperspace && k != ' ')
         return;
     if (g->page==MAP && galaxy_key(g,k)) return;
     switch (k) {
@@ -1094,7 +1150,9 @@ void game_action(Game *g, int k) {
         }
         break;
     case 'a':
-        if (g->docked == -1) {
+        if (g->docked == -1 && !g->drive_manual && drive_fault(g)) {
+            snprintf(g->message, sizeof(g->message), "SYSTEM DRIVE UNAVAILABLE - %s", drive_fault(g));
+        } else if (g->docked == -1) {
             g->drive_manual = !g->drive_manual;
             g->assist = 1;
             g->throttle = g->drive_manual ? 4000 : 0;
@@ -1144,10 +1202,21 @@ void game_action(Game *g, int k) {
             if (departure) inspect_cargo(g);
         }
         break;
-    case 'x':
-        say(g, jump(g, g->selected) ? "JUMP COMPLETE"
-                                    : "JUMP DENIED: EMPTY / ALTITUDE / RANGE / FUEL / TRAFFIC");
+    case 'x': {
+        const char *refusal = jump_refusal(g, g->selected);
+        if (refusal) {
+            snprintf(g->message, sizeof(g->message), "JUMP DENIED - %s", refusal);
+            break;
+        }
+        /* The jump itself happens when the charge completes; see hyperspace_frame. */
+        g->hyperspace = 1;
+        g->hyperspace_destination = g->selected;
+        g->page = FLIGHT;
+        g->autopilot = 0;
+        g->warp = 1;
+        say(g, "HYPERSPACE DRIVE CHARGING");
         break;
+    }
     case '1':
     case '2':
     case '3':

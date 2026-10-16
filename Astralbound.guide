@@ -141,11 +141,14 @@
   With autopilot engaged, guidance controls speed with the selected drive.
   Maximum acceleration is 4,000,000 m/s/s; cruise cap is 200,000,000 m/s.
   Bodies, atmosphere, stars, stations and traffic lower the speed limit.
-  DRIVE / AUTO DRIVE identifies operation; DRIVE LOCK means the drive
-  is armed inside an exclusion zone. Local flight uses ordinary engines.
+  Inside an exclusion zone or with no fuel the drive cannot run: the
+  DRIVE button is greyed and A is refused. An armed drive that can no
+  longer run disengages, zeroing set speed and the engine note.
+  DRIVE / AUTO DRIVE identifies operation; DRIVE LOCK means autopilot
+  or laser fire is briefly withholding it. Local flight uses ordinary engines.
   Autopilot uses the drive only when you arm it with A; otherwise it uses
   ordinary engines. Guidance limits speed for detours, approach and docking.
-  Body arrival zeros set speed without changing the drive switch.
+  Body arrival zeros set speed.
   Fuel scales with engine output fraction, including drive operation.
   Loading resets drive controls but preserves velocity and cruise braking.
 
@@ -178,6 +181,9 @@
   has a red cross; green dots mark visited systems. Hover shows a name.
   X/JUMP travels above 12 km with sufficient fuel, no nearby traffic,
   and a destination within six light-years. Distances use full 3D positions.
+  The hyperspace drive charges for 1.5 seconds, then the ship crosses
+  a hyperspace tunnel to the destination. Traffic arriving during the
+  charge aborts the jump at no cost. Only pause works meanwhile.
   J shows contract destination sectors and port numbers.
 
   Real stars include Sol, Proxima/Alpha Centauri, Sirius, Tau Ceti, Vega,

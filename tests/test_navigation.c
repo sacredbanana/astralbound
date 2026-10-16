@@ -148,15 +148,18 @@ static int find_port(const Game *g, const char *name) {
 static void surface_port_drive(void) {
     Game g;
     Controls c = {0};
-    int frames, drive = 0;
+    int frames, drive = 0, armed = 0;
     game_init(&g, 0x53504143);
     game_action(&g, 'l');
     g.target = find_port(&g, "D REACH");
     g.target_body = -1;
     g.autopilot = 1;
     game_action(&g, 'a');
+    assert(!g.drive_manual); /* refused inside the departure port's zone */
     g.warp = MAX_WARP;
     for (frames = 0; frames < 20000 && g.autopilot && !g.dead; frames++) {
+        /* Arm once, as soon as the DRIVE button becomes available. */
+        if (!armed && drive_available(&g)) { game_action(&g, 'a'); armed = g.drive_manual; }
         game_frame(&g, c, 1);
         drive |= g.drive_active;
     }

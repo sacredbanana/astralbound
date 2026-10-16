@@ -114,12 +114,16 @@ the other. In manual flight, engaging the drive selects full cruise speed; W/S
 adjusts the setting, and **A** again brakes to a stop. With autopilot engaged,
 guidance controls speed using whichever drive setting you select. The drive
 provides up to 4,000,000 m/s² acceleration and braking, with a 200,000,000 m/s cruise ceiling. Gravity wells, atmospheres,
-stations and nearby ships reduce the permitted speed. The HUD shows DRIVE,
-AUTO DRIVE, or DRIVE LOCK when the drive is armed near an exclusion zone.
+stations and nearby ships reduce the permitted speed. Inside an exclusion zone,
+or with an empty tank, the drive cannot run: the **DRIVE** button is greyed out
+and **A** is refused. An armed drive that loses the ability to run disengages
+itself, zeroing the set speed so thrust and the engine note stop together; the
+message line gives the reason. The HUD shows DRIVE or AUTO DRIVE while it runs,
+and DRIVE LOCK while autopilot or weapons fire briefly withhold it.
 Autopilot uses System Drive only when you arm it with **A**; otherwise it uses
 ordinary engines. It limits speed for terrain/star detours, atmospheric flight
-and docking, and brakes for arrival without changing the drive switch. Reaching
-a body waypoint zeros the manual speed setting while leaving the drive armed.
+and docking, and brakes for arrival. Reaching a body waypoint zeros the manual
+speed setting.
 Time warp also works with manual drive control; drive cruise batches are limited
 to one simulated second.
 Drive settings reset on loading, while saved velocity is preserved and fast
@@ -177,7 +181,9 @@ spectra, distance, economy, government, bodies, ports and exploration status.
 same target removes the pin. The selected target has a gold box, current system a
 red cross, and visited systems a green dot. Hover reveals a star's name.
 
-Press **X/JUMP** above 12 km altitude to jump. Jump range is six light-years;
+Press **X/JUMP** above 12 km altitude to jump. The hyperspace drive charges
+for 1.5 seconds, crosses a tunnel and drops into the destination. Nearby traffic
+arriving during the charge aborts at no cost; only pause works during the sequence. Jump range is six light-years;
 range and fuel use the actual 3D positions, including sub-sector catalog precision.
 The map reports launch, altitude, range, fuel and traffic restrictions. Overview
 points sample the procedural galaxy; zoom to 8 ly or closer to resolve every system

@@ -903,3 +903,10 @@ four supplemental dwarf moons, not every asteroid satellite in the Solar System.
 The original Hetha start remains intact. Save format 8 adds full Sol surveys and
 waypoints while accepting formats 3 through 7. No physical-hardware performance
 claim is made, and release archives/ADF have not been rebuilt as part of this change.
+
+Merge integration with master also preserves its hyperspace charge/tunnel/exit
+sequence and dry-tank/System Drive lockouts. Galaxy-map X/JUMP routes through the
+shared charge action; departure and charge-boundary validation both use precise
+catalog distances and fuel cost. The combined mouse-jump/Sol-arrival regression,
+master's traffic-abort/pause/input-lock tests, full host suite and all six native
+CPU builds pass after resolving the overlapping navigation/UI/documentation edits.

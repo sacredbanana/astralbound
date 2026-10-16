@@ -66,7 +66,8 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         button(v,&n,2,y+2,47,13,'v',"VIEW",1,0);
         button(v,&n,50,y+2,47,13,'l',"LAUNCH",g->docked != -1,0);
         button(v,&n,222,y+2,47,13,'p',"AUTO",g->docked == -1,g->autopilot);
-        button(v,&n,270,y+2,47,13,'a',"DRIVE",g->docked == -1,g->drive_manual);
+        /* Armed stays clickable so the commander can always switch it off. */
+        button(v,&n,270,y+2,47,13,'a',"DRIVE",g->drive_manual || drive_available(g),g->drive_manual);
         button(v,&n,2,y+17,47,13,'e',"ASSIST",1,g->assist);
         button(v,&n,50,y+17,47,13,'k',"GEAR",g->docked == -1,g->gear);
         button(v,&n,222,y+17,47,13,'d',"DOCK",g->target >= 0,0);
@@ -206,6 +207,7 @@ static UiWidget *pick(const Game *g,const Frame *f,UiWidget *v,int n) {
     return NULL;
 }
 static void activate(Game *g,int action,int x) {
+    if(g->hyperspace && action!=' ') return;
     if(action>=GAL_SEARCH && action<GAL_RESULT+6) { galaxy_key(g,action); return; }
     if(action==UI_RESTART) game_action(g,'r');
     else if(action>=UI_PORT && action<UI_PORT+MAX_PORTS) {

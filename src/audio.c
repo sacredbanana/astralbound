@@ -9,11 +9,16 @@ static int triangle(unsigned phase) {
 int8_t audio_engine(unsigned sample) {
     return (int8_t)(triangle(sample * 3) / 3 + (int)(hash32(sample & 255) & 31) - 16);
 }
+unsigned audio_effect_length(int effect) {
+    if (effect <= SOUND_NONE || effect >= SOUND_COUNT) return 0;
+    if (effect == SOUND_LASER) return 1200;
+    if (effect == SOUND_HYPERSPACE) return AUDIO_RATE * HYPER_CHARGE / HZ;
+    if (effect == SOUND_JUMP) return AUDIO_RATE * HYPER_TUNNEL / HZ;
+    return EFFECT_SAMPLES;
+}
 int8_t audio_effect(int effect, unsigned t) {
     int envelope, value;
-    unsigned duration;
-    if (effect <= SOUND_NONE || effect >= SOUND_COUNT) return 0;
-    duration = effect == SOUND_LASER ? 1200 : EFFECT_SAMPLES;
+    unsigned duration = audio_effect_length(effect);
     if (t >= duration) return 0;
     envelope = (int)(duration - t) * 96 / (int)duration;
     switch (effect) {
@@ -21,29 +26,51 @@ int8_t audio_effect(int effect, unsigned t) {
     case SOUND_HIT: case SOUND_EXPLOSION:
         value = (int)(hash32(t / (effect == SOUND_EXPLOSION ? 4 : 1)) & 255) - 128; break;
     case SOUND_DOCK: value = triangle(t * (t < 1300 ? 17 : t < 2600 ? 21 : 26)); break;
+    case SOUND_HYPERSPACE: {
+        /* Spool-up: a rising root and fifth that throb faster as it charges. */
+        unsigned pitch = 4 + t / 500, pulse = t * (2 + t / 2000) / 64;
+        value = triangle(t * pitch) * 2 / 3 + triangle(t * pitch * 3 / 2) / 3;
+        envelope = 20 + (int)(t * 76 / duration);
+        if (pulse & 64) envelope = envelope * 3 / 4;
+        break;
+    }
+    case SOUND_JUMP: {
+        /* Tunnel entry: a breaking-wave hiss over a falling, rumbling drone. */
+        int hiss = t < 6000 ? (int)(6000 - t) * 64 / 6000 : 0;
+        value = ((int)(hash32(t / 3) & 255) - 128) * hiss / 64 +
+                triangle(t * (14 - t / 1600)) * (160 + triangle(t / 24)) / 384;
+        envelope = t < 16000 ? 96 : (int)(duration - t) * 96 / 4000;
+        break;
+    }
     default: value = triangle(t * (4 + t / 80)); break;
     }
-    return (int8_t)(value * envelope / 128);
+    value = value * envelope / 128;
+    return (int8_t)(value > 127 ? 127 : value < -128 ? -128 : value);
 }
 void audio_init(SpaceAudio *s, const Game *g) {
     memset(s, 0, sizeof(*s));
     s->shots = g->shots; s->seed = g->system.seed;
     s->hull = g->hull; s->shield = g->shield; s->kills = g->kills; s->docked = g->docked;
-    s->effect_pos = EFFECT_SAMPLES;
+    s->hyperspace = g->hyperspace != 0;
 }
 int audio_observe(SpaceAudio *s, const Game *g) {
     int effect = SOUND_NONE;
     if (s->shots != g->shots) effect = SOUND_LASER;
     if (g->docked != s->docked) effect = SOUND_DOCK;
+    if (g->hyperspace && !s->hyperspace) effect = SOUND_HYPERSPACE;
     if (s->seed != g->system.seed) effect = SOUND_JUMP;
+    /* An aborted charge cuts its spool-up rather than letting it finish. */
+    if (!g->hyperspace && s->hyperspace && s->effect == SOUND_HYPERSPACE && s->seed == g->system.seed)
+        s->effect = SOUND_NONE;
     if (g->hull < s->hull || g->shield < s->shield) effect = SOUND_HIT;
     if (g->kills > s->kills || (g->dead && s->hull > 0)) effect = SOUND_EXPLOSION;
-    s->shots = g->shots; s->seed = g->system.seed;
+    s->shots = g->shots; s->seed = g->system.seed; s->hyperspace = g->hyperspace != 0;
     s->hull = g->hull; s->shield = g->shield; s->kills = g->kills; s->docked = g->docked;
     s->active = g->page == FLIGHT && g->docked == -1 && !g->dead;
     s->paused = g->paused;
     music_observe(g);
-    s->throttle = g->throttle < 4000 ? g->throttle : 4000;
+    /* A dry tank has no engine note, whatever the set speed. */
+    s->throttle = g->fuel <= 0 ? 0 : g->throttle < 4000 ? g->throttle : 4000;
     if (effect) { s->effect = effect; s->effect_pos = 0; }
     return effect;
 }
@@ -56,7 +83,7 @@ void audio_mix(SpaceAudio *s, int8_t *out, unsigned count) {
             value = out[i];
             if (s->active) value += audio_engine(s->cursor & 255) * s->throttle / 12000;
             value += audio_effect(s->effect, (unsigned)s->effect_pos);
-            if (s->effect_pos < EFFECT_SAMPLES) s->effect_pos++;
+            if ((unsigned)s->effect_pos < audio_effect_length(s->effect)) s->effect_pos++;
             s->cursor++;
         }
         out[i] = (int8_t)(value > 127 ? 127 : value < -128 ? -128 : value);

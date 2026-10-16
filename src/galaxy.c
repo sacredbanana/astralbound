@@ -264,9 +264,7 @@ int galaxy_key(Game *g,int k) {
     case 's': galaxy_pan(g,0,0,-1); break;
     case 'q': galaxy_pan(g,0,1,0); break;
     case 'e': galaxy_pan(g,0,-1,0); break;
-    case 'x':
-        if(!jump(g,g->selected)) snprintf(g->message,sizeof(g->message),"%s",galaxy_jump_status(g,g->selected));
-        break;
+    case 'x': return 0; /* Shared game action starts the hyperspace sequence. */
     default: return 0;
     }
     return 1;

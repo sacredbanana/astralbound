@@ -151,6 +151,16 @@ static void jumping(void) {
     assert(jump(&g,g.selected)); assert(!strcmp(g.system.name,"Sol") && g.system.count==484 && g.fuel==before-2);
     g.waypoint=g.selected;g.waypoint_set=1;
     assert(!jump(&g,catalog_sector(star("Sirius")))) ;
+    /* The map's keyboard and mouse jump action must retain master's charge,
+       revalidation and tunnel animation instead of bypassing them. */
+    game_init(&g,123);game_action(&g,'l');memset(g.npc,0,sizeof(g.npc));
+    g.pos=add(scale(g.system.planets[0].center,FP,1),vec(0,(g.system.planets[0].radius+200000LL)*FP,0));
+    g.selected=catalog_sector(star("Sol"));g.page=MAP;before=g.fuel;
+    { Frame f={320,200,0,NULL,{0}};Controls controls={0};
+      click(&f,'x');assert(g.hyperspace==1 && g.page==FLIGHT && strcmp(g.system.name,"Sol"));
+      game_action(&g,'g');assert(g.page==FLIGHT && g.hyperspace==1);
+      game_frame(&g,controls,HYPER_CHARGE);assert(!strcmp(g.system.name,"Sol") && g.fuel==before-2);
+      game_frame(&g,controls,HYPER_TOTAL);assert(!g.hyperspace); }
     puts("PASS catalog targets use precise physical jump distance and existing flight safety gates");
 }
 int main(void) {
