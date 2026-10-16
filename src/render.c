@@ -186,6 +186,17 @@ static Vec camera(Vec p) {
 static int screen_coord(int64_t value) {
     return value < -32760 ? -32760 : value > 32760 ? 32760 : (int)value;
 }
+/* Marker range switches unit so docking approaches read in metres and
+   interplanetary legs stay short enough to sit beside the box. */
+static void target_range_text(int64_t metres, char *s, size_t n) {
+    if (metres < 10000)
+        snprintf(s, n, "%ld M", (long)metres);
+    else if (metres < AU_METRES / 10)
+        snprintf(s, n, "%ld KM", (long)(metres / 1000));
+    else
+        snprintf(s, n, "%ld.%02ld AU", (long)(metres / AU_METRES),
+                 (long)(metres % AU_METRES * 100 / AU_METRES));
+}
 /* Keep locked targets inside the flight viewport. Rear targets use their
    camera-space bearing too, so perspective cannot mirror them across the HUD. */
 static void target_marker_position(Vec p, int top, int *x, int *y) {
@@ -2420,7 +2431,10 @@ void render_game(const Game *g, Frame *f) {
     if (g->page == FLIGHT) {
         Vec p = camera(scale(navigation_position(g), 1, FP));
         const char *name = g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name;
-        int x, y, label_x, label_y, label_w = (int)strlen(name) * 6;
+        char range[24];
+        int x, y, label_x, label_y, label_w;
+        target_range_text(length(sub(navigation_position(g), g->pos)) / FP, range, sizeof(range));
+        label_w = (int)(strlen(name) > strlen(range) ? strlen(name) : strlen(range)) * 6;
         target_marker_position(p, 10, &x, &y);
         line(x - 8, y - 8, x + 8, y - 8, 13);
         line(x - 8, y + 8, x + 8, y + 8, 13);
@@ -2429,9 +2443,11 @@ void render_game(const Game *g, Frame *f) {
         label_x = x - 30;
         if (label_x + label_w > f->w - 2) label_x = f->w - 2 - label_w;
         if (label_x < 2) label_x = 2;
+        /* Name and range stack under the box, or above it near the console. */
         label_y = y + 12;
-        if (label_y + 7 > view_h - 25) label_y = y - 19;
+        if (label_y + 16 > view_h - 25) label_y = y - 28;
         text(label_x, label_y, 13, name);
+        text(label_x, label_y + 9, 13, range);
         text(7, 8, 13,
              name);
         if (!g->camera_mode || g->camera_mode >= 3) {
