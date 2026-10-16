@@ -144,7 +144,9 @@ int terrain_material(const Planet *p, Vec relative) {
         return 5;
     if (p->type == ICE || normal.z > 14000 || normal.z < -14000)
         return 4;
-    if (p->type == OCEAN && h <= 0)
+    /* Pads are levelled to exactly sea level: dry ground, never a pond. A
+       pad out at sea becomes a 1 km island where the seabed blend begins. */
+    if (p->type == OCEAN && h < 0)
         return 0;
     if (p->type == DESERT || p->type == MOON || h > 500)
         return 3;

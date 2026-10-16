@@ -390,7 +390,7 @@ static void terrain_angles(void) {
                 int x = f.w / 2 + (int)(v.x * (f.w / 2) / v.z);
                 int y = view_h / 2 - (int)(v.y * (f.w / 2) / v.z);
                 /* The same ground locations retain their material as the
-                   camera rotates. A water corner must not paint adjacent land. */
+                   camera rotates. The grass pad must not paint the rock around it. */
                 assert(x>=0 && x<f.w && y>=0 && y<view_h);
                 assert(same_ground_material(f.pixels[y*f.w+x],
                        ground_color(p,sub(point,p->center)),enhanced));
@@ -460,11 +460,73 @@ static void terrain_flight_colors(void) {
     free(f.pixels); render_shutdown();
     puts("PASS fixed ground colours during lateral flight and altitude changes in ECS/AGA");
 }
+/* From orbit down to the detail clipmap, the ground beneath a point keeps
+   the material it has on landing. REACH lies 300 km out to sea, while one
+   globe facet corner touched a distant coast and painted it green. */
+static void orbital_ground_materials(void) {
+    Game g;
+    Frame f = {320,256,0,0,{0}};
+    const Planet *p;
+    Vec sites[2];
+    int enhanced, site, altitude, i;
+    static const int altitudes[] = {25000, 120000, 970000};
+    game_init(&g, 0x53504143);
+    p = &g.system.planets[0];
+    g.docked = -1; g.body = 0;
+    /* Each 1 km pad is smaller than a facet: REACH's is an island, HAVEN's
+       a grass clearing among rock. Sample the open sea and land around them. */
+    sites[0] = radial(add(sub(scale(g.ports[2].pos, 1, FP), p->center), vec(20000,0,0)), p->radius);
+    sites[1] = radial(add(sub(scale(g.ports[0].pos, 1, FP), p->center), vec(50000,0,0)), p->radius);
+    assert(terrain_material(p, sites[0]) == 0 && terrain_material(p, sites[1]) != 0);
+    f.pixels = calloc((size_t)f.w * f.h, 1);
+    assert(f.pixels && render_init(&f));
+    game = &g; frame = &f; view_h = 200;
+    cache_globes();
+    for (enhanced = 0; enhanced < 2; enhanced++) {
+        f.enhanced = enhanced;
+        cache_globes();
+        for (site = 0; site < 2; site++)
+            for (altitude = 0; altitude < 3; altitude++) {
+                Vec ground = add(p->center, sites[site]);
+                Vec eye = add(ground, add(radial(sites[site], altitudes[altitude]),
+                                          vec(altitudes[altitude] / 3, 0, 0)));
+                int expected = ground_color(p, sites[site]);
+                g.pos = scale(eye, FP, 1);
+                camera_position = g.pos;
+                aim_angles(sub(ground, eye), &camera_yaw, &camera_pitch);
+                nt = 0;
+                memset(f.pixels, 0, (size_t)f.w * f.h);
+                memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
+                planet_mesh(0);
+                qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
+                for (i = 0; i < nt; i++) raster(&triangles[i]);
+                if (!same_ground_material(f.pixels[(view_h/2)*f.w + f.w/2], expected, enhanced))
+                    fprintf(stderr, "enhanced %d site %d altitude %d color %d expected %d\n",
+                            enhanced, site, altitudes[altitude],
+                            f.pixels[(view_h/2)*f.w + f.w/2], expected);
+                assert(same_ground_material(f.pixels[(view_h/2)*f.w + f.w/2], expected, enhanced));
+            }
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS orbital sea and land beneath ports match the landed ground in ECS/AGA");
+}
 static void terrain_smooth_motion(void) {
     Game g;
     Frame f = {320,256,0,0,{0}};
     int enhanced, step, i, last, moved;
+    const Planet *p;
+    int64_t shore, z = -1061000, ground;
     game_init(&g, 0x53504143); g.docked = -1;
+    p = &g.system.planets[0];
+    /* HAVEN stands 1000 km inland. South of it a 6 km arm of the sea meets
+       land along the screen-centre row (fixed z); walk east to that shore. */
+    for (shore = -38000;; shore++) {
+        int64_t r = p->radius;
+        ground = (int64_t)isqrt64((uint64_t)(r * r - shore * shore - z * z));
+        if (terrain_material(p, vec(shore, ground, z))) break;
+        assert(shore < -30000);
+    }
+    assert(terrain_material(p, vec(shore - 1, ground, z)) == 0);
     f.pixels = calloc((size_t)f.w * f.h, 1);
     assert(f.pixels && render_init(&f));
     game = &g; frame = &f; view_h = 200; cache_globes();
@@ -473,7 +535,7 @@ static void terrain_smooth_motion(void) {
         f.enhanced = enhanced; last = -1; moved = 0;
         for (step = 0; step <= 1000; step++) {
             int edge = -1;
-            g.pos = add(g.ports[0].pos, vec((int64_t)step * FP, 5260LL * FP, 0));
+            g.pos = scale(add(p->center, vec(shore - 1000 + step, ground + 5260, z)), FP, 1);
             camera_position = g.pos; nt = 0;
             memset(f.pixels, 0, (size_t)f.w * f.h);
             memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
@@ -575,13 +637,14 @@ static void close_ground_detail(void) {
     game=&g; frame=&f; view_h=200; cache_globes();
     for (mode=0;mode<2;mode++) {
         f.enhanced=mode; memset(seen,0,sizeof(seen)); changed=0;
-        for (u=-700;u<=700;u+=4) for (v=-700;v<=700;v+=4) {
+        /* Straddle HAVEN's level grass pad and the natural ground east of it. */
+        for (u=300;u<=1700;u+=4) for (v=-700;v<=700;v+=4) {
             int color=surface_detail(p,2,u,v,1073741824U/120,1,0);
             seen[color]=1; base=surface_color(p,2,u,v);
             changed+=color!=base;
             assert(color>=0 && color<(mode ? 128 : 32));
             /* Minified and distant texture converges exactly to the original
-               material, without altering the preserved coast regression. */
+               material. */
             assert(surface_detail(p,2,u,v,1073741824U/2100,1,0)==base);
             assert(surface_detail(p,2,u,v,1073741824U/120,64,0)==base);
         }
@@ -816,6 +879,7 @@ int main(void) {
     resource_visibility();
     terrain_angles();
     terrain_flight_colors();
+    orbital_ground_materials();
     terrain_smooth_motion();
     terrain_fixed_geometry();
     close_ground_detail();
