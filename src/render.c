@@ -2102,7 +2102,7 @@ static void gui_rows(void) {
         text(13,44+i*12,i==game->selection && game->page!=SYSTEM_MAP?12:15,s);
     }
 }
-/* Rotating hull on a turntable, rendered into a scissored inset of the
+/* Rotating hull against a starfield, rendered into a scissored inset of the
    frame. Coordinates are logical (320-wide); the inset itself is native. */
 static void ship_preview(int ship, int x, int y, int w, int h) {
     static const int elevation = 32; /* about 11 degrees above the hull */
@@ -2139,13 +2139,6 @@ static void ship_preview(int ship, int x, int y, int w, int h) {
     f = forward(spin, 0);
     right = vec(cosi(spin), 0, -sini(spin));
     centre = scale(f, -(int64_t)(front_z + back_z) * spec->depth / 2, 16384);
-    /* Turntable: alternating segments turn with the hull. */
-    for (i = 0; i < 16; i++) {
-        int64_t pad = reach * 4 / 5, deck = -ry - ry / 8 - 4;
-        Vec a = vec(sini(spin + i * 64) * pad / 16384, deck, cosi(spin + i * 64) * pad / 16384);
-        Vec b = vec(sini(spin + i * 64 + 64) * pad / 16384, deck, cosi(spin + i * 64 + 64) * pad / 16384);
-        triangle(vec(0, deck, 0), a, b, frame->enhanced ? (i & 1 ? 113 : 115) : (i & 1 ? 1 : 16));
-    }
     ship_mesh(ship, centre, right, vec(0, 16384, 0), f, 16, unit(vec(-7000, 12000, -9000), 16384));
     draw_triangles();
     nt = 0;
