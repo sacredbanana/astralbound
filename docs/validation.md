@@ -793,3 +793,26 @@ maximum speed, so only the ratios matter). Surface render, ms per frame:
 The 060 figure is not representative: the emulated 68040 traps the 060's FINTRZ to
 software. Orbit and C2P hashes are unchanged on every build. Cycle-exact 6888x
 timing and real 6888x/040/060 hardware remain unverified.
+
+### Distant terrain material LOD (2026-10-16)
+
+Flight between about 5 and 20 km was several times slower than low flight. A
+frame touched up to 31,000 distinct 256 m material tiles (about one per terrain
+pixel), each a full five-field geology evaluation, overflowing the 4096-slot
+cache every frame. Beyond 2 km, where the renderer already skips texturing, the
+material tile now doubles in size (up to 64 km) until it spans at least a third
+of a pixel. Pixel scale is estimated from distance, altitude-based grazing and
+planet curvature, as per-frame reciprocal-depth thresholds. Nearby and textured
+ground still uses 256 m tiles.
+
+Host: 5–20 km frames fell from 10–29 ms to 4.5–6.5 ms, with at most 2,830 material
+evaluations per frame; at most 31 of 64,000 viewport pixels changed in any tested
+view. `make test` and `make fpu-test` pass. `Space-benchmark` gained a 12 km
+"high terrain" scene. In AmiKit (ms/frame, before → after, two runs for 000/020):
+
+| Build | 12 km terrain | 220 m surface |
+| --- | --- | --- |
+| 000 | 522–649 → 149–163 | 125 → 125–130 |
+| 020 | 403–438 → 115–122 | 91–96 → 95–97 |
+| 020fpu | 355–360 → 86–93 | 70–73 → 67–75 |
+| 040 | 381 → 96 | 77 → 77 |

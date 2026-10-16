@@ -47,7 +47,7 @@ static void resource_visibility(void) {
     puts("PASS asteroid geometry visible in the astronomical Q8 camera frame");
 }
 static int surface_color(const Planet *p, int face, int u, int v) {
-    return surface_cache[surface_lookup(p,face,u,v)].color;
+    return surface_cache[surface_lookup_level(p,face,u,v,0)].color;
 }
 static int ground_color(const Planet *p, Vec local) {
     return material_color(p,local,terrain_material(p,local));
@@ -584,10 +584,10 @@ static void procedural_geology(void) {
            even across negative coordinates; no 256 m texture rectangles. */
         for (u=-512;u<=512;u+=256) {
             int left[5], i;
-            unsigned slot=surface_lookup(&p,2,u-1,11);
+            unsigned slot=surface_lookup_level(&p,2,u-1,11,0);
             surface_albedo(&p,slot);
             for(i=0;i<5;i++) left[i]=surface_cache[slot].albedo[i*5+4];
-            slot=surface_lookup(&p,2,u,11);
+            slot=surface_lookup_level(&p,2,u,11,0);
             surface_albedo(&p,slot);
             for(i=0;i<5;i++) assert(left[i]==surface_cache[slot].albedo[i*5]);
         }
@@ -602,7 +602,7 @@ static void procedural_geology(void) {
     /* Changing a planet's size/type must invalidate its metre-scale cache. */
     p.type=ICE; p.radius/=2;
     {
-        unsigned slot=surface_lookup(&p,2,0,0);
+        unsigned slot=surface_lookup_level(&p,2,0,0,0);
         assert(!surface_cache[slot].albedo_ready);
         surface_albedo(&p,slot);
         assert(surface_cache[slot].albedo[0]==terrain_albedo(&p,vec(0,p.radius,0),4));

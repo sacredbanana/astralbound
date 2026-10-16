@@ -644,8 +644,13 @@ static int material_color(const Planet *planet, Vec local, int material) {
 }
 #define SURFACE_CACHE_SIZE 4096
 #define SURFACE_TILE 256
+/* Distant ground samples coarser material tiles once a 256 m tile shrinks
+   below a third of a pixel. From 5 to 20 km a frame otherwise touches about
+   one tile per pixel, each a full geology evaluation, overflowing the cache. */
+#define SURFACE_LEVELS 8
+#define SURFACE_LOD_PIXELS 3
 static struct {
-    int u, v, face, valid, material, color, slope, slope_ready, lit;
+    int u, v, face, level, valid, material, color, slope, slope_ready, lit;
     uint32_t grain, slope_epoch;
     int8_t albedo[25]; /* Shared 64 m boundary samples, bilinear in each cell. */
     uint8_t albedo_ready;
@@ -653,10 +658,45 @@ static struct {
 } surface_cache[SURFACE_CACHE_SIZE];
 static uint32_t surface_seed, surface_system;
 static int surface_enhanced, surface_radius, surface_type;
-static unsigned surface_lookup(const Planet *p, int face, int u, int v) {
+/* lod_depth[i]: pixels at or beyond this reciprocal depth use level i + 1. */
+static uint32_t lod_depth[SURFACE_LEVELS];
+static int64_t lod_altitude = -1;
+static int lod_radius, lod_width;
+/* Ground metres per pixel grow with distance and with grazing incidence,
+   approximated as altitude/distance plus the planet's curvature. Rebuilt only
+   when altitude changes by 1/32, as each step needs a square root. */
+static void surface_lod_prepare(const Planet *p, int64_t altitude) {
+    int64_t d;
+    int level = 0;
+    if (altitude < 50) altitude = 50;
+    if (lod_radius == p->radius && lod_width == frame->w && lod_altitude >= 0 &&
+        llabs(altitude - lod_altitude) <= lod_altitude / 32)
+        return;
+    lod_altitude = altitude; lod_radius = p->radius; lod_width = frame->w;
+    memset(lod_depth, 0, sizeof(lod_depth));
+    for (d = 2000; d < 4000000 && level < SURFACE_LEVELS; d += d / 8) {
+        int64_t grazing = altitude * 65536 / d + d * 32768 / p->radius;
+        int64_t root, metres;
+        if (grazing < 4096) grazing = 4096;
+        if (grazing > 65536) grazing = 65536;
+        root = (int64_t)isqrt64((uint64_t)grazing);
+        metres = 2 * d * 256 / (frame->w * root);
+        while (level < SURFACE_LEVELS && SURFACE_LOD_PIXELS * metres > (SURFACE_TILE << level))
+            lod_depth[level++] = (uint32_t)(1073741824LL / d);
+    }
+}
+static int surface_level(uint32_t depth) {
+    int level = 0;
+    while (level < SURFACE_LEVELS && depth <= lod_depth[level])
+        level++;
+    return level;
+}
+static unsigned surface_lookup_level(const Planet *p, int face, int u, int v, int level) {
     unsigned slot;
-    int tile_u = u >= 0 ? u / SURFACE_TILE : (u - SURFACE_TILE + 1) / SURFACE_TILE;
-    int tile_v = v >= 0 ? v / SURFACE_TILE : (v - SURFACE_TILE + 1) / SURFACE_TILE;
+    int shift = 8 + level, size = SURFACE_TILE << level;
+    /* Floor division by the power-of-two tile size, without a per-pixel DIVS. */
+    int tile_u = u >= 0 ? u >> shift : ~(~u >> shift);
+    int tile_v = v >= 0 ? v >> shift : ~(~v >> shift);
     uint32_t epoch = game->tick / HZ;
     Vec fixed, local;
     if (surface_seed != p->seed || surface_system != game->system.seed ||
@@ -667,21 +707,22 @@ static unsigned surface_lookup(const Planet *p, int face, int u, int v) {
         surface_enhanced = frame->enhanced;
         surface_radius = p->radius; surface_type = (int)p->type;
     }
-    slot = hash32((unsigned)tile_u ^ hash32((unsigned)tile_v) ^ (unsigned)face * 7919U) &
-           (SURFACE_CACHE_SIZE - 1);
+    slot = hash32((unsigned)tile_u ^ hash32((unsigned)tile_v) ^ (unsigned)face * 7919U ^
+                  (unsigned)level * 0x9e3779b9U) & (SURFACE_CACHE_SIZE - 1);
     if (surface_cache[slot].valid && surface_cache[slot].u == tile_u &&
         surface_cache[slot].v == tile_v && surface_cache[slot].face == face &&
-        surface_cache[slot].epoch == epoch)
+        surface_cache[slot].level == level && surface_cache[slot].epoch == epoch)
         return slot;
-    u = tile_u * SURFACE_TILE + SURFACE_TILE / 2;
-    v = tile_v * SURFACE_TILE + SURFACE_TILE / 2;
+    u = tile_u * size + size / 2;
+    v = tile_v * size + size / 2;
     {
         int sign = face & 1 ? -p->radius : p->radius;
         fixed = face / 2 == 0 ? vec(sign,u,v) : face / 2 == 1 ? vec(u,sign,v) : vec(u,v,sign);
     }
     local = body_rotate(p, radial(fixed, p->radius), 0);
     if (!surface_cache[slot].valid || surface_cache[slot].u != tile_u ||
-        surface_cache[slot].v != tile_v || surface_cache[slot].face != face) {
+        surface_cache[slot].v != tile_v || surface_cache[slot].face != face ||
+        surface_cache[slot].level != level) {
         surface_cache[slot].material = terrain_material(p, local);
         surface_cache[slot].grain = hash32(p->seed ^ (unsigned)tile_u ^ hash32((unsigned)tile_v) ^ face*7919U);
         surface_cache[slot].slope_ready = 0;
@@ -689,7 +730,7 @@ static unsigned surface_lookup(const Planet *p, int face, int u, int v) {
     }
     surface_cache[slot].u = tile_u; surface_cache[slot].v = tile_v;
     surface_cache[slot].face = face; surface_cache[slot].valid = 1;
-    surface_cache[slot].epoch = epoch;
+    surface_cache[slot].level = level; surface_cache[slot].epoch = epoch;
     surface_cache[slot].color = material_color(p, local, surface_cache[slot].material);
     return slot;
 }
@@ -736,7 +777,9 @@ static void surface_slope(const Planet *p, unsigned slot, int face, int tu, int 
    Broad patches survive approach; small inclusions fade before minification.
    No extra geometry, height noise, floating point or terrain sampling per pixel. */
 static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint, int slope) {
-    unsigned slot=surface_lookup(p,face,u,v);
+    /* Only the untextured distant path below uses coarse material levels. */
+    unsigned slot=surface_lookup_level(p,face,u,v,
+        depth <= 1073741824U/2000 ? surface_level(depth) : 0);
     int color=surface_cache[slot].color, material, shade, variation, strength;
     int tu = u >= 0 ? u/256 : (u-255)/256;
     int tv = v >= 0 ? v/256 : (v-255)/256;
@@ -958,6 +1001,7 @@ static void planet_mesh(int body) {
     int radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
     int64_t distance = length(cam_local), altitude = distance - radius;
     terrain_surface = body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE ? p : NULL;
+    if (terrain_surface) surface_lod_prepare(p, altitude);
     {
         Vec c = camera(p->center);
         if (c.z + radius < 8) {

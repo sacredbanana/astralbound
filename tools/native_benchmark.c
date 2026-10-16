@@ -43,9 +43,14 @@ int main(void) {
                (unsigned long)(duration * 1000000 / rate / 16), (unsigned long)hash);
     }
     g.docked = -1;
-    for (scene = 0; scene < 2; scene++) {
+    /* Orbit, low surface flight and 12 km flight, where distant terrain
+       pixels each cover a whole 256 m material tile. */
+    for (scene = 0; scene < 3; scene++) {
+        static const char *names[] = {"orbit", "surface", "high terrain"};
+        static const long long altitude[] = {35000, 220, 12000};
         g.pos = add(scale(g.system.planets[0].center, FP, 1),
-                    vec(0, (g.system.planets[0].radius + (scene ? 220LL : g.system.planets[0].atmosphere + 35000LL)) * FP,
+                    vec(0, (g.system.planets[0].radius + altitude[scene] +
+                            (scene ? 0 : g.system.planets[0].atmosphere)) * FP,
                         (scene ? -900LL : -60000LL) * FP));
         g.pitch = scene ? -35 : -70;
         render_game(&g, &f);
@@ -54,7 +59,7 @@ int main(void) {
         duration = timer() - begin;
         hash = 2166136261U;
         for (i = 0; i < f.w * f.h; i++) hash = (hash ^ f.pixels[i]) * 16777619U;
-        printf("%s render: %lu us/frame hash %08lx\n", scene ? "surface" : "orbit",
+        printf("%s render: %lu us/frame hash %08lx\n", names[scene],
                (unsigned long)(duration * 1000000 / rate / 16), (unsigned long)hash);
     }
     result = 0;
