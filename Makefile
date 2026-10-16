@@ -101,6 +101,13 @@ career-preview: build/career-preview
 	mkdir -p build/evidence
 	./build/career-preview
 
+.PHONY: npc-preview
+build/npc-preview: $(CORE) $(HEADERS) tools/npc_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/npc_preview.c -o $@
+npc-preview: build/npc-preview
+	mkdir -p build/evidence
+	./build/npc-preview
+
 build/ui-tests: $(CORE) $(HEADERS) tests/test_ui.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_ui.c -o $@
 

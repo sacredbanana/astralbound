@@ -246,6 +246,10 @@ market** toggles the black market at lawless ports or with local reputation 5+.
 Restricted goods cost 50% more there. Customs on departure, arrival and nearby
 patrol scans confiscates contraband and fines 100 CR per tonne. Wanted commanders
 attract armed police near ports; cargo attracts pirates in lawless orbital space.
+Nearby traffic flies the same hull models as the shipyard, pointed along its course
+through the local air or frame and rolled level with the nearest body; once a hull
+shrinks below about 16 pixels long it falls back to a four-triangle silhouette.
+`make npc-preview` renders oriented encounters in ECS and AGA.
 
 **U** opens the six-hull catalogue: **1–6 then Return** buys a hull. Hulls differ in
 shape, mass, cargo, crew, acceleration, turret mounts and missile capacity. Cargo
