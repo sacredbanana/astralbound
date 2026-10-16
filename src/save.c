@@ -308,7 +308,7 @@ static int valid(const Game *g) {
         g->shield < 0 || g->shield > 100 || g->fuel < 0 || g->fuel > 100 || g->heat < 0 ||
         g->heat > 100 || g->credits < 0 || g->credits > 100000000 || g->pitch < -256 ||
         g->pitch > 256 || g->yaw < 0 || g->yaw > 1023 || g->roll < 0 || g->roll > 1023 ||
-        g->page < 0 || g->page > CAREER ||
+        g->page < 0 || g->page > SERVICES ||
         g->selection < 0 || g->selection >= MAX_MISSIONS || g->upgrade < 0 || g->upgrade > 3 ||
         g->throttle < 0 || g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 4)
         return 0;

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "astralbound.h"
+#include "services.h"
 #include "galaxy.h"
 #include "solar.h"
 #include <stdio.h>
@@ -594,12 +595,7 @@ int accept_mission(Game *g, int index) {
     if (g->docked < 0 || index < 0 || index >= MAX_MISSIONS || g->dead)
         return 0;
     m = &g->board[index];
-    if (m->state != OFFERED || g->tick >= m->deadline ||
-        cargo_used(g) + m->quantity > ship_capacity[g->ship] ||
-        passengers_used(g) + m->passengers > g->cabins * 2 ||
-        g->reputation[m->faction] < m->required_rep || g->wanted[m->faction] ||
-        (m->type == ESCORT && g->crew < ship_specs[g->ship].crew))
-        return 0;
+    if (mission_refusal(g, index)) return 0;
     for (i = 0; i < MAX_MISSIONS; i++) {
         if (g->contracts[i].id == m->id)
             return 0;

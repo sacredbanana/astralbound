@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "ui.h"
+#include "services.h"
+#include "galaxy.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 static Game g;
 unsigned long __stack=1048576;
 static int click(Frame *f,int action) {
@@ -18,7 +21,8 @@ static int click(Frame *f,int action) {
 static void workflow(Frame *f) {
     UiWidget v[UI_MAX_WIDGETS]; int n,i,credits,cargo;
     game_init(&g,0x53504143);
-    click(f,UI_NAV+'b'); assert(g.page==BOARD);
+    click(f,SERVICE_DIRECTORY); assert(g.page==SERVICES);
+    click(f,SERVICE_SELECT+1); click(f,SERVICE_CALL); assert(g.page==MARKET);
     click(f,UI_NAV+'m'); assert(g.page==MARKET);
     click(f,UI_ROW+7); assert(g.selection==7);
     click(f,UI_ROW); credits=g.credits; cargo=g.cargo[0];
@@ -82,7 +86,7 @@ static void workflow(Frame *f) {
 static void quit_dialog(Frame *f) {
     UiWidget v[UI_MAX_WIDGETS];
     int page, dead, paused, i, n;
-    for (page=FLIGHT; page<=CAREER; page++) for (dead=0; dead<2; dead++) {
+    for (page=FLIGHT; page<=SERVICES; page++) for (dead=0; dead<2; dead++) {
         game_init(&g,0x53504143); g.page=page; g.dead=dead;
         n=ui_widgets(&g,f,v);
         for(i=0;i<n;i++) assert(v[i].action!=UI_EXIT && v[i].action!=UI_SAVE_EXIT);
@@ -120,8 +124,47 @@ static void quit_dialog(Frame *f) {
     remove("ui-quit.sav");
     puts("PASS quit modal on every page, paused/dead states, keyboard/mouse isolation and save roundtrip");
 }
+static void station_workflow(Frame *f) {
+    int i,credits; Mission offered; Sector old_waypoint={2,0,3}; char name[40],again[40];
+    game_init(&g,0x53504143);
+    game_action(&g,'s'); assert(g.page==SERVICES);
+    contact_name(service_identity(&g,0),name,sizeof(name));
+    contact_name(service_identity(&g,0),again,sizeof(again)); assert(!strcmp(name,again));
+    for(i=0;i<PORT_SERVICES;i++) {
+        click(f,SERVICE_DIRECTORY); click(f,SERVICE_SELECT+i);
+        assert(g.service_selection==i); credits=g.credits;
+        click(f,SERVICE_CALL);
+        if(i==4) assert(g.page==SERVICES && g.credits==credits-100 && g.hull==100 && g.fuel==100);
+        else assert((g.page==(int[]){BOARD,MARKET,SHIPYARD,EQUIPMENT,SERVICES,CAREER}[i]));
+    }
+    game_action(&g,'b'); assert(g.page==BOARD && !g.mission_detail);
+    offered=g.board[0]; click(f,UI_ROW); assert(g.mission_detail && g.selection==0);
+    for(i=0;i<3;i++) { click(f,MISSION_TAB+i); assert(g.mission_tab==i); }
+    g.waypoint=old_waypoint; g.waypoint_set=1; g.galaxy_ready=1;
+    g.galaxy_searching=1; snprintf(g.galaxy_query,sizeof(g.galaxy_query),"SOL");
+    click(f,MISSION_MAP); assert(g.page==MAP && same_sector(g.selected,offered.destination));
+    assert(!g.galaxy_searching && !g.galaxy_query[0] && !g.galaxy_detail);
+    assert(g.galaxy_center.x==galaxy_position(offered.destination).x && g.galaxy_extent==12000);
+    assert(g.waypoint_set && same_sector(g.waypoint,old_waypoint));
+    click(f,GAL_WAYPOINT); assert(g.waypoint_set && same_sector(g.waypoint,offered.destination));
+    click(f,MISSION_RETURN); assert(g.page==BOARD && g.mission_detail && g.selection==0 && g.mission_tab==2);
+    assert(!mission_refusal(&g,0)); click(f,'\r'); assert(g.page==LOG && g.mission_detail && g.contracts[g.selection].id==offered.id);
+    g.contracts[g.selection].destination=g.system.sector; g.contracts[g.selection].port=1;
+    click(f,MISSION_MAP); assert(g.target==1 && g.clearance==-1 && !g.dock_stage);
+    click(f,MISSION_RETURN); assert(g.page==LOG && g.mission_detail);
+    click(f,MISSION_LIST); click(f,UI_ROW); assert(g.mission_detail);
+    for(i=0;i<MISSION_TYPES;i++) { Mission m=offered; m.type=(MissionType)i; assert(strlen(mission_story(&m))>80 && strlen(mission_orders(&m))>70); }
+    click(f,SERVICE_DIRECTORY); assert(save_game(&g,"station-ui.sav"));
+    assert(load_game(&g,"station-ui.sav") && g.page==SERVICES && !g.mission_detail && !g.mission_map_return);
+    remove("station-ui.sav");
+    g.docked=-1; credits=g.credits;
+    click(f,SERVICE_SELECT+4); click(f,SERVICE_CALL); assert(g.page==SERVICES && g.credits==credits);
+    game_action(&g,'b'); click(f,UI_ROW); click(f,MISSION_MAP); assert(g.page==MAP);
+    g.page=FLIGHT; game_action(&g,'s'); assert(g.page==FLIGHT); /* S remains reverse thrust in flight. */
+    puts("PASS station calls, mission stories/terms/orders, acceptance, route focus/waypoint/return and saved directory");
+}
 int main(void) {
     Frame f={320,200,0,NULL,{0}};
-    workflow(&f); quit_dialog(&f); f.h=256; workflow(&f); quit_dialog(&f); f.w=640; f.h=480; workflow(&f); quit_dialog(&f);
+    workflow(&f); station_workflow(&f); quit_dialog(&f); f.h=256; workflow(&f); station_workflow(&f); quit_dialog(&f); f.w=640; f.h=480; workflow(&f); station_workflow(&f); quit_dialog(&f);
     return 0;
 }

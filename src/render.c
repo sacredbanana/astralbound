@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "astralbound.h"
 #include "ui.h"
+#include "services.h"
 #include "galaxy.h"
 #include "solar.h"
 #include "fpu.h"
@@ -2250,26 +2251,6 @@ static void menus(void) {
         text(12, 174, 7, "UP DOWN PORT / Q BODY / P AUTO");
         break;
     }
-    case BOARD:
-        panel("PORT / CONTRACT EXCHANGE");
-        if (game->docked < 0) {
-            text(12, 40, 12, "DOCK TO ACCEPT CONTRACTS");
-            break;
-        }
-        for (i = 0; i < MAX_MISSIONS; i++) {
-            const Mission *m = &game->board[i];
-            snprintf(s, sizeof(s), "%d %s %d CR %s", i + 1, mission_names[m->type], m->reward,
-                     m->state == OFFERED ? "" : "TAKEN");
-            text(12, 31 + i * 16, i == game->selection ? 12 : 15, s);
-        }
-        {
-            const Mission *m = &game->board[game->selection];
-            snprintf(s, sizeof(s), "%ld/%ld P%d %dT %dP REP%d", (long)m->destination.x,
-                     (long)m->destination.z, m->port + 1, m->quantity, m->passengers, m->required_rep);
-            text(12, 158, 13, s);
-        }
-        text(12, 174, 7, "ENTER ACCEPT / + TERMS / B MORE");
-        break;
     case MARKET:
         snprintf(s, sizeof(s), "MARKET / %s",
                  game->docked >= 0 && game->docked < game->nports
@@ -2326,23 +2307,6 @@ static void menus(void) {
         text(12, 163, 7, "+ HIRE 200 / - DISMISS / F PAY FINE");
         text(12, 177, 7, "0 EQUIPMENT / B CONTRACTS / V FLIGHT");
         break;
-    case LOG:
-        panel("COMMANDER / CONTRACT LOG");
-        for (i = 0; i < MAX_MISSIONS; i++) {
-            const Mission *m = &game->contracts[i];
-            if (!m->id)
-                continue;
-            snprintf(s, sizeof(s), "%s %s", mission_names[m->type],
-                     m->state == ACTIVE     ? "ACTIVE"
-                     : m->state == COMPLETE ? "PAID"
-                                            : "FAILED");
-            text(12, 30 + i * 13, 13, s);
-            snprintf(s, sizeof(s), "  %ld/%ld P%d LEG%d/%d %ldS", (long)m->destination.x,
-                     (long)m->destination.z, m->port + 1, m->leg, m->legs,
-                     (long)(m->deadline > game->tick ? (m->deadline - game->tick) / HZ : 0));
-            text(12, 37 + i * 13, 7, s);
-        }
-        break;
     case HELP:
         panel("ASTRALBOUND / FLIGHT MANUAL");
         {
@@ -2350,7 +2314,7 @@ static void menus(void) {
                 "ARROWS ROLL PITCH / W S SET SPEED",  "CTRL FIRE / E ASSIST / A DRIVE",
                 "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
                 "[ ] TIME TO 4096X / SPACE PAUSE",          "G MAP / DRAG ROTATE / +/- ZOOM",
-                "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
+                "S SERVICES / B BOARD / M MARKET",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
                 "F5 SAVE / F9 LOAD / ESC QUIT DIALOG",         "R CONTACT / Z ORBITS / I BODY DATA",
                 "0 EQUIP / 9 CREW / , MISSILE . DECOY", "BACKSLASH ROCK / O MINE N CARGO / / POD"};
             for (i = 0; i < 12; i++)
@@ -2372,8 +2336,6 @@ static void gui_rows(void) {
         switch(game->page) {
         case MARKET:
             snprintf(s,sizeof(s),"%-9s %4d %4d %4d %3d",goods_names[i],price(game,i),sell_price(game,i),market_stock(game,i),game->cargo[i]); break;
-        case BOARD:
-            snprintf(s,sizeof(s),"%-14s %5d CR  %s",mission_names[game->board[i].type],game->board[i].reward,game->board[i].state==OFFERED?"OFFER":"TAKEN"); break;
         case EQUIPMENT:
             snprintf(s,sizeof(s),"%-19s %4d CR  %d",equipment_names[i],equipment_cost[i],i==CABIN?game->cabins:i==MISSILE_RACK?game->missiles:i==COUNTERMEASURE?game->countermeasures:equipped(game,(Equipment)i)); break;
         case SYSTEM_MAP: {
@@ -2490,6 +2452,7 @@ static void shipyard(void) {
         rect(x + 50 + (mine * 41 / best), y, 1, 7, 15);
     }
 }
+#include "render_services.inc"
 static void cockpit_scan(int top) {
     int cx=160,cy=top+24,i,a,px=0,py=0;
     rect(102,top+3,115,36,0);
@@ -2679,17 +2642,24 @@ static void gui(void) {
         snprintf(buf,sizeof(buf),"%s %dX",game->paused?"PAUSED":"TIME",game->effective_warp);
         text(104,top+39,12,buf);
     } else {
-        static const char *titles[]={"FLIGHT","GALACTIC NAVIGATION","CONTRACT EXCHANGE","COMMODITY MARKET","SHIP CATALOGUE","CONTRACT LOG","SYSTEM NAVIGATION","FLIGHT MANUAL","SHIP EQUIPMENT","COMMANDER RECORD"};
+        static const char *titles[]={"FLIGHT","GALACTIC NAVIGATION","CONTRACT EXCHANGE","COMMODITY MARKET","SHIP CATALOGUE","CONTRACT LOG","SYSTEM NAVIGATION","FLIGHT MANUAL","SHIP EQUIPMENT","COMMANDER RECORD","STATION SERVICES"};
         rect(0,0,320,h,1);
-        if(game->page==LOG || game->page==HELP || (game->page==SYSTEM_MAP && game->system_display)) {
+        if(game->page==HELP || (game->page==SYSTEM_MAP && game->system_display)) {
             /* Existing orbital projection and body data remain truthful at true scale. */
             int old_h=view_h; view_h=h; menus(); view_h=old_h;
             rect(0,h-60,320,60,1);
         }
         rect(0,0,320,20,16); line(0,19,319,19,20);
-        text(8,7,13,titles[game->page]);
+        if(game->page==MARKET || game->page==SHIPYARD || game->page==EQUIPMENT || game->page==CAREER) {
+            int service=game->page==MARKET?1:game->page==SHIPYARD?2:game->page==EQUIPMENT?3:5;
+            uint32_t id=service_identity(game,service);
+            if(game->docked>=0) {
+                contact_portrait(4,2,16,16,id); contact_name(id,buf,sizeof(buf));
+                text(24,2,15,buf); text(24,11,13,service_roles[service]);
+            } else text(8,7,13,titles[game->page]);
+        } else text(8,7,13,titles[game->page]);
         if(game->page==MARKET) text(13,34,7,"ITEM        BUY SELL STOCK HOLD");
-        if(game->page==BOARD) text(13,34,7,game->docked>=0?game->ports[game->docked].name:"DOCK TO ACCEPT CONTRACTS");
+
         if(game->page==EQUIPMENT) text(13,34,7,"EQUIPMENT          PRICE  FITTED");
         if(game->page==CAREER) {
             snprintf(buf,sizeof(buf),"%s / %d CR",ship_specs[game->ship].name,game->credits); text(12,28,15,buf);
@@ -2702,17 +2672,15 @@ static void gui(void) {
         if(game->page==MAP) galaxy_map();
     }
     if (!game->ui_quit) hover=gui_buttons(v,n,s);
-    if (!game->ui_quit && (game->page==MARKET || game->page==BOARD || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display))) gui_rows();
+    if (!game->ui_quit && (game->page==MARKET || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display))) gui_rows();
+    if (game->page==SERVICES) service_directory();
+    if (game->page==BOARD || game->page==LOG) mission_screen();
     if (game->page==SHIPYARD) shipyard();
     if (game->page==MAP) galaxy_text();
     if(game->page!=FLIGHT && game->page!=MAP) {
         snprintf(buf,sizeof(buf),"%d CR / HOLD %d/%dT",game->credits,cargo_used(game),ship_capacity[game->ship]); text(8,h-28,12,buf);
         /* Status ribbon stays clear of both action buttons and navigation. */
-        if(game->page==BOARD) {
-            const Mission *m=&game->board[game->selection];
-            snprintf(buf,sizeof(buf),"TO %ld/%ld P%d / %dT %dP / %ldH",(long)m->destination.x,(long)m->destination.z,m->port+1,m->quantity,m->passengers,(long)((m->deadline>game->tick?m->deadline-game->tick:0)/(HZ*3600)));
-            text(8,h-62,7,buf);
-        } else if(game->page==SYSTEM_MAP && !game->system_display) {
+        if(game->page==SYSTEM_MAP && !game->system_display) {
             snprintf(buf,sizeof(buf),"RANGE %ld KM / %s",(long)(length(sub(navigation_position(game),game->pos))/(FP*1000)),game->target<0?"BODY WAYPOINT":"DOCKING PORT");
             text(8,h-62,7,buf);
         }

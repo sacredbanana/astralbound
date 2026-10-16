@@ -257,7 +257,7 @@ static void compact_display(void) {
     assert(small.pixels && full.pixels && planar);
     /* Compare every menu's text area with the established 256-line layout,
        including the last contract/commodity row and the bottom instructions. */
-    for (page = MAP; page <= CAREER; page++) {
+    for (page = MAP; page <= SERVICES; page++) {
         g.page = page;
         assert(render_init(&full));
         render_game(&g, &full);
@@ -271,6 +271,21 @@ static void compact_display(void) {
             assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12,
                            page == SHIPYARD ? 106 : 296));
     }
+    /* Every mission story/orders/terms pane fits the same 200-line content area.
+       Compare the rendered content with PAL so extra height cannot hide text. */
+    for(page=BOARD;page<=LOG;page+=LOG-BOARD) {
+        int type,tab;
+        g.page=page; g.selection=0; g.mission_detail=1;
+        for(type=0;type<MISSION_TYPES;type++) for(tab=0;tab<3;tab++) {
+            Mission *m=page==BOARD?&g.board[0]:&g.contracts[0];
+            *m=g.board[1]; m->type=(MissionType)type; m->state=page==BOARD?OFFERED:ACTIVE;
+            g.mission_tab=tab;
+            assert(render_init(&small)); render_game(&g,&small);
+            assert(render_init(&full)); render_game(&g,&full);
+            for(y=34;y<136;y++) assert(!memcmp(small.pixels+y*320,full.pixels+y*320,320));
+        }
+    }
+    g.mission_detail=0;
     /* New system panels must remain fully legible in the 200-line layout. */
     g.page = SYSTEM_MAP;
     for (page = 1; page <= 2; page++) {

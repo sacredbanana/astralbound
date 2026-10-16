@@ -120,7 +120,7 @@ typedef struct {
     int hull, active, hostile, mission;
     uint32_t cooldown;
 } Npc;
-typedef enum { FLIGHT, MAP, BOARD, MARKET, SHIPYARD, LOG, SYSTEM_MAP, HELP, EQUIPMENT, CAREER } Page;
+typedef enum { FLIGHT, MAP, BOARD, MARKET, SHIPYARD, LOG, SYSTEM_MAP, HELP, EQUIPMENT, CAREER, SERVICES } Page;
 typedef struct {
     Sector sector;
     uint32_t visited, surveyed;
@@ -203,6 +203,7 @@ typedef struct {
     MiningRig rigs[MAX_RIGS];
     Deposit deposits[MAX_DEPOSITS];
     int rig_count, deposit_count;
+    int service_selection, mission_detail, mission_tab, mission_map_return, mission_map_selection; /* transient */
     int board_page, black_market, resource_target; /* transient UI/navigation */
     int ui_x, ui_y, ui_visible, ui_down, ui_capture, ui_press_page, ui_fire, ui_weapons; /* transient */
     int ui_quit; /* transient modal: 0 closed, 1 open, 2 save failed */

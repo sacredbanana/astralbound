@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "astralbound.h"
 #include "galaxy.h"
+#include "services.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -806,7 +807,7 @@ void game_tick(Game *g, Controls c) {
             g->warp = 1;
             g->throttle = 0;
             refresh_board(g);
-            say(g, "DOCKED - B CONTRACTS / M MARKET / U SHIPYARD");
+            say(g, "DOCKED - S STATION SERVICES / B NOTICES");
             inspect_cargo(g);
             break;
         }
@@ -1212,6 +1213,7 @@ void game_action(Game *g, int k) {
     /* Only pause reaches the ship while the hyperspace sequence runs. */
     if (g->hyperspace && k != ' ')
         return;
+    if (services_key(g,k)) return;
     if (g->page==MAP && galaxy_key(g,k)) return;
     switch (k) {
     case 'h':
@@ -1254,6 +1256,7 @@ void game_action(Game *g, int k) {
     case 'g':
         if(!g->galaxy_ready) galaxy_reset(g);
         g->page = MAP;
+        g->mission_map_return = 0;
         break;
     case 'b':
         if (g->page == MARKET) {
@@ -1263,6 +1266,7 @@ void game_action(Game *g, int k) {
         }
         if (g->page == BOARD) { g->board_page = !g->board_page; refresh_board(g); }
         g->page = BOARD;
+        g->mission_detail = g->mission_tab = g->mission_map_return = 0;
         g->selection = 0;
         break;
     case 'm':
@@ -1275,6 +1279,8 @@ void game_action(Game *g, int k) {
         break;
     case 'j':
         g->page = LOG;
+        g->selection = 0;
+        g->mission_detail = g->mission_tab = g->mission_map_return = 0;
         break;
     case 'c':
         if (g->page == SYSTEM_MAP && g->system_display == 1)
@@ -1380,6 +1386,7 @@ void game_action(Game *g, int k) {
     case '7':
     case '8':
         g->selection = k - '1';
+        if(g->page==BOARD || g->page==LOG) { g->mission_detail=1; g->mission_tab=0; }
         break;
     case '9': g->page = CAREER; g->selection = 0; break;
     case '0': g->page = EQUIPMENT; g->selection = 0; break;
@@ -1414,9 +1421,15 @@ void game_action(Game *g, int k) {
             if (buy_ship(g, g->selection)) say(g, "HULL PURCHASED");
             else snprintf(g->message, sizeof(g->message), "HULL REFUSED: %s", refusal);
         }
-        if (g->page == BOARD)
-            say(g, accept_mission(g, g->selection) ? "CONTRACT ACCEPTED - J FOR DETAILS"
-                                                   : "CANNOT ACCEPT CONTRACT");
+        if (g->page == BOARD) {
+            const char *refusal=mission_refusal(g,g->selection);
+            if(accept_mission(g,g->selection)) {
+                uint32_t id=g->board[g->selection].id; int i;
+                for(i=0;i<MAX_MISSIONS;i++) if(g->contracts[i].id==id) { g->selection=i; break; }
+                g->page=LOG; g->mission_detail=1;
+                say(g,"CONTRACT ACCEPTED - DESTINATION FOR ROUTE");
+            } else say(g,refusal?refusal:"CANNOT ACCEPT CONTRACT");
+        }
         break;
     case '+':
         if (g->page == CAREER) say(g, recruit_crew(g, 1) ? "CREW HIRED - 25 CR PER HOUR" : "RECRUITMENT REFUSED");

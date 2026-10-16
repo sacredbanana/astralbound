@@ -70,7 +70,7 @@
 
   Mouse console: FLY returns to flight; VIEW cycles the camera. GAL opens
   3D galaxy map; NAV lists destinations; SYS shows clickable orbital markers.
-  PORT opens Contracts/Market/Shipyard tabs. LOG, KIT, CREW and HLP open
+  PORT or S calls the station services directory. LOG, KIT, CREW and HLP open
   the other panels. Select a row, then click its action button. Dim controls
   are unavailable. Release inside the pressed control to activate it; drag
   away to cancel. GUI clicks never fire the laser.
@@ -224,8 +224,23 @@
 @prev navigation
 @next trade
 
-  Dock, press B, select an offer with 1-8, then Return to accept.
-  J lists contracts. Deadlines are in simulated time.
+  Dock, press S or click PORT to call station services. Select a named
+  contact to see their portrait, then Call/Return to open the service.
+  The directory offers contracts, trade, hulls, equipment, repairs and crew.
+  Authorise 100 CR at engineering restores hull, shields and fuel.
+
+  B opens contract notices directly. Click an offer or press 1-8 to open
+  its briefing. Return opens a selected notice; Return in its briefing
+  accepts it. Story gives the client's background, Orders gives the exact
+  flight objective, and Terms shows requirements and acceptance blockers.
+  J opens your selectable log, including completed and failed contracts.
+  Acceptance opens the live contract briefing. Deadlines use simulated time.
+
+  Destination opens the galaxy map focused on the mission system. Waypoint
+  marks it for navigation. Existing waypoints stay until you choose a new
+  one. Briefing returns to the same contract and tab. For a local mission,
+  Destination also selects its port; NAV/SYS shows local navigation.
+  The briefing names the destination port and current delivery leg.
 
   Courier / Freight: dock at the destination sector and port.
   Freight reserves cargo space until the contract ends.
@@ -443,7 +458,7 @@
 
   Launch L / Port T / Body Q / Auto P / Clearance D / Flight V
   System ports Y / Galaxy G / Jump X / Contract log J
-  Contracts B / Market M / Shipyard U / Equipment 0 / Crew 9
+  Services S / Contracts B / Market M / Shipyard U / Equipment 0 / Crew 9
   Steer arrows / Set speed W S / Fire Ctrl / Assist E / Gear K
   Time [ ] / Pause Space / Save F5 / Load F9 / Quit dialog Escape
 

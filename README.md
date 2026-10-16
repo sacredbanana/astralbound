@@ -265,9 +265,28 @@ while sales increase stock and lower prices. Supply returns towards its generate
 level by one tonne per simulated hour, including while travelling elsewhere.
 Up to 128 traded ports are preserved in the commander ledger across jumps and saves;
 when it fills, existing markets remain usable, but trading at new ports is refused.
-On the contract board, 1-8 selects an offer and Return accepts it.
+**S** or **PORT** calls station services: a bulletin-board directory of the contract
+agent, commodity exchange, ship broker, outfitter, engineer and port liaison.
+Select a contact to see their portrait; **Call / Return** opens their service.
+The engineer's **Authorise 100 CR** restores hull, shields and fuel.
+**B** opens contract notices directly. Click a notice or press 1-8 to read it;
+Return first opens the briefing, then accepts an offer from its briefing.
 
 ## Contracts
+
+Every notice has a named client and portrait, a story, flight orders, and terms.
+**Story / Orders / Terms** separates the narrative from precise completion rules,
+rewards, time remaining, freight, cabin seats, faction and reputation requirements.
+Acceptance blockers appear under Terms. **J** opens the selectable contract log;
+accepted, completed and failed contracts retain their briefings. Acceptance opens
+the live contract in this log, including the current port on multi-stop jobs.
+
+**Destination** opens the galaxy map focused on the mission system. Use its
+**Waypoint** control to mark the route; opening a briefing destination preserves
+any previous waypoint until you change it. **Briefing** returns to the same
+contract and tab. For a destination in the current system, Destination also selects
+the mission port for local navigation. Use **NAV / SYS** to inspect that port.
+
 
 Courier and freight jobs require docking at the named destination port in the
 specified sector. Cargo space is reserved when accepting freight. Orbital

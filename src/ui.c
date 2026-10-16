@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "ui.h"
 #include "galaxy.h"
+#include "services.h"
 #include <stdio.h>
 #include <string.h>
 int ui_scale(const Frame *f) { return f->w >= 640 ? 2 : 1; }
@@ -63,8 +64,8 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         return n;
     }
     for (i = 0; i < 9; i++)
-        button(v,&n,2+i*35,h-16,34,15,UI_NAV+keys[i],tabs[i],1,
-               (g->page == pages[i] || (i == 3 && (g->page == MARKET || g->page == SHIPYARD))) && (g->page != SYSTEM_MAP || g->system_display == (i == 5)));
+        button(v,&n,2+i*35,h-16,34,15,i==3?SERVICE_DIRECTORY:UI_NAV+keys[i],tabs[i],1,
+               (g->page == pages[i] || (i == 3 && (g->page == MARKET || g->page == SHIPYARD || g->page==SERVICES))) && (g->page != SYSTEM_MAP || g->system_display == (i == 5)));
     if (g->page == FLIGHT) {
         int y = h-80;
         button(v,&n,2,y+2,47,13,'v',"VIEW",1,0);
@@ -96,7 +97,7 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
     }
     button(v,&n,254,5,30,13,UI_SAVE,"SAVE",1,0);
     button(v,&n,286,5,30,13,UI_LOAD,"LOAD",1,0);
-    if (g->page == MARKET || g->page == BOARD || g->page == SHIPYARD || g->page == EQUIPMENT ||
+    if (g->page == MARKET || ((g->page == BOARD || g->page==LOG) && !g->mission_detail) || g->page == SHIPYARD || g->page == EQUIPMENT ||
         (g->page == SYSTEM_MAP && !g->system_display)) {
         int count = g->page == SHIPYARD ? SHIPS : 8;
         for (i=0;i<count;i++) {
@@ -111,11 +112,31 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
             else button(v,&n,8,42+i*12,304,11,UI_ROW+i,"",enabled,active);
         }
     }
-    if(g->page==BOARD || g->page==MARKET || g->page==SHIPYARD) {
-        button(v,&n,8,20,100,12,UI_NAV+'b',"CONTRACTS",1,g->page==BOARD);
+    if(g->page==MARKET || g->page==SHIPYARD) {
+        button(v,&n,8,20,100,12,SERVICE_DIRECTORY,"SERVICES",1,0);
         button(v,&n,110,20,100,12,UI_NAV+'m',"MARKET",1,g->page==MARKET);
         button(v,&n,212,20,100,12,UI_NAV+'u',"SHIPYARD",1,g->page==SHIPYARD);
     }
+    if(g->page==SERVICES) {
+        for(i=0;i<PORT_SERVICES;i++) button(v,&n,8,40+i*15,176,14,SERVICE_SELECT+i,"",dock,g->service_selection==i);
+        button(v,&n,8,h-45,176,14,SERVICE_CALL,g->service_selection==4?"AUTHORISE 100 CR":"CALL / ENTER",dock && (g->service_selection!=4 || g->credits>=100),0);
+    }
+    if(g->page==BOARD || g->page==LOG) {
+        const Mission *m=selected_mission(g); int valid=m && m->id;
+        if(g->mission_detail) {
+            button(v,&n,8,21,56,12,MISSION_LIST,"LIST",1,0);
+            for(i=0;i<3;i++) button(v,&n,66+i*82,21,80,12,MISSION_TAB+i,(const char*[]){"STORY","ORDERS","TERMS"}[i],valid,g->mission_tab==i);
+        } else {
+            button(v,&n,8,21,90,12,SERVICE_DIRECTORY,"SERVICES",1,0);
+            button(v,&n,100,21,104,12,g->page==BOARD?'b':UI_NAV+'b',g->page==BOARD?"MORE NOTICES":"OFFERS",dock,0);
+            button(v,&n,206,21,106,12,UI_NAV+'j',"MY CONTRACTS",1,g->page==LOG);
+        }
+        button(v,&n,8,h-45,98,14,g->mission_detail && g->page==BOARD?'\r':MISSION_OPEN,g->mission_detail && g->page==BOARD?"ACCEPT":"READ BRIEFING",valid && (g->page!=BOARD || !g->mission_detail || !mission_refusal(g,g->selection)),0);
+        button(v,&n,108,h-45,98,14,MISSION_MAP,"DESTINATION",valid,0);
+        button(v,&n,208,h-45,104,14,g->page==BOARD?'+':MISSION_LIST,g->page==BOARD?"NEGOTIATE":"LIST",valid && (g->page==LOG || (dock && m->state==OFFERED)),0);
+    }
+    if(g->page==EQUIPMENT || g->page==CAREER) button(v,&n,8,20,100,12,SERVICE_DIRECTORY,"SERVICES",1,0);
+    if(g->page==MAP && g->mission_map_return) button(v,&n,210,h-34,104,12,MISSION_RETURN,"BRIEFING",1,0);
     if(g->page==SYSTEM_MAP && g->system_display==1) {
         Vec origin; int64_t extent; int parent,x,y;
         ui_orbit_geometry(g,&origin,&extent,&parent);
@@ -139,10 +160,6 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         button(v,&n,80,y,70,14,'-',"SELL 1T",dock,0);
         button(v,&n,152,y,78,14,'b',"BLACK",dock && black_market_available(g),g->black_market);
         button(v,&n,232,y,80,14,'f',"SERVICE",dock,0); break;
-      case BOARD:
-        button(v,&n,8,y,100,14,'\r',"ACCEPT",dock,0);
-        button(v,&n,110,y,100,14,'+',"NEGOTIATE",dock,0);
-        button(v,&n,212,y,100,14,'b',"MORE JOBS",dock,0); break;
       case SHIPYARD: case EQUIPMENT:
         button(v,&n,8,y,74,14,'\r',"BUY",dock,0);
         button(v,&n,84,y,74,14,g->page == EQUIPMENT ? '-' : 'f',g->page == EQUIPMENT ? "SELL" : "SERVICE",dock,0);
@@ -239,7 +256,7 @@ static void activate(Game *g,int action,int x) {
             if(g->target<0) g->target_body=g->target_body/8*8+i;
             else g->target=g->target/8*8+i;
             g->resource_target=-1; g->clearance=-1; g->dock_stage=0;
-        } else g->selection=i;
+        } else { g->selection=i; if(g->page==BOARD || g->page==LOG) { g->mission_detail=1; g->mission_tab=0; } }
     } else game_action(g,action);
 }
 int ui_pointer(Game *g,const Frame *f,int x,int y,int down) {
