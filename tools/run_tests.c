@@ -1,9 +1,20 @@
-/* SPDX-License-Identifier: Unlicense; a bare CLI starts with only a small stack.
-   Give test children room for world/save fixtures without swapping at exit. */
+/* SPDX-License-Identifier: Unlicense; exercise entry/exit from small stacks,
+   then give the larger world/save fixtures a 1 MiB child stack. */
 #include <proto/dos.h>
 #include <dos/dostags.h>
 int main(void) {
     LONG result;
+    /* Exercise both the allocated-stack and existing-stack entry paths. A
+       completed SystemTags also verifies return through libnix to the shell. */
+    result = SystemTags((CONST_STRPTR)"Astralbound-stack-tests.000 ok > stack-small-results.txt",
+                        NP_StackSize, 4096, TAG_DONE);
+    if (result) return 20;
+    result = SystemTags((CONST_STRPTR)"Astralbound-stack-tests.000 ok > stack-large-results.txt",
+                        NP_StackSize, 1048576, TAG_DONE);
+    if (result) return 20;
+    result = SystemTags((CONST_STRPTR)"Astralbound-stack-tests.000 ok 5 > stack-status-results.txt",
+                        NP_StackSize, 4096, TAG_DONE);
+    if (result != 5) return 20;
     result = SystemTags((CONST_STRPTR)"Astralbound-galaxy-tests.020 > galaxy-results.txt",
                         NP_StackSize, 1048576, TAG_DONE);
     if (result) return 20;

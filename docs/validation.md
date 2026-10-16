@@ -958,3 +958,36 @@ Native emulator runtime was not verified in this pass: input/window control of
 the existing AmiKit/Amiberry instance failed before test execution could be
 confirmed. The native results above are compilation evidence. Release archives
 and ADF were not rebuilt; there is no physical-hardware runtime claim.
+
+
+## 2026-10-17: shell quit freeze and automatic stack restoration
+
+Replaced the forced libnix stack-copy constructor with a small 68000-compatible
+entry trampoline using Exec StackSwap. Runtime initialization and finalization
+stay on the original process stack; only the application main call uses an
+allocated stack, and the trampoline restores SP and task stack bounds before
+freeing it. Programs with an adequate incoming stack call main directly.
+All CPU games, native tests, benchmarks and release tools use this entry path.
+This supersedes the earlier unresolved bare-CLI stack-swap exit warning.
+
+- The previous executable hit a Guru after quitting from an isolated bare CLI.
+  Its saved binary and screenshot are in `build/quit-emulator/guest/Astralbound-before.020` and `build/quit-emulator/menu-long.png`.
+- `CLEAN=1 ./build-amiga.sh -j4 all variants tests benchmarks release-tools`
+  passed with warnings treated as errors. Full host `make -j4 test` passed.
+- The replacement native stack test passed from a default bare CLI. The new
+  020 ECS game completed 120 frames with audio enabled, returned to the CLI and
+  allowed the following shell command to create `after-returned.txt`. Evidence:
+  `build/quit-emulator/guest/after-output.txt` and `ecs-after.png`.
+- In the existing AmiKit 68040/FPU environment, the new .040 ran from a shell
+  reporting a 32768-byte stack. AGA lowres with audio completed 120 frames and
+  returned successfully; ordinary Quit at full AGA height also returned. A
+  separate test folder exercised F5 save, F9 load/resume and Save & Quit without
+  changing the user's commander. Evidence: `build/quit-emulator/amikit-*.png`
+  and the copied guest logs under `build/quit-emulator/amikit-results/`.
+- The complete native runner returned status 0: stack, galaxy, music,
+  presentation, quick core, UI, careers and icon checks. Stack checks run
+  children with 4096-byte and 1048576-byte incoming stacks, touch a 64 KiB local
+  buffer, check task bounds/arguments, and verify return status 5 survives the
+  enlarged-stack exit path.
+- The AmigaGuide checker reported zero errors/warnings. Physical hardware,
+  RTG shutdown and every individual CPU's live runtime remain untested here.

@@ -1,9 +1,10 @@
 AMIGA_CC ?= m68k-amigaos-gcc
-# Pull in libnix stack swapping so the executables honour their 256 KiB __stack.
-AMIGA_LDFLAGS = -Wl,-u,___stkinit
+# Run main on an Exec-managed stack; libnix startup/exit keep the original stack.
+AMIGA_LDFLAGS =
+STACK_OBJECTS = build/amiga/000/src/platform/amiga_stack.o build/amiga/000/src/platform/amiga_stack_swap.o
 CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/career.c src/save.c src/ui.c src/render.c
 SOURCES = $(CORE) src/platform/amiga.c
-CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -D__AMIGAOS3__ -MMD -MP
+CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -D__AMIGAOS3__ -Dmain=astralbound_main -MMD -MP
 ifeq ($(DEBUG),1)
 CFLAGS := $(filter-out -O2,$(CFLAGS)) -Og -g -DDEBUG
 endif
@@ -32,61 +33,70 @@ all: dist/amiga/Astralbound.020 dist/amiga/Astralbound.000 music-folders
 music-folders:
 	mkdir -p dist/amiga/music/battle dist/amiga/music/planetary-flight dist/amiga/music/space-flight dist/amiga/music/docked dist/amiga/music/game-over
 	cp music/README.txt dist/amiga/music/README.txt
-tests: dist/amiga/Astralbound-galaxy-tests.020 dist/amiga/Astralbound-music-tests.020 dist/amiga/Astralbound-ui-tests.020 dist/amiga/Astralbound-career-tests.020 dist/amiga/Astralbound-tests.020 dist/amiga/Astralbound-pres-tests.020 dist/amiga/Astralbound-RunTests
+tests: dist/amiga/Astralbound-stack-tests.000 dist/amiga/Astralbound-galaxy-tests.020 dist/amiga/Astralbound-music-tests.020 dist/amiga/Astralbound-ui-tests.020 dist/amiga/Astralbound-career-tests.020 dist/amiga/Astralbound-tests.020 dist/amiga/Astralbound-pres-tests.020 dist/amiga/Astralbound-RunTests
 variants: dist/amiga/Astralbound.030 dist/amiga/Astralbound.020fpu dist/amiga/Astralbound.040 dist/amiga/Astralbound.060
 benchmarks: $(foreach v,$(VARIANTS),dist/amiga/Astralbound-benchmark.$(v))
 release-tools: dist/amiga/Astralbound-Icons
 
 define variant
 OBJECTS_$(1) = $$(patsubst %.c,build/amiga/$(1)/%.o,$$(SOURCES))
-build/amiga/$(1)/%.o: %.c
+build/amiga/$(1)/%.o: %.c Makefile.Amiga
 	mkdir -p $$(dir $$@)
 	$$(AMIGA_CC) $$(CFLAGS) $$(CPU_$(1)) -c $$< -o $$@
-dist/amiga/Astralbound.$(1): $$(OBJECTS_$(1))
+dist/amiga/Astralbound.$(1): $$(OBJECTS_$(1)) $$(STACK_OBJECTS)
 	mkdir -p dist/amiga
 	$$(AMIGA_CC) $$(AMIGA_LDFLAGS) -noixemul $$(LINK_$(1)) $$^ -lamiga -o $$@
-dist/amiga/Astralbound-benchmark.$(1): $$(patsubst %.c,build/amiga/$(1)/%.o,$$(CORE)) build/amiga/$(1)/tools/native_benchmark.o
+dist/amiga/Astralbound-benchmark.$(1): $$(patsubst %.c,build/amiga/$(1)/%.o,$$(CORE)) build/amiga/$(1)/tools/native_benchmark.o $$(STACK_OBJECTS)
 	mkdir -p dist/amiga
 	$$(AMIGA_CC) $$(AMIGA_LDFLAGS) -noixemul $$(LINK_$(1)) $$^ -lamiga -o $$@
-dist/amiga/Astralbound-tests.$(1): $$(patsubst %.c,build/amiga/$(1)/%.o,$$(CORE)) build/amiga/$(1)/tests/test_astralbound.o
+dist/amiga/Astralbound-tests.$(1): $$(patsubst %.c,build/amiga/$(1)/%.o,$$(CORE)) build/amiga/$(1)/tests/test_astralbound.o $$(STACK_OBJECTS)
 	mkdir -p dist/amiga
 	$$(AMIGA_CC) $$(AMIGA_LDFLAGS) -noixemul $$(LINK_$(1)) $$^ -lamiga -o $$@
 -include $$(OBJECTS_$(1):.o=.d) build/amiga/$(1)/tools/native_benchmark.d build/amiga/$(1)/tests/test_astralbound.d
 endef
 $(foreach v,$(VARIANTS),$(eval $(call variant,$(v))))
 
+build/amiga/000/src/platform/amiga_stack_swap.o: src/platform/amiga_stack_swap.s Makefile.Amiga
+	mkdir -p $(dir $@)
+	$(AMIGA_CC) -m68000 -c $< -o $@
+
+dist/amiga/Astralbound-stack-tests.000: build/amiga/000/tests/test_amiga_stack.o $(STACK_OBJECTS)
+	mkdir -p dist/amiga
+	$(AMIGA_CC) -noixemul -m68000 $^ -lamiga -o $@
+-include build/amiga/000/tests/test_amiga_stack.d build/amiga/000/src/platform/amiga_stack.d
+
 clean:
 	rm -rf build/amiga
 	rm -f $(foreach v,$(VARIANTS),dist/amiga/Astralbound.$(v) dist/amiga/Astralbound-benchmark.$(v) dist/amiga/Astralbound-tests.$(v))
-	rm -f dist/amiga/Astralbound-galaxy-tests.020 dist/amiga/Astralbound-music-tests.020 dist/amiga/Astralbound-ui-tests.020 dist/amiga/Astralbound-career-tests.020 dist/amiga/Astralbound-pres-tests.020 dist/amiga/Astralbound-Icons dist/amiga/Astralbound-RunTests
+	rm -f dist/amiga/Astralbound-stack-tests.000 dist/amiga/Astralbound-galaxy-tests.020 dist/amiga/Astralbound-music-tests.020 dist/amiga/Astralbound-ui-tests.020 dist/amiga/Astralbound-career-tests.020 dist/amiga/Astralbound-pres-tests.020 dist/amiga/Astralbound-Icons dist/amiga/Astralbound-RunTests
 
-dist/amiga/Astralbound-pres-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_presentation.o
+dist/amiga/Astralbound-pres-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_presentation.o $(STACK_OBJECTS)
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 
-dist/amiga/Astralbound-music-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_music.o
+dist/amiga/Astralbound-music-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_music.o $(STACK_OBJECTS)
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 
-dist/amiga/Astralbound-Icons: build/amiga/000/tools/icons.o
+dist/amiga/Astralbound-Icons: build/amiga/000/tools/icons.o $(STACK_OBJECTS)
 	mkdir -p dist/amiga
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68000 $^ -lamiga -o $@
 -include build/amiga/020/tests/test_presentation.d build/amiga/000/tools/icons.d
 -include build/amiga/020/tests/test_music.d
 
-# The runner gives child tests a 256 KiB CLI stack before loading them.
-dist/amiga/Astralbound-RunTests: build/amiga/000/tools/run_tests.o
+# Most child suites use a 1 MiB stack; entry/exit tests also exercise 4 KiB.
+dist/amiga/Astralbound-RunTests: build/amiga/000/tools/run_tests.o $(STACK_OBJECTS)
 	mkdir -p dist/amiga
 	$(AMIGA_CC) -noixemul -m68000 $^ -lamiga -o $@
 -include build/amiga/000/tools/run_tests.d
 
-dist/amiga/Astralbound-career-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_careers.o
+dist/amiga/Astralbound-career-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_careers.o $(STACK_OBJECTS)
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 -include build/amiga/020/tests/test_careers.d
 
-dist/amiga/Astralbound-ui-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_ui.o
+dist/amiga/Astralbound-ui-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_ui.o $(STACK_OBJECTS)
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 -include build/amiga/020/tests/test_ui.d
 
 # Catalog and 3D map regression suite uses the same core on Amiga.
-dist/amiga/Astralbound-galaxy-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_galaxy.o
+dist/amiga/Astralbound-galaxy-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_galaxy.o $(STACK_OBJECTS)
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul $(LINK_020) $^ -lamiga -o $@
 -include build/amiga/020/tests/test_galaxy.d
