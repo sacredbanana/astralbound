@@ -701,7 +701,8 @@ static void test_thirty_c(void) {
     Controls c = {0};
     int i;
     assert(SYSTEM_DRIVE_SPEED == 30LL * LIGHT_SPEED);
-    assert(muldiv(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_ACCEL) > 20000000000000LL);
+    /* Braking from 30c still needs about 27 AU of room. */
+    assert(muldiv(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_ACCEL) > 20 * AU_METRES);
     assert(isqrt_product(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED) <= (uint64_t)SYSTEM_DRIVE_SPEED);
     assert(isqrt_product(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED) > (uint64_t)SYSTEM_DRIVE_SPEED - 16);
     game_init(&g, 1);

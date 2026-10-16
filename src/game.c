@@ -220,7 +220,7 @@ static int ordinary_thrust(const Game *g) {
     const ShipSpec *s = &ship_specs[g->ship];
     return s->acceleration * s->mass / (s->mass + cargo_used(g)) * FP;
 }
-static int drive_thrust(const Game *g) {
+static int64_t drive_thrust(const Game *g) {
     /* Retain powerful brakes after disengaging, including a restored save
        with cruise momentum. Never clamp or teleport the ship's velocity. */
     int64_t speed = length(g->vel);
@@ -367,7 +367,7 @@ static int pad_settling(const Game *g) {
 /* Gravity brings the ship down. The engines hold back the sink rate, tapering
    to a couple of metres per second at the gear, and cancel drift over the
    pad; they never push the ship towards the ground. */
-static Vec pad_settle_thrust(const Game *g, Vec gravity, int thrust) {
+static Vec pad_settle_thrust(const Game *g, Vec gravity, int64_t thrust) {
     const Port *pad = &g->ports[g->target];
     Vec n = pad->normal, off = sub(g->pos, pad->pos), drift, want, engine;
     int64_t height = along(off, n), sink, push;
@@ -410,7 +410,7 @@ void game_tick(Game *g, Controls c) {
     int64_t r, dist, alt, ground_alt;
     Vec local, center;
     const Planet *planet;
-    int thrust = ordinary_thrust(g);
+    int64_t thrust = ordinary_thrust(g);
     if (g->paused || g->dead || g->ui_quit)
         return;
     /* Translated local frames preserve relative precision and do not inject
@@ -848,7 +848,7 @@ void game_tick(Game *g, Controls c) {
    halve it until safe. Local physics, combat and capture always use game_tick. */
 static int cruise_interval(const Game *g, Controls c, int remaining) {
     int i, step = remaining;
-    int accel = drive_thrust(g) / FP;
+    int64_t accel = drive_thrust(g) / FP;
     /* Rapid drive changes use short bounded cruise steps. */
     if (accel == SYSTEM_DRIVE_ACCEL && step > HZ) step = HZ;
     Vec dest;
@@ -917,7 +917,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
 static void cruise_step(Game *g, int ticks) {
     int destination = g->target >= 0 ? g->ports[g->target].body : g->target_body;
     Vec motion = g->system.planets[destination].cruise_velocity;
-    int thrust;
+    int64_t thrust;
     drive_watchdog(g);
     thrust = drive_thrust(g);
     int64_t room = altitude_at(g, g->pos) -

@@ -2,6 +2,7 @@
 #include "astralbound.h"
 #include "ui.h"
 #include "galaxy.h"
+#include "solar.h"
 #include "fpu.h"
 #include <string.h>
 #include <stdio.h>
@@ -126,6 +127,10 @@ static void text(int x, int y, int c, const char *s) {
             p = glyphs[ch - 'A'];
         else if (ch >= '0' && ch <= '9')
             p = glyphs[26 + ch - '0'];
+        else if (ch == '%') {
+            static const uint8_t percent[7] = {24, 25, 2, 4, 8, 19, 3};
+            p = percent;
+        }
         if (p) {
             for (j = 0; j < 7; j++)
                 for (i = 0; i < 5; i++)
@@ -1854,43 +1859,86 @@ static void orbital_map(void) {
     text(12, 161, 7, s);
 
 }
+/* Durations pick hours, days or years so every body fits one short field. */
+static void duration_text(char *s, size_t n, uint64_t seconds) {
+    uint64_t tenths = seconds / 360;
+    if (tenths < 480) snprintf(s, n, "%lu.%lu H", (unsigned long)(tenths / 10), (unsigned long)(tenths % 10));
+    else if ((tenths /= 24) < 10000) snprintf(s, n, "%lu.%lu D", (unsigned long)(tenths / 10), (unsigned long)(tenths % 10));
+    else { tenths = seconds / 3155760; snprintf(s, n, "%lu.%lu Y", (unsigned long)(tenths / 10), (unsigned long)(tenths % 10)); }
+}
+static void pressure_text(char *s, size_t n, int32_t pa) {
+    if (pa < 0) snprintf(s, n, "NO SOLID SURFACE");
+    else if (pa == 0) snprintf(s, n, "VACUUM");
+    else if (pa >= 100000) snprintf(s, n, "%ld.%02ld BAR", (long)(pa / 100000), (long)(pa / 1000 % 100));
+    else if (pa >= 100) snprintf(s, n, "%ld MBAR", (long)(pa / 100));
+    else snprintf(s, n, "%ld PA", (long)pa);
+}
 static void system_data(void) {
-    static const char *climates[] = {"VACUUM", "TEMPERATE", "THIN", "DENSE", "FROZEN", "HYDROGEN"};
     static const char *economies[] = {"AGRICULTURE", "INDUSTRY", "TECHNOLOGY", "EXTRACTION"};
     static const char *governments[] = {"COUNCIL", "FEDERATION", "CORPORATE", "INDEPENDENT"};
     const Planet *p = &game->system.planets[selected_body()];
-    int j = exploration_index(game, game->system.sector), b = selected_body(), ports = 0, i;
-    char s[96];
+    int j = exploration_index(game, game->system.sector), b = selected_body(), ports = 0, i, y = 34;
+    int64_t earths, gees;
+    BodyFacts f;
+    char s[96], a[24], c[24];
+    body_facts(&game->system, b, &f);
     panel("SYSTEM / BODY DATA");
-    snprintf(s, sizeof(s), "%s / %d STARS / %d BODIES", game->system.name,
-             game->system.stars, game->system.count);
-    text(12, 30, 15, s);
-    snprintf(s, sizeof(s), "%s / %s", economies[game->system.economy],
-             governments[game->system.government]);
-    text(12, 42, 7, s);
-    snprintf(s, sizeof(s), "%s / %s", p->name, body_names[p->type]);
-    text(12, 52, 12, s);
-    snprintf(s, sizeof(s), "RADIUS %ld KM / GRAVITY %d M/S2", (long)(p->radius / 1000), (int)p->gravity);
-    text(12, 62, 15, p->catalog==2 ? "SIZE/GRAVITY UNKNOWN - PROXY GEOMETRY" : s);
-    snprintf(s, sizeof(s), "%s / ATMOSPHERE %ld KM", climates[p->climate], (long)(p->atmosphere / 1000));
-    text(12, 72, 15, s);
-    snprintf(s, sizeof(s), "PARENT %s / %s", p->parent >= 0 ? game->system.planets[p->parent].name : "STARS",
-             p->rings ? "RINGS" : "NO RINGS");
-    text(12, 82, 15, s);
-    snprintf(s, sizeof(s), "ORBIT %ld %s", (long)(p->orbit / (p->parent >= 0 ? 1000 : AU_METRES / 100)),
-             p->parent >= 0 ? "KM" : "0.01 AU");
-    text(12, 92, 15, s);
-    snprintf(s, sizeof(s), "PERIOD %lu H / INCLINATION %d DEG", (unsigned long)(p->period / 3600),
-             p->inclination * 360 / ANGLE);
-    text(12, 102, 15, s);
+    snprintf(s, sizeof(s), "%s / %s%s", p->name, body_names[p->type], p->rings ? " / RINGS" : "");
+    text(12, y, 12, s); y += 9;
+    if (p->catalog == 2) {
+        text(12, y, 15, "SIZE/GRAVITY UNKNOWN - PROXY GEOMETRY"); y += 9;
+    } else {
+        snprintf(s, sizeof(s), "RADIUS %ld KM / DENSITY %d.%02d G/CM3", (long)(p->radius / 1000),
+                 f.density / 100, f.density % 100);
+        text(12, y, 15, s); y += 9;
+        /* Earth masses in thousandths: mass/100 * 10^e / 5.97e24. */
+        earths = f.mass_exponent >= 20 ? (int64_t)f.mass * 10000000 / 5970 : 0;
+        for (i = f.mass_exponent; i < 27; i++) earths /= 10;
+        if (earths >= 10000) snprintf(a, sizeof(a), " / %ld EARTHS", (long)(earths / 1000));
+        else if (earths) snprintf(a, sizeof(a), " / %ld.%03ld EARTHS", (long)(earths / 1000), (long)(earths % 1000));
+        else a[0] = 0;
+        snprintf(s, sizeof(s), "MASS %d.%02dE%d KG%s", f.mass / 100, f.mass % 100, f.mass_exponent, a);
+        text(12, y, 15, s); y += 9;
+        if (f.gravity >= 1000) snprintf(a, sizeof(a), "%ld.%02ld", (long)(f.gravity / 1000), (long)(f.gravity / 10 % 100));
+        else snprintf(a, sizeof(a), "0.%03ld", (long)f.gravity);
+        if (f.escape >= 1000) snprintf(c, sizeof(c), "%ld.%ld KM/S", (long)((f.escape + 50) / 1000), (long)((f.escape + 50) / 100 % 10));
+        else snprintf(c, sizeof(c), "%ld M/S", (long)f.escape);
+        /* Standard gravities, with a fourth decimal for small moons. */
+        gees = ((int64_t)f.gravity * 10000 + 4903) / 9807;
+        if (gees >= 1000) snprintf(s, sizeof(s), "GRAVITY %s M/S2 / %ld.%03ld G / ESCAPE %s", a,
+                                   (long)((gees + 5) / 10000), (long)((gees + 5) / 10 % 1000), c);
+        else snprintf(s, sizeof(s), "GRAVITY %s M/S2 / 0.%04ld G / ESCAPE %s", a, (long)gees, c);
+        text(12, y, 15, s); y += 9;
+    }
+    snprintf(s, sizeof(s), "%s %d K / %d C", f.pressure < 0 ? "TEMPERATURE AT 1 BAR" : "MEAN TEMPERATURE",
+             f.temperature, f.temperature - 273);
+    text(12, y, 15, s); y += 9;
+    pressure_text(a, sizeof(a), f.pressure);
+    if (p->atmosphere) snprintf(s, sizeof(s), "PRESSURE %s / ATMOSPHERE %ld KM DEEP", a, (long)(p->atmosphere / 1000));
+    else snprintf(s, sizeof(s), "PRESSURE %s", a);
+    text(12, y, 15, s); y += 9;
+    snprintf(s, sizeof(s), "COMPOSITION %s", f.air);
+    text(12, y, 15, s); y += 9;
+    duration_text(a, sizeof(a), rotation_period(p));
+    duration_text(c, sizeof(c), p->period);
+    snprintf(s, sizeof(s), "DAY %s / ORBIT %s / INC %d DEG", a, c, p->inclination * 360 / ANGLE);
+    text(12, y, 15, s); y += 9;
+    if (p->parent >= 0) snprintf(a, sizeof(a), "%ld KM", (long)(p->orbit / 1000));
+    else snprintf(a, sizeof(a), "%ld.%02ld AU", (long)(p->orbit * 100 / AU_METRES / 100), (long)(p->orbit * 100 / AU_METRES % 100));
+    snprintf(s, sizeof(s), "DISTANCE %s FROM %.18s", a, p->parent >= 0 ? game->system.planets[p->parent].name : "STARS");
+    if (p->catalog) snprintf(s + strlen(s), sizeof(s) - strlen(s), " / E %d.%03d", p->eccentricity / 1000000, p->eccentricity / 1000 % 1000);
+    text(12, y, 15, s); y += 9;
     for (i = 0; i < game->nports; i++)
         ports += game->ports[i].body == b;
-    snprintf(s, sizeof(s), "%d PORTS / %s", ports,
-             (same_sector(game->system.sector,catalog_sector(0)) ? (game->solar_surveyed[b/32] & (1U << (b%32))) : j >= 0 && b<GENERATED_PLANETS && (game->explored[j].surveyed & (1U << b))) ? "SURVEYED" : "UNSURVEYED");
-    text(12, 112, 13, s);
-    snprintf(s, sizeof(s), "NAV RANGE %ld KM", (long)(length(sub(navigation_position(game), game->pos)) / (FP * 1000)));
-    text(12, 124, 15, s);
-
+    snprintf(s, sizeof(s), "%d PORTS / %s / RANGE %ld KM", ports,
+             (same_sector(game->system.sector,catalog_sector(0)) ? (game->solar_surveyed[b/32] & (1U << (b%32))) : j >= 0 && b<GENERATED_PLANETS && (game->explored[j].surveyed & (1U << b))) ? "SURVEYED" : "UNSURVEYED",
+             (long)(length(sub(navigation_position(game), game->pos)) / (FP * 1000)));
+    text(12, y, 13, s); y += 9;
+    snprintf(s, sizeof(s), "%s / %d STARS / %d BODIES / %s", game->system.name, game->system.stars,
+             game->system.count, governments[game->system.government]);
+    text(12, y, 7, s); y += 9;
+    snprintf(s, sizeof(s), "%s ECONOMY", economies[game->system.economy]);
+    text(12, y, 7, s);
 }
 /* Radar follows the hull heading even when a turret or rear camera is used.
    Horizontal distance uses X/Z; a short stem shows signed vertical separation. */
@@ -2639,17 +2687,31 @@ static void hyperspace_exit(int t) {
     if (t < HYPER_EXIT / 2) hyper_flash(16 - t * 32 / HYPER_EXIT);
 }
 /* Label every body in the field of view, including those too small to
-   resolve as geometry. Leader lines keep crowded names tied to their body. */
+   resolve as geometry. Leader lines keep crowded names tied to their body.
+   Moons are named only once the ship is within a few moon-system radii of
+   their host, so distant planets do not drown in satellite names. */
 static void system_body_labels(void) {
+    static int64_t reach[MAX_PLANETS];
     int i, used = 0, boxes[MAX_PLANETS + 6][3];
     const Planet *nearest = &game->system.planets[nearest_body(game, game->pos)];
+    Vec ship = scale(game->pos, 1, FP);
     if (altitude_at(game, game->pos) < nearest->atmosphere + 20000LL) return;
+    memset(reach, 0, sizeof(reach[0]) * (size_t)game->system.count);
+    for (i = 0; i < game->system.count; i++) {
+        const Planet *p = &game->system.planets[i];
+        if (p->parent >= 0 && p->orbit * 3 > reach[p->parent]) reach[p->parent] = p->orbit * 3;
+    }
     for (i = 0; i < game->system.count + game->system.stars; i++) {
         int star = i >= game->system.count, index = i - game->system.count;
         Vec p = camera(star ? game->system.star[index].center : game->system.planets[i].center);
         char name[32];
         int x, y, lx, ly, w, j = 0, attempt;
         if (p.z <= 0) continue;
+        if (!star && game->system.planets[i].parent >= 0) {
+            const Planet *host = &game->system.planets[game->system.planets[i].parent];
+            if (length(sub(ship, host->center)) > reach[game->system.planets[i].parent] + host->radius)
+                continue;
+        }
         x = frame->w / 2 + screen_coord(p.x * (frame->w / 2) / p.z);
         y = view_h / 2 - screen_coord(p.y * (frame->w / 2) / p.z);
         if (x < 2 || x >= frame->w - 2 || y < 20 || y >= view_h - 27) continue;

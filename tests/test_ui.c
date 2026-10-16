@@ -26,7 +26,8 @@ static void workflow(Frame *f) {
     click(f,'-'); assert(g.cargo[0]==cargo);
     click(f,UI_NAV+'y'); assert(g.page==SYSTEM_MAP && !g.system_display);
     click(f,'q'); assert(g.target<0);
-    click(f,UI_ROW+1); assert(g.target_body==1 && g.clearance==-1);
+    click(f,UI_ROW+1); assert(g.target_body==1 && g.clearance==-1 && !g.system_display);
+    click(f,UI_ROW+1); assert(g.target_body==1 && g.system_display==2); /* Second click: data sheet. */
     click(f,UI_NAV+'z'); assert(g.system_display==1);
     /* Pick an isolated orbital marker through the same projection as rendering. */
     n=ui_widgets(&g,f,v);

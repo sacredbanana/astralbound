@@ -6,7 +6,8 @@
 #define FP 256
 #define HZ 32
 #define MAX_WARP 4096
-#define SYSTEM_DRIVE_ACCEL 4000000
+/* Q8 drive thrust exceeds INT32_MAX; thrust paths carry int64_t. */
+#define SYSTEM_DRIVE_ACCEL 20000000LL
 #define LIGHT_SPEED 299792458LL
 #define SYSTEM_DRIVE_SPEED (30LL * LIGHT_SPEED)
 #define ATMOSPHERE_SPEED 1200
@@ -258,7 +259,7 @@ Vec add(Vec a, Vec b);
 Vec sub(Vec a, Vec b);
 Vec scale(Vec a, int64_t n, int64_t d);
 int64_t length(Vec a);
-Vec unit(Vec a, int magnitude);
+Vec unit(Vec a, int64_t magnitude);
 Vec radial(Vec direction, int64_t radius);
 int sini(int a);
 int cosi(int a);
@@ -323,11 +324,11 @@ void game_action(Game *g, int key);
 void view_angles(const Game *g, int *yaw, int *pitch);
 int combat_target(const Game *g);
 int safe_warp(const Game *g);
-Vec avoidance(Vec relative_position, Vec relative_velocity, int acceleration, int radius);
+Vec avoidance(Vec relative_position, Vec relative_velocity, int64_t acceleration, int radius);
 uint64_t isqrt_product(uint64_t a, uint64_t b);
 int64_t muldiv(int64_t a, int64_t n, int64_t d);
-Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed);
-Vec guidance_step(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed, int ticks);
+Vec guidance(Vec pos, Vec velocity, Vec target, int64_t acceleration, int64_t maxspeed);
+Vec guidance_step(Vec pos, Vec velocity, Vec target, int64_t acceleration, int64_t maxspeed, int ticks);
 int swept_sphere(Vec start, Vec end, Vec center, int64_t radius);
 int market_stock(const Game *g, int good);
 int market_index(const Game *g, Sector sector, int port);

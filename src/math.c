@@ -154,7 +154,7 @@ int64_t length(Vec a) {
     }
     return (int64_t)isqrt64((uint64_t)(a.x * a.x + a.y * a.y + a.z * a.z)) << shift;
 }
-Vec unit(Vec a, int magnitude) {
+Vec unit(Vec a, int64_t magnitude) {
     int64_t l = length(a);
     return l ? scale(a, magnitude, l) : vec(0, 0, 0);
 }
@@ -252,7 +252,7 @@ uint64_t isqrt_product(uint64_t a, uint64_t b) {
     }
     return isqrt64(a * b) << shift;
 }
-Vec guidance_step(Vec p, Vec v, Vec target, int accel, int64_t maxspeed, int ticks) {
+Vec guidance_step(Vec p, Vec v, Vec target, int64_t accel, int64_t maxspeed, int ticks) {
     Vec delta = sub(target, p), desired;
     int64_t d = length(delta), speed;
     int64_t envelope = muldiv(maxspeed, maxspeed, 2LL * (accel ? accel : 1));
@@ -269,10 +269,10 @@ Vec guidance_step(Vec p, Vec v, Vec target, int accel, int64_t maxspeed, int tic
     desired = scale(sub(speed <= INT32_MAX ? unit(delta, (int)speed) : radial(delta, speed), v), HZ, ticks);
     return length(desired) > accel ? unit(desired, accel) : desired;
 }
-Vec guidance(Vec p, Vec v, Vec target, int accel, int64_t maxspeed) {
+Vec guidance(Vec p, Vec v, Vec target, int64_t accel, int64_t maxspeed) {
     return guidance_step(p, v, target, accel, maxspeed, 1);
 }
-Vec avoidance(Vec r, Vec v, int accel, int radius) {
+Vec avoidance(Vec r, Vec v, int64_t accel, int radius) {
     int64_t dot, t = 0, closing;
     Vec direction;
     if (length(r) > 1000000000LL)

@@ -105,7 +105,8 @@
   With assist disabled, W/S applies forward/reverse thrust directly.
   Manual impacts can destroy the ship. Atmospheres cap air-relative speed
   at 1,200 m/s without overspeed damage. Fast flight reads in c from 0.01c;
-  1c is the speed of light. Bodies and stars in view are labelled in space.
+  1c is the speed of light. Bodies and stars in view are labelled in space;
+  moons are labelled only when the ship is near their host planet.
   Lower gear and approach below 8 m/s relative to the port to dock.
   Orbital stations move and rotate. Match their velocity, request D
   clearance, then enter the central opening through the marked corridor.
@@ -128,8 +129,11 @@
   Local scale resolves moons and stations. White stars, green settled bodies,
   cyan other bodies, gold target and red ship use true-scale projected orbits.
   Small bodies and ports can overlap at system scale.
-  I shows economy, government, body radius/gravity/atmosphere, rings, parent,
-  orbit, period, inclination, ports, survey status and navigation range.
+  I, or a second click on the selected body, opens its data sheet: radius,
+  density, mass, gravity, escape speed, mean temperature, surface pressure,
+  atmospheric composition, day and orbital period, distance, ports, survey
+  status and navigation range. Solar System values are measured; other
+  systems show values consistent with each world's climate.
   Y returns to the list. V returns to flight, then P engages its autopilot.
   Body waypoints stop above the atmosphere. Gas giants cannot be landed on.
   Autopilot follows elevated waypoints around planets and central stars.
@@ -141,7 +145,7 @@
   A toggles the drive; P toggles autopilot. Neither changes the other.
   In manual flight A selects full cruise; W/S adjusts speed; A again brakes.
   With autopilot engaged, guidance controls speed with the selected drive.
-  Maximum acceleration is 4,000,000 m/s/s; cruise cap is 30c.
+  Maximum acceleration is 20,000,000 m/s/s; cruise cap is 30c.
   Hyperspace arrives 1.1 million km above the host star's surface, just
   outside its drive exclusion shell.
   Bodies, atmosphere, stars, stations and traffic lower the speed limit.

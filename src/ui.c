@@ -213,6 +213,8 @@ static void activate(Game *g,int action,int x) {
     else if(action>=UI_PORT && action<UI_PORT+MAX_PORTS) {
         g->target=action-UI_PORT; g->target_body=-1; g->resource_target=-1; g->clearance=-1; g->dock_stage=0;
     } else if(action>=UI_BODY && action<UI_BODY+MAX_PLANETS) {
+        /* A second click on the selected body opens its data sheet. */
+        if(g->target<0 && g->target_body==action-UI_BODY) g->system_display=2;
         g->target=-1; g->target_body=action-UI_BODY; g->resource_target=-1; g->clearance=-1; g->dock_stage=0;
     } else if(action==UI_TAB) {
         if(g->target<0) g->target_body=g->target_body/8*8+8<g->system.count?g->target_body/8*8+8:0;
@@ -229,6 +231,7 @@ static void activate(Game *g,int action,int x) {
     } else if(action>=UI_ROW && action<UI_ROW+8) {
         int i=action-UI_ROW;
         if(g->page==SYSTEM_MAP) {
+            if(g->target<0 && g->target_body==g->target_body/8*8+i) g->system_display=2;
             if(g->target<0) g->target_body=g->target_body/8*8+i;
             else g->target=g->target/8*8+i;
             g->resource_target=-1; g->clearance=-1; g->dock_stage=0;

@@ -39,9 +39,11 @@ static void remote_cruise(void) {
            (long long)(length(sub(g.pos, h.pos)) / FP),
            (long long)(length(sub(g.vel, h.vel)) / FP));
     fflush(stdout);
-    /* Batched cruise uses mean velocity; fixed ticks use end velocity. Bound
-       their accumulated integration difference by a*duration/(2*HZ). */
-    assert(length(sub(g.pos, h.pos)) < SYSTEM_DRIVE_ACCEL * 128LL * FP / (2 * HZ));
+    /* Batched cruise uses mean velocity and one-second drive steps, so it may
+       turn over from acceleration to braking up to a step late. Bound the
+       difference by the peak speed reachable in the run (a*duration) held
+       for that one-second step. */
+    assert(length(sub(g.pos, h.pos)) < SYSTEM_DRIVE_ACCEL * 128LL * FP);
     /* With a 30c ceiling this route follows the changing gravity-well cap
        rather than a constant ceiling. One-second cruise samples can differ
        by up to half a second of drive acceleration at the end of the run. */

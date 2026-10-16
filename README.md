@@ -113,7 +113,7 @@ to toggle the drive independently of **P** (autopilot): neither control changes
 the other. In manual flight, engaging the drive selects full cruise speed; W/S
 adjusts the setting, and **A** again brakes to a stop. With autopilot engaged,
 guidance controls speed using whichever drive setting you select. The drive
-provides up to 4,000,000 m/s² acceleration and braking, with a **30c** cruise ceiling (c is the speed of light). Gravity wells, atmospheres,
+provides up to 20,000,000 m/s² acceleration and braking, with a **30c** cruise ceiling (c is the speed of light). Gravity wells, atmospheres,
 stations and nearby ships reduce the permitted speed. Inside an exclusion zone,
 or with an empty tank, the drive cannot run: the **DRIVE** button is greyed out
 and **A** is refused. An armed drive that loses the ability to run disengages
@@ -130,6 +130,8 @@ readout uses m/s, then km/s, and switches to **c** at 0.01c.
 Hyperspace arrival places you close to the host star, 1.1 million km above its
 surface and just outside its drive exclusion shell. While in space, bodies and
 stars in the field of view have name labels, including distant unresolved bodies.
+Moons are labelled only once you are within a few moon-system radii of their
+host planet, so distant planets are not buried under satellite names.
 
 Time warp also works with manual drive control; drive cruise batches are limited
 to one simulated second.
@@ -240,9 +242,12 @@ around the selected body (or its parent for a moon); Q/T and Up/Down select the
 same navigation destinations as Y. Moon and station separations are visible at
 local scale. White marks stars, green inhabited bodies, cyan other bodies, gold
 the selected destination, and red the ship. Orbits are projected at true scale;
-small bodies and ports can overlap in the system view. I opens system/body data:
-stars, economy, government, radius, gravity, atmosphere, rings, parent, orbit,
-period, inclination, ports, survey status and navigation range. Y retains the
+small bodies and ports can overlap in the system view. I, or clicking an already
+selected body in the list or orbital map, opens its data sheet: radius, density,
+mass, surface gravity, escape speed, mean temperature, surface pressure,
+atmospheric composition, day length, orbital period, distance, ports, survey
+status and navigation range. Solar System values come from NASA fact sheets;
+other systems show values derived from each world's size, gravity and climate. Y retains the
 destination list; V returns to flight.
 
 Flight controls: left/right arrows roll, up/down pitch, W/S change set speed, Ctrl fires, E switches flight
