@@ -19,6 +19,7 @@ static void remote_cruise(void) {
                       scale(g.system.planets[1].center, FP, 1)), 1, 2);
     g.vel = g.system.planets[1].cruise_velocity;
     g.autopilot = 1;
+    game_action(&g, 'a');
     g.warp = MAX_WARP;
     g.heat = 50;
     g.shield = 20;
@@ -121,6 +122,7 @@ static void hetha_d_route(void) {
     g.target = -1;
     g.target_body = 2;
     g.autopilot = 1;
+    game_action(&g, 'a');
     g.warp = MAX_WARP;
     for (i = 0; i < 150000 && g.autopilot && !g.dead; i++) {
         game_frame(&g, c, 1);
@@ -150,6 +152,7 @@ int main(void) {
     g.autopilot = 1;
     g.warp = MAX_WARP;
     assert(length(sub(g.pos, navigation_position(&g))) / FP > AU_METRES / 3);
+    game_action(&g, 'a');
     for (i = 0; i < 150000 && g.autopilot && !g.dead; i++) {
         game_frame(&g, c, 1);
         system_frame |= g.frame_body == -1;

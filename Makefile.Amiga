@@ -1,7 +1,7 @@
 AMIGA_CC ?= m68k-amigaos-gcc
 # Pull in libnix stack swapping so the executables honour their 128 KiB __stack.
 AMIGA_LDFLAGS = -Wl,-u,___stkinit
-CORE = src/audio.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/ui.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/ui.c src/render.c
 SOURCES = $(CORE) src/platform/amiga.c
 CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -msoft-float -D__AMIGAOS3__ -MMD -MP
 ifeq ($(DEBUG),1)
@@ -10,9 +10,12 @@ endif
 OBJECTS_020 = $(patsubst %.c,build/amiga/020/%.o,$(SOURCES))
 OBJECTS_000 = $(patsubst %.c,build/amiga/000/%.o,$(SOURCES))
 TEST_OBJECTS = $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_space.o
-.PHONY: all clean tests variants release-tools benchmarks
-all: dist/amiga/Space.020 dist/amiga/Space.000
-tests: dist/amiga/Space-ui-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-RunTests
+.PHONY: all clean tests variants release-tools benchmarks music-folders
+all: dist/amiga/Space.020 dist/amiga/Space.000 music-folders
+music-folders:
+	mkdir -p dist/amiga/music/battle dist/amiga/music/planetary-flight dist/amiga/music/space-flight dist/amiga/music/docked dist/amiga/music/game-over
+	cp music/README.txt dist/amiga/music/README.txt
+tests: dist/amiga/Space-music-tests.020 dist/amiga/Space-ui-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-RunTests
 variants: dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060
 benchmarks: dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020
 release-tools: dist/amiga/Space-Icons
@@ -32,11 +35,15 @@ dist/amiga/Space-tests.020: $(TEST_OBJECTS)
 	mkdir -p dist/amiga
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
 clean:
+	rm -f dist/amiga/Space-music-tests.020
 	rm -rf build/amiga
 	rm -f dist/amiga/Space-ui-tests.020 dist/amiga/Space.000 dist/amiga/Space.020 dist/amiga/Space.030 dist/amiga/Space.040 dist/amiga/Space.060 dist/amiga/Space-tests.020 dist/amiga/Space-career-tests.020 dist/amiga/Space-presentation-tests.020 dist/amiga/Space-benchmark.000 dist/amiga/Space-benchmark.020 dist/amiga/Space-Icons dist/amiga/Space-RunTests
 -include $(OBJECTS_020:.o=.d) $(OBJECTS_000:.o=.d) build/amiga/020/tests/test_space.d
 
 dist/amiga/Space-presentation-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_presentation.o
+	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
+
+dist/amiga/Space-music-tests.020: $(patsubst %.c,build/amiga/020/%.o,$(CORE)) build/amiga/020/tests/test_music.o
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68020 -msoft-float $^ -lamiga -o $@
 
 OBJECTS_030 = $(patsubst %.c,build/amiga/030/%.o,$(SOURCES))
@@ -76,6 +83,7 @@ dist/amiga/Space-Icons: build/amiga/000/tools/icons.o
 	mkdir -p dist/amiga
 	$(AMIGA_CC) $(AMIGA_LDFLAGS) -noixemul -m68000 $^ -lamiga -o $@
 -include build/amiga/020/tests/test_presentation.d build/amiga/000/tools/icons.d
+-include build/amiga/020/tests/test_music.d
 -include build/amiga/020/tools/native_benchmark.d build/amiga/000/tools/native_benchmark.d
 
 # The runner gives child tests a 256 KiB CLI stack before loading them.

@@ -3,6 +3,7 @@
 #include "flight_input.h"
 #include "ui.h"
 #include "audio.h"
+#include "music.h"
 #include "controller.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -135,6 +136,16 @@ int main(int argc, char **argv) {
     audio_init(&sound, &g);
     if (!muted) {
         SDL_AudioSpec spec = {0};
+        char path[1024];
+        char *base = SDL_GetBasePath();
+        int loaded = -1;
+        if (base) {
+            snprintf(path, sizeof(path), "%smusic", base);
+            loaded = music_load(path, (uint32_t)SDL_GetPerformanceCounter());
+            SDL_free(base);
+        }
+        if (loaded < 0) music_load("music", (uint32_t)SDL_GetPerformanceCounter());
+        audio_observe(&sound, &g);
         spec.freq = AUDIO_RATE; spec.format = AUDIO_S8; spec.channels = 1;
         spec.samples = 512; spec.callback = audio_callback; spec.userdata = &sound;
         audio_device = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
@@ -274,6 +285,7 @@ int main(int argc, char **argv) {
         SDL_RenderPresent(renderer);
     }
     if (audio_device) SDL_CloseAudioDevice(audio_device);
+    music_close();
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

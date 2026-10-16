@@ -44,7 +44,11 @@ static void workflow(Frame *f) {
     remove("ui-roundtrip.sav");
     click(f,UI_NAV+'v'); assert(g.page==FLIGHT && !g.camera_mode);
     click(f,'l'); assert(g.docked==-1);
-    click(f,'p'); assert(g.autopilot);
+    click(f,'p'); assert(g.autopilot && !g.drive_manual);
+    click(f,'a'); assert(g.autopilot && g.drive_manual);
+    click(f,'p'); assert(!g.autopilot && g.drive_manual);
+    click(f,'p'); assert(g.autopilot && g.drive_manual);
+    click(f,'a'); assert(g.autopilot && !g.drive_manual);
     click(f,UI_WARP+6); assert(g.warp==4096);
     click(f,' '); assert(g.paused); click(f,' '); assert(!g.paused);
     click(f,UI_SCAN); assert(g.ui_weapons); click(f,UI_SCAN); assert(!g.ui_weapons);

@@ -601,6 +601,45 @@ static void test_system_drive(void) {
     remove(TEST_SAVE ".bak");
     puts("PASS System Drive acceleration, braking, cruise saves and mass/traffic locks");
 }
+static void test_independent_drive_autopilot(void) {
+    Game g;
+    Controls c = {0};
+    int ap, drive;
+    /* Exercise every switch combination through the real controls and a
+       physics tick, so AP cannot implicitly acquire cruise thrust. */
+    for (ap = 0; ap <= 1; ap++) for (drive = 0; drive <= 1; drive++) {
+        game_init(&g, 1);
+        g.docked = g.frame_body = g.target = -1;
+        g.target_body = 1;
+        g.pos = vec(0, AU_METRES * FP, 0);
+        g.vel = vec(0, 0, 0);
+        g.autopilot = ap;
+        g.drive_manual = drive;
+        g.throttle = 2000;
+        game_action(&g, 'p');
+        assert(g.autopilot == !ap && g.drive_manual == drive && g.throttle == 2000);
+        game_tick(&g, c);
+        assert(g.autopilot == !ap && g.drive_manual == drive && g.drive_active == drive);
+        assert(drive ? length(g.vel) > 10000 * FP : length(g.vel) < 100 * FP);
+        game_action(&g, 'a');
+        assert(g.autopilot == !ap && g.drive_manual == !drive);
+        game_tick(&g, c);
+        assert(g.autopilot == !ap && g.drive_manual == !drive && !g.dead);
+    }
+    /* Arrival stops commanded motion but leaves the drive switch armed. */
+    game_init(&g, 1);
+    g.docked = g.target = -1;
+    g.target_body = g.body = g.frame_body = 0;
+    g.pos = navigation_position(&g);
+    g.vel = vec(0, 0, 0);
+    game_action(&g, 'a');
+    game_action(&g, 'p');
+    game_tick(&g, c);
+    assert(!g.autopilot && g.drive_manual && !g.throttle && !g.dead);
+    game_tick(&g, c);
+    assert(g.drive_manual && length(g.vel) < 100 * FP);
+    puts("PASS independent autopilot/drive switches, thrust selection and armed arrival");
+}
 static void test_safety(void) {
     Game g, h;
     Controls c = {0};
@@ -624,15 +663,70 @@ static void test_safety(void) {
     h.pos = add(scale(h.system.planets[0].center, FP, 1),
                 vec(0, (int64_t)(h.system.planets[0].radius + 500) * FP, 0));
     h.warp = MAX_WARP;
-    assert(safe_warp(&h) == 1);
+    assert(safe_warp(&h) == MAX_WARP);
     h.npc[0].active = 1;
     h.npc[0].pos = add(h.pos, vec(0, 0, 1000 * FP));
-    assert(safe_warp(&h) == 1);
+    assert(safe_warp(&h) == MAX_WARP);
     h.pos = vec(0, 100000000000LL, 0);
     h.npc[0].pos = vec(0, 0, 0);
     h.npc[0].vel = vec(10000000, 0, 0);
     game_tick(&h, c);
-    puts("PASS compression preserves tick trajectory and hazards clamp time");
+    puts("PASS compression preserves tick trajectory without hazard locks");
+}
+static void test_unrestricted_warp(void) {
+    Game g, reference;
+    Controls c = {0};
+    int situation, i;
+    /* Each former local lock must actually advance the simulation, with
+       exactly the same result as running the corresponding ordinary ticks. */
+    for (situation = 0; situation < 8; situation++) {
+        game_init(&g, 3);
+        if (situation) game_action(&g, 'l');
+        if (situation == 1) g.docked = -2;
+        if (situation == 2) g.autopilot = 1;
+        if (situation == 3 || situation == 4) {
+            g.npc[0] = (Npc){add(g.pos, vec(0, 0, 1000 * FP)), g.vel, 100, 1, 1, -1, 0};
+        }
+        if (situation == 4) {
+            g.projectiles[0].active = 1;
+            g.projectiles[0].pos = g.pos;
+            g.projectiles[0].vel = g.vel;
+            g.projectiles[0].target = 0;
+            g.projectiles[0].ttl = HZ * 20;
+        }
+        if (situation == 5) c.fire = 1;
+        if (situation == 6) g.pos = add(asteroid_position(&g, 0), vec(0, 0, 1000 * FP));
+        if (situation == 7) g.pos = add(g.ports[1].pos, scale(g.ports[1].normal, 3000 * FP, 16384));
+        g.warp = 64;
+        assert(safe_warp(&g) == 64);
+        reference = g;
+        game_frame(&g, c, 1);
+        for (i = 0; i < 64; i++) game_tick(&reference, c);
+        assert(g.tick == 64 && !g.dead && g.effective_warp == 64);
+        reference.effective_warp = g.effective_warp;
+        assert(!memcmp(&g, &reference, sizeof(g)));
+        c.fire = 0;
+    }
+    g.pos = scale(g.system.star[0].center, FP, 1);
+    g.warp = MAX_WARP;
+    assert(safe_warp(&g) == MAX_WARP);
+    g.laser = 1;
+    assert(safe_warp(&g) == MAX_WARP);
+    g.paused = 1;
+    i = g.tick;
+    game_frame(&g, c, 1);
+    assert(g.tick == (uint32_t)i);
+    g.paused = 0; g.dead = 1;
+    game_frame(&g, c, 1);
+    assert(g.tick == (uint32_t)i);
+    game_init(&g, 3);
+    game_action(&g, 'l');
+    g.warp = 64;
+    game_action(&g, 'p'); assert(g.autopilot && g.warp == 64);
+    game_action(&g, 'p'); assert(!g.autopilot && g.warp == 64);
+    game_action(&g, 'a'); assert(g.drive_manual && g.warp == 64);
+    game_action(&g, 'a'); assert(!g.drive_manual && g.warp == 64);
+    puts("PASS manual, docked, landed, approach, combat and hazard warp with exact local physics");
 }
 static void test_presentation(void) {
     Game g, h;
@@ -852,7 +946,9 @@ int main(int argc, char **argv) {
     if (!quick)
         test_missions();
     test_system_drive();
+    test_independent_drive_autopilot();
     test_safety();
+    test_unrestricted_warp();
     test_flight_input();
     puts(quick ? "All Space quick smoke tests passed." : "All Space tests passed.");
     return 0;

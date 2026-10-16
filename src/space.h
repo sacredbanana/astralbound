@@ -143,7 +143,7 @@ typedef struct {
     /* Presentation state is transient; version 3/4 commander payloads stay compatible. */
     int turret_yaw, turret_pitch, combat_target, system_display, map_local;
     int yaw_fraction, pitch_fraction;
-    int drive_manual, drive_active; /* transient; speed/thrust scale, not time warp */
+    int drive_manual, drive_active; /* transient; player drive switch and available thrust, independent of AP */
     Vec ground_anchor; /* transient body-fixed Q8 landed position */
     uint32_t shots, fuel_burn;
     /* v6 careers extension; legacy commander prefix is serialized unchanged. */

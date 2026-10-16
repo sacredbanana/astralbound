@@ -128,12 +128,13 @@ static int64_t drive_limit(const Game *g) {
 }
 static Vec autopilot_target(const Game *g);
 static int drive_requested(const Game *g) {
+    /* Guidance may limit thrust for safe capture without disarming the drive. */
     if (g->autopilot &&
         (length(sub(autopilot_target(g), navigation_position(g))) > 5000 * FP ||
          length(sub(g->pos, navigation_position(g))) < 20000000LL * FP))
-        return 0; /* Ordinary authority for detours and terminal approaches. */
+        return 0;
     return g->docked == -1 && g->fuel > 0 && !g->dead && !g->laser &&
-           (g->autopilot || g->drive_manual);
+           g->drive_manual;
 }
 static int ordinary_thrust(const Game *g) {
     const ShipSpec *s = &ship_specs[g->ship];
@@ -164,28 +165,9 @@ static void burn_fuel(Game *g, Vec engine, int ticks, int drive) {
     g->fuel_burn = (uint32_t)impulse;
 }
 int safe_warp(const Game *g) {
-    int i, w = clamp(g->warp, 1, MAX_WARP);
-    int64_t alt = altitude_at(g, g->pos), speed = length(g->vel) / FP;
-    if (g->docked != -1 || g->dead || g->laser)
-        return 1;
-    if (!g->autopilot)
-        return 1; /* Compression is a privilege of monitored guidance. */
-    if (alt < 3000 || alt < speed * speed / (g->drive_active ? SYSTEM_DRIVE_ACCEL : 80) + 2000)
-        w = 1;
-    else if (alt < 12000 && w > 4)
-        w = 4;
-    for (i = 0; i < g->system.stars; i++)
-        if (length(sub(scale(g->pos, 1, FP), g->system.star[i].center)) <
-            g->system.star[i].radius + 2000000000LL)
-            return 1;
-    for (i = 0; i < MAX_NPC; i++)
-        if (g->npc[i].active && length(sub(g->npc[i].pos, g->pos)) < 20000 * FP)
-            return 1;
-    for (i = 0; i < ASTEROIDS; i++) if (length(sub(g->pos, asteroid_position(g, i))) < 20000 * FP) return 1;
-    for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active) return 1;
-    if (g->target >= 0 && length(sub(g->ports[g->target].pos, g->pos)) < 6000 * FP)
-        w = 1;
-    return w;
+    /* Local hazards choose fixed physics ticks in cruise_interval; they do
+       not prevent the player from accelerating time. */
+    return g->paused || g->dead ? 1 : clamp(g->warp, 1, MAX_WARP);
 }
 static Vec autopilot_target(const Game *g) {
     const Port *port = g->target >= 0 ? &g->ports[g->target] : NULL;
@@ -429,6 +411,7 @@ void game_tick(Game *g, Controls c) {
         if (g->target < 0 && length(sub(g->pos, navigation_position(g))) < 100 * FP &&
             length(relative_vel) < 8 * FP) {
             g->autopilot = 0;
+            g->throttle = 0;
             g->warp = 1;
             say(g, "BODY WAYPOINT REACHED - LOCAL FRAME FLIGHT");
         }
@@ -697,7 +680,7 @@ static void cruise_step(Game *g, int ticks) {
                    g->system.planets[nearest_body(g, g->pos)].atmosphere - 20000;
     int64_t maxspeed = room > 0 ? (int64_t)isqrt64((uint64_t)room * 60) : 600;
     g->drive_active = thrust == SYSTEM_DRIVE_ACCEL * FP;
-    if (g->drive_active) maxspeed = drive_limit(g);
+    if (g->drive_active && drive_requested(g)) maxspeed = drive_limit(g);
     else maxspeed = clamp((int)maxspeed, 600, 1000000);
     Vec acceleration = guidance_step(g->pos, sub(g->vel, motion), navigation_position(g),
                                      thrust / 4 * 3, maxspeed * FP, ticks);
@@ -750,7 +733,7 @@ void game_frame(Game *g, Controls c, int ticks) {
         int w = safe_warp(g), advanced = 0;
         while (advanced < w && steps < MAX_FRAME_STEPS) {
             int step, safe = safe_warp(g);
-            if (advanced >= safe)
+            if (g->dead || g->paused || advanced >= safe)
                 break;
             step = cruise_interval(g, c, (safe < w ? safe : w) - advanced);
             if (step > 1)
@@ -896,18 +879,13 @@ void game_action(Game *g, int k) {
         break;
     case 'p':
         if (g->docked == -1 && (g->target >= 0 || g->target_body >= 0)) {
-            if (g->drive_manual || g->drive_active) g->throttle = 0;
-            g->drive_manual = 0;
             g->autopilot = !g->autopilot;
             g->dock_stage = 0;
-            g->warp = 1;
         }
         break;
     case 'a':
         if (g->docked == -1) {
             g->drive_manual = !g->drive_manual;
-            g->autopilot = 0;
-            g->warp = 1;
             g->assist = 1;
             g->throttle = g->drive_manual ? 4000 : 0;
             say(g, g->drive_manual ? "SYSTEM DRIVE ARMED - W/S CRUISE SPEED"

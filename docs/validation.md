@@ -568,3 +568,84 @@ persistent civilian economy or strategic war simulation.
 Live RTG mouse/focus/pointer hiding, live AGA GUI, physical controllers/hardware
 and real-machine performance remain unverified. Host RTG rendering and shared
 mouse tests do not establish those runtime properties.
+
+
+# Situation-based MOD playlists - 16 October 2026
+
+The synthesized eight-second placeholder score has been removed. User-supplied
+MOD files preload from music/battle, planetary-flight, space-flight, docked and
+game-over before native takeover. Scene changes and song completion choose random
+tracks without immediately repeating the previous selection when alternatives
+exist. Empty folders leave music silent; procedural engine/effects remain.
+
+Validation for this change:
+
+- `make test` and `make sanitize` pass. The new MOD fixtures cover scene priority,
+  hostile range, menus/landing, note-to-PCM output, case-insensitive MOD names,
+  single-track looping, no immediate repeats, chunk/tick/song continuity, pause,
+  malformed/truncated files, invalid sample loops, 128-order headers, missing
+  folders, and effects with no music. Fixtures are generated only in scratch RAM
+  or build directories and are excluded from release music folders.
+- `./build-amiga.sh all variants tests` builds the 68000/020/030/040/060 games
+  and native tests with warnings treated as errors. No SDL or floating-point
+  decoder dependency is added to the Amiga executables.
+- Isolated Amiberry 68020/ECS low-resolution playback runs synthetic test MODs
+  from PROGDIR:music. Native music and presentation tests pass in the guest.
+  In-game Paula channels 0/1/3 have DMA active (DMACON 03CB); pause is visible;
+  Escape returns to the CLI with DMACON 03F0 and all four audio DMA channels off.
+  Evidence: build/music-guest/music-results.txt, presentation-results.txt and
+  build/music-runtime/{playing,paused,exited}.png. This verifies playback state
+  and lifecycle, not listening quality, real-hardware timing or a broad MOD corpus.
+- The AmigaGuide checker reports no defects. ZIP/LHA archives are extracted and
+  byte-verified, including empty situation folders; the boot ADF includes the same
+  folder layout, setup notes and Micromod redistribution notice.
+
+Native music uses 256 ms DMA blocks, with no DOS/device/allocation calls during
+selection and replay. Frames exceeding the buffer budget can repeat a block.
+Real-hardware performance, AGA/RTG interactive playback, and long-duration audio
+quality/stability remain unverified. Modules are limited to 128 total, 4 MiB each
+and 16 MiB total, subject to memory; display/audio buffers are reserved first.
+
+## Unrestricted time compression (2026-10-16)
+
+Time compression is available in manual flight, combat, local approaches and
+while docked or landed. Missiles and autopilot/System Drive toggles preserve the
+selected rate. Arrival, docking and insufficient autopilot thrust still reset
+the selection to 1x. Pause and death stop simulation. The HUD displays only the
+actual multiplier; the existing 128-work-step frame cap remains.
+
+- Host core, navigation, career, UI, presentation, music and renderer suites pass.
+  ASan/UBSan checks pass, including a clean full core rerun. New regressions compare
+  eight local warp situations against ordinary physics ticks and check the single
+  HUD multiplier in PAL/NTSC layouts, including pause.
+- All 68000/020/030/040/060 game builds and native test builds pass.
+- Isolated Amiberry 68020/ECS compact-display smoke check shows TIME 64X while
+  docked, then accelerated manual atmospheric flight after launch. Its docked
+  commander save records tick 3856 with autopilot off. Lowering warp to 1x and
+  exiting returns to the CLI with DMACON 03F0 and audio DMA off. Screenshots:
+  build/evidence/warp-native-{docked64,manual64,return1,cli}.png.
+- AmigaGuide validation and git diff whitespace checks pass. Interactive AGA/RTG
+  warp and real-hardware performance remain unverified.
+
+
+## Independent System Drive and autopilot (2026-10-16)
+
+A/DRIVE and P/AUTO preserve each other's switch state. Autopilot uses ordinary
+engines unless the player arms System Drive. Guidance keeps detour/approach
+speed limits, and body arrival zeros commanded speed while leaving the drive
+armed. Disengaged cruise momentum still retains powerful braking.
+
+- Host core, UI, career, music, presentation, renderer and extended navigation
+  suites pass, including physics checks for all four switch combinations and
+  drive-armed body arrival. Hetha D arrives after 206426 ticks and the second
+  interplanetary route after 168048 ticks, both within 4 m of the waypoint.
+  Detours and terminal approaches retain ordinary thrust authority to avoid
+  high-acceleration capture oscillation while the drive switch stays armed.
+- All 68000/020/030/040/060 game builds and native test builds pass.
+- Isolated Amiberry 68020/ECS core quick and UI tests pass. Paused cockpit
+  screenshots confirm AUTO alone, AUTO plus DRIVE, DRIVE after disabling AUTO,
+  and AUTO after disabling DRIVE. The game exits to the CLI with DMACON 03F0
+  and audio DMA off. Evidence is in build/independent-drive-runtime and native
+  results in build/independent-drive-guest/{core,ui}-results.txt.
+- AmigaGuide validation passes. AGA/RTG interactive and real-hardware control
+  checks remain unverified.

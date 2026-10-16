@@ -65,7 +65,7 @@ port rescue. These features do not simulate persistent strategic wars or fleets.
   heading radar, live system/local orbital maps and system/body data. Turret
   aim, contact selection and map display reset on load; moon/station separation
   uses local scale.
-- [x] Original integer-synthesized looping music, engine, laser, damage, explosion,
+- [x] Situation-based random MOD playlists (user-supplied), engine, laser, damage, explosion,
   docking/launch and jump sounds. Paula DMA in native modes; queued audio.device
   stereo under RTG and SDL audio on the host. `--nosound` is available.
 - [x] Mouse virtual-stick flight, digital Amiga joystick port 2, and host joystick/gamepad input.

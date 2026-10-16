@@ -1453,7 +1453,7 @@ static void gui(void) {
             text(x,top+32,c,i==0?"HUL":i==1?"SHD":i==2?"FUE":"TMP");
             rect(x,top+40,21,3,0); rect(x,top+40,value*21/100,3,c);
         }
-        snprintf(buf,sizeof(buf),"%s %dX/%dX",game->paused?"PAUSED":"TIME",game->effective_warp,game->warp);
+        snprintf(buf,sizeof(buf),"%s %dX",game->paused?"PAUSED":"TIME",game->effective_warp);
         text(104,top+39,12,buf);
     } else {
         static const char *titles[]={"FLIGHT","GALACTIC NAVIGATION","CONTRACT EXCHANGE","COMMODITY MARKET","SHIP CATALOGUE","CONTRACT LOG","SYSTEM NAVIGATION","FLIGHT MANUAL","SHIP EQUIPMENT","COMMANDER RECORD"};
@@ -1517,7 +1517,7 @@ static void gui(void) {
     } else {
         draw_scale=1;
         { int64_t alt=altitude_at(game,game->pos);
-          snprintf(buf,sizeof(buf),"ALT %ld %s / %s",(long)(alt>=1000000?alt/1000:alt),alt>=1000000?"KM":"M",game->autopilot?"AUTO":game->drive_active?"DRIVE":"MANUAL"); text(7,view_h-23,13,buf); }
+          snprintf(buf,sizeof(buf),"ALT %ld %s / %s",(long)(alt>=1000000?alt/1000:alt),alt>=1000000?"KM":"M",game->drive_manual?(game->drive_active?(game->autopilot?"AUTO DRIVE":"DRIVE"):(game->autopilot?"AUTO DRIVE LOCK":"DRIVE LOCK")):(game->autopilot?"AUTO":game->drive_active?"BRAKING":"MANUAL")); text(7,view_h-23,13,buf); }
         snprintf(buf,sizeof(buf),"%.50s",hover>=0 && v[hover].label[0]?v[hover].label:game->message);
         text(7,view_h-10,12,buf);
         draw_scale=s;

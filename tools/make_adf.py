@@ -21,9 +21,14 @@ files = {
     'Space.guide.info': root/'release/Space.guide.info',
     'Disk.info': root/'release/Disk.info',
     'LICENSE': root/'LICENSE',
+    'THIRD_PARTY.txt': root/'THIRD_PARTY.txt',
+    'music/README.txt': root/'music/README.txt',
     's/startup-sequence': root/'release/startup-sequence',
 }
 cmd = [xdftool, '-f', str(output), 'create', '+', 'format', 'Space', 'DOS0', '+', 'boot', 'write', str(boot), '+', 'makedir', 's']
+cmd += ['+', 'makedir', 'music']
+for folder in sorted(p for p in (root/'music').iterdir() if p.is_dir()):
+    cmd += ['+', 'makedir', 'music/'+folder.name]
 for name, source in files.items(): cmd += ['+', 'write', str(source), name]
 subprocess.run(cmd, check=True)
 with tempfile.TemporaryDirectory(prefix='space-adf-') as temp:

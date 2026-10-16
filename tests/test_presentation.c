@@ -34,17 +34,12 @@ static void sound_tests(void) {
     a.paused = 1;
     audio_mix(&a, whole, sizeof(whole));
     for (i = 0; i < sizeof(whole); i++) assert(whole[i] == 0);
-    for (i = 0; i < MUSIC_SAMPLES; i++) {
-        assert(audio_music(i) == audio_music(i + MUSIC_SAMPLES));
-        nonzero |= audio_music(i) != 0;
-    }
-    assert(nonzero);
     for (effect = 1; effect < SOUND_COUNT; effect++) {
         nonzero = 0;
         for (i = 0; i < EFFECT_SAMPLES; i++) nonzero |= audio_effect(effect, i) != 0;
         assert(nonzero && audio_effect(effect, EFFECT_SAMPLES) == 0);
     }
-    puts("PASS original PCM music, effects, event priority, chunk continuity and pause");
+    puts("PASS procedural effects, event priority, chunk continuity and pause");
 }
 static void controller_tests(void) {
     Controller p = {0};

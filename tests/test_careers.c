@@ -158,8 +158,9 @@ static void test_law_missiles(void) {
     g.missiles = 2; g.countermeasures = 1;
     assert(countermeasure(&g)); assert(g.npc[0].cooldown == HZ * 12);
     assert(!countermeasure(&g));
-    assert(fire_missile(&g)); assert(g.missiles == 1);
-    g.autopilot = 1; g.warp = MAX_WARP; assert(safe_warp(&g) == 1); g.autopilot = 0;
+    g.warp = MAX_WARP;
+    assert(fire_missile(&g)); assert(g.missiles == 1 && g.warp == MAX_WARP);
+    g.autopilot = 1; assert(safe_warp(&g) == MAX_WARP); g.autopilot = 0;
     for (i = 0; i < HZ * 5 && g.npc[0].active; i++) game_tick(&g, c);
     assert(!g.npc[0].active && g.kills == 1 && g.pods[0].active);
     g.pos = g.pods[0].pos; g.vel = g.pods[0].vel;

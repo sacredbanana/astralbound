@@ -131,20 +131,26 @@
   Stars, planets, moons and stations move in analytic circular orbits.
   Flight velocities are relative to the current translated local frame.
   Every hull has a System Drive for rapid in-system acceleration/braking.
-  A engages manual cruise; W/S adjusts speed. A again brakes to a stop.
+  A toggles the drive; P toggles autopilot. Neither changes the other.
+  In manual flight A selects full cruise; W/S adjusts speed; A again brakes.
+  With autopilot engaged, guidance controls speed with the selected drive.
   Maximum acceleration is 4,000,000 m/s/s; cruise cap is 200,000,000 m/s.
   Bodies, atmosphere, stars, stations and traffic lower the speed limit.
-  DRIVE / AUTO DRIVE identifies operation; DRIVE LOCK means manual cruise
+  DRIVE / AUTO DRIVE identifies operation; DRIVE LOCK means the drive
   is armed inside an exclusion zone. Local flight uses ordinary engines.
-  Autopilot uses the drive on clear legs and brakes for arrival; terrain
-  and star detours, atmospheric flight and docking use ordinary engines.
+  Autopilot uses the drive only when you arm it with A; otherwise it uses
+  ordinary engines. Guidance limits speed for detours, approach and docking.
+  Body arrival zeros set speed without changing the drive switch.
   Fuel scales with engine output fraction, including drive operation.
   Loading resets drive controls but preserves velocity and cruise braking.
 
   ] raises requested time compression; [ reduces it.
-  The HUD shows effective rate / requested rate.
-  Guidance lowers the effective rate near terrain, traffic, the
-  destination and braking limits. Manual flight stays at normal speed.
+  Compression works in manual flight, with autopilot, in combat,
+  near terrain and traffic, and while landed or docked.
+  Missiles and flight-mode changes preserve the selected rate.
+  Arrival, docking and loss of autopilot thrust authority return to 1x.
+  The HUD shows one actual multiplier, for example TIME 256X.
+  Pause still stops time.
   Remote ordinary cruise uses bounded intervals up to 128 seconds.
   System Drive cruise intervals are capped at one simulated second.
   Travel, moving bodies and braking room are checked before each interval.
@@ -376,10 +382,23 @@
   @{"Contents      " link main}
 
   @{b}Sound and expanded controllers@{ub}
-  Original PCM music and engine, laser, damage, explosion, docking and jump
-  effects use Paula DMA in native modes and audio.device stereo in RTG.
-  --nosound disables audio. Saves restart native music; pause mutes it.
-  No external sound assets or ROMs are bundled.
+  Put your own ProTracker MODs in the music drawer beside the executable:
+  battle, planetary-flight, space-flight, docked and game-over subdrawers.
+  Names can be tune.mod or MOD.tune (case insensitive). No music is supplied.
+  Tracks change randomly at song end and on situation changes, excluding the
+  previous selection when alternatives exist. Empty subdrawers stay silent;
+  engine, laser, damage, explosion, docking and jump effects still play.
+  Battle takes priority for a living hostile within 12 km. Planetary music
+  plays below 12 km above terrain. Landing/docking and death have own folders.
+  Menus retain the current situation; pause mutes and holds music.
+  --nosound disables all audio. Time compression does not speed up music.
+
+  MODs preload into RAM before ECS/AGA takeover: at most 128 tracks, 4 MiB per
+  file and 16 MiB total, subject to free memory. Invalid files are skipped.
+  See music/README.txt for supported formats and limits. Add files before
+  launch. Saves retain preloaded music. Native Paula uses 256 ms buffers;
+  slow frames can repeat a block. RTG uses queued audio.device playback.
+  Real-hardware playback/performance remains to be checked.
 
   CD32 (lowlevel.library V40+): red fire, blue brake, yellow radar contact,
   green autopilot, forward/reverse thrust and Play pause.

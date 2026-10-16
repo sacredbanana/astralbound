@@ -330,7 +330,7 @@ int fire_missile(Game *g) {
     for (i = 0; i < MAX_MISSILES; i++) if (!g->projectiles[i].active) {
         Missile *m = &g->projectiles[i];
         m->pos = g->pos; m->vel = g->vel; m->target = target;
-        m->ttl = HZ * 20; m->active = 1; g->missiles--; g->warp = 1;
+        m->ttl = HZ * 20; m->active = 1; g->missiles--;
         return 1;
     }
     return 0;

@@ -93,23 +93,30 @@ and engage **P**. Body waypoints stop above the atmosphere, including at gas gia
 Orbital stations rotate and move: autopilot matches port velocity, waits for clearance,
 and enters through the marked corridor. **D** requests clearance for manual docking.
 Request time compression with **]**, up to **4,096x** (1, 4, 16, 64, 256, 1,024, 4,096);
-**[** lowers the requested rate; the safety controller reduces the effective rate near
-terrain, a port, a braking limit or another ship. Remote, unobstructed interplanetary
+**[** lowers the requested rate. Compression works in manual flight, with autopilot,
+in combat, near terrain and traffic, and while landed or docked. Firing missiles or
+switching autopilot/System Drive preserves the selected rate. Arrival, docking and
+loss of autopilot thrust authority return to 1x. Remote, unobstructed interplanetary
 cruise uses bounded intervals of up to 128 simulated seconds, with orbital-motion,
 travel and braking checks before each interval. Departure, approach, docking and
 combat retain 1/32-second physics ticks. Simulation work is capped at 128 steps per
-rendered frame; the HUD shows the actual compression delivered when local flight
-cannot sustain the requested rate.
+rendered frame; the HUD shows one actual multiplier (for example, **TIME 256X**).
+The work cap can reduce the delivered rate in local flight. Pause still stops time.
 
 Every ship carries a **System Drive** for fast travel within a system. Press **A**
-to engage manual cruise at full set speed; W/S adjusts the cruise setting. Press
-**A** again to brake to a stop. The drive provides up to 4,000,000 m/s² acceleration
-and braking, with a 200,000,000 m/s cruise ceiling. Gravity wells, atmospheres,
+to toggle the drive independently of **P** (autopilot): neither control changes
+the other. In manual flight, engaging the drive selects full cruise speed; W/S
+adjusts the setting, and **A** again brakes to a stop. With autopilot engaged,
+guidance controls speed using whichever drive setting you select. The drive
+provides up to 4,000,000 m/s² acceleration and braking, with a 200,000,000 m/s cruise ceiling. Gravity wells, atmospheres,
 stations and nearby ships reduce the permitted speed. The HUD shows DRIVE,
-AUTO DRIVE, or DRIVE LOCK when manual cruise is armed near an exclusion zone.
-Autopilot uses the drive on clear routes, brakes for arrival, and uses ordinary
-engines for terrain/star detours, atmospheric flight and docking. Time warp still
-works with autopilot; drive cruise batches are limited to one simulated second.
+AUTO DRIVE, or DRIVE LOCK when the drive is armed near an exclusion zone.
+Autopilot uses System Drive only when you arm it with **A**; otherwise it uses
+ordinary engines. It limits speed for terrain/star detours, atmospheric flight
+and docking, and brakes for arrival without changing the drive switch. Reaching
+a body waypoint zeros the manual speed setting while leaving the drive armed.
+Time warp also works with manual drive control; drive cruise batches are limited
+to one simulated second.
 Drive settings reset on loading, while saved velocity is preserved and fast
 cruise momentum retains powerful braking. All existing commander formats still load.
 
@@ -277,12 +284,30 @@ work is tracked in [docs/roadmap.md](docs/roadmap.md), and current test evidence
 
 ## Sound, controllers and release files
 
-The original eight-second PCM score and procedural effects use no external assets.
-Native ECS/AGA reserves all four Paula channels through audio.device before takeover:
-left/right music, effects and engine. RTG queues stereo audio.device buffers while the
-OS runs; the host uses SDL audio. Allocation failure continues silently; `--nosound`
-explicitly disables sound. Audio tracks wall time, so simulation compression does
-not accelerate the music. Native saves flush the filesystem before takeover and restart the score; pause mutes playback.
+Music comes from user-supplied ProTracker MODs in the `music` drawer beside the
+executable. Add tracks directly to `battle`, `planetary-flight`, `space-flight`,
+`docked`, and `game-over`. The host preview also checks the repository's `music`
+folder when launched there. Both `tune.mod` and `MOD.tune` names are recognized,
+case-insensitively. No placeholder music or music assets are bundled.
+
+The game randomly chooses a track on situation changes and at song end, avoiding
+the previous track in that folder when alternatives exist. A single track repeats;
+an empty folder leaves music silent while engine/effects continue. Battle music
+has priority when a living hostile is within 12 km. Planetary music applies below
+12 km above terrain, including moons; docking/landing and death have their own
+folders. Menus retain the current situation. Pause mutes and holds playback;
+simulation time compression does not accelerate it.
+
+Micromod supplies integer MOD replay without SDL in native builds. All modules
+preload before ECS/AGA takeover: up to 128 tracks, 4 MiB per file and 16 MiB total,
+subject to available RAM. Invalid/truncated files are skipped. Add music before
+launching; see [music/README.txt](music/README.txt) for format support and limits.
+Native ECS/AGA reserves Paula channels for two buffered music outputs, effects
+and engine. RTG queues audio.device buffers; the host uses SDL audio. Native music
+is serviced by polling DMA completion, with 256 ms blocks; frames that exceed a
+block can cause repetition. Real-hardware playback/performance remains unverified.
+Native saves flush the filesystem before takeover and resume preloaded music.
+Allocation failure permits silent play; `--nosound` disables all audio.
 
 CD32 controllers require lowlevel.library V40+: red fires, blue brakes (sets commanded
 speed to zero), yellow cycles radar contacts, green toggles autopilot, forward/reverse

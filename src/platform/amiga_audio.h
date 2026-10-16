@@ -1,12 +1,15 @@
 /* SPDX-License-Identifier: Unlicense. Allocate Paula through audio.device
    before takeover. Never call the device while interrupts are disabled. */
 #include "audio.h"
+#include "music.h"
 #include <devices/audio.h>
+#define STREAM_SAMPLES 2048
 static SpaceAudio sound;
 static struct MsgPort *audio_port;
 static struct IOAudio *audio_requests[4];
 static int audio_opened, audio_pending[4], audio_muted;
-static BYTE *music_pcm, *engine_pcm, *effect_pcm[SOUND_COUNT], *stream_pcm[2];
+static BYTE *engine_pcm, *effect_pcm[SOUND_COUNT], *stream_pcm[2];
+static int stream_next, stream_oldest;
 static ULONG effect_until;
 static UWORD audio_period;
 static void audio_native_stop(void) {
@@ -25,16 +28,27 @@ static void audio_channel(int ch, BYTE *pcm, ULONG size, int volume) {
     hw->dmacon = (UWORD)(0x8200 | (1 << ch));
 }
 static void audio_native_start(void) {
+    int line;
     if (!audio_opened) return;
     hw->adkcon = 0x00ff; /* clear modulation on the four channels we own */
-    audio_channel(0, music_pcm, MUSIC_SAMPLES, 24);
-    audio_channel(1, music_pcm, MUSIC_SAMPLES, 24);
+    audio_channel(0, stream_pcm[0], STREAM_SAMPLES, 48);
+    audio_channel(1, stream_pcm[0], STREAM_SAMPLES, 48);
+    /* Let Paula latch the initial DMA block (and its startup interrupt), then
+       queue the next block. Interrupts stay disabled; sound_pump polls completion. */
+    for (line = 0; line < 16; line++) {
+        UWORD beam = hw->vhposr;
+        while ((hw->vhposr & 0xff00) == (beam & 0xff00)) {}
+    }
+    hw->aud[0].ac_ptr = hw->aud[1].ac_ptr = (UWORD *)stream_pcm[1];
+    hw->aud[0].ac_len = hw->aud[1].ac_len = STREAM_SAMPLES / 2;
+    hw->intreq = 0x0180;
+    stream_next = 0;
     audio_channel(3, engine_pcm, 256, 0);
     effect_until = 0;
 }
 static void audio_submit(int buffer) {
     int channel;
-    audio_mix(&sound, (int8_t *)stream_pcm[buffer], 2048);
+    audio_mix(&sound, (int8_t *)stream_pcm[buffer], STREAM_SAMPLES);
     for (channel = 0; channel < 2; channel++) {
         int n = buffer * 2 + channel;
         struct IOAudio *r = audio_requests[n];
@@ -42,7 +56,7 @@ static void audio_submit(int buffer) {
         r->ioa_Request.io_Flags = ADIOF_PERVOL;
         r->ioa_Request.io_Unit = (struct Unit *)(1UL << channel);
         r->ioa_Data = (UBYTE *)stream_pcm[buffer];
-        r->ioa_Length = 2048;
+        r->ioa_Length = STREAM_SAMPLES;
         r->ioa_Period = audio_period;
         r->ioa_Volume = 48;
         r->ioa_Cycles = 1;
@@ -66,14 +80,13 @@ static void sound_close(void) {
         audio_requests[n] = NULL;
     }
     for (n = 0; n < 2; n++) {
-        if (stream_pcm[n]) FreeMem(stream_pcm[n], 2048);
+        if (stream_pcm[n]) FreeMem(stream_pcm[n], STREAM_SAMPLES);
         stream_pcm[n] = NULL;
     }
     if (audio_port) DeleteMsgPort(audio_port);
     audio_port = NULL;
-    if (music_pcm) FreeMem(music_pcm, MUSIC_SAMPLES);
     if (engine_pcm) FreeMem(engine_pcm, 256);
-    music_pcm = engine_pcm = NULL;
+    engine_pcm = NULL;
     for (n = 1; n < SOUND_COUNT; n++) {
         if (effect_pcm[n]) FreeMem(effect_pcm[n], EFFECT_SAMPLES);
         effect_pcm[n] = NULL;
@@ -84,6 +97,7 @@ static int sound_open(void) {
     int n, t;
     audio_init(&sound, &g);
     if (audio_muted) return 1;
+    audio_observe(&sound, &g);
     audio_period = (UWORD)(((GfxBase->DisplayFlags & PAL) ? 3546895UL : 3579545UL) / AUDIO_RATE);
     audio_port = CreateMsgPort();
     if (!audio_port) return 0;
@@ -102,17 +116,18 @@ static int sound_open(void) {
         audio_requests[n]->ioa_Request.io_Device = audio_requests[0]->ioa_Request.io_Device;
         audio_requests[n]->ioa_AllocKey = audio_requests[0]->ioa_AllocKey;
     }
+    for (n = 0; n < 2; n++) {
+        stream_pcm[n] = AllocMem(STREAM_SAMPLES, MEMF_CHIP);
+        if (!stream_pcm[n]) return 0;
+    }
+    stream_oldest = 0;
     if (rtg) {
-        for (n = 0; n < 2; n++) {
-            stream_pcm[n] = AllocMem(2048, MEMF_CHIP);
-            if (!stream_pcm[n]) return 0;
-        }
         audio_submit(0); audio_submit(1);
     } else {
-        music_pcm = AllocMem(MUSIC_SAMPLES, MEMF_CHIP);
         engine_pcm = AllocMem(256, MEMF_CHIP);
-        if (!music_pcm || !engine_pcm) return 0;
-        for (t = 0; t < MUSIC_SAMPLES; t++) music_pcm[t] = audio_music((unsigned)t);
+        if (!engine_pcm) return 0;
+        music_mix((int8_t *)stream_pcm[0], STREAM_SAMPLES);
+        music_mix((int8_t *)stream_pcm[1], STREAM_SAMPLES);
         for (t = 0; t < 256; t++) engine_pcm[t] = audio_engine((unsigned)t);
         for (n = 1; n < SOUND_COUNT; n++) {
             effect_pcm[n] = AllocMem(EFFECT_SAMPLES, MEMF_CHIP);
@@ -123,6 +138,17 @@ static int sound_open(void) {
     return 1;
 }
 static void sound_pump(void) {
+    if (audio_opened && !rtg && (hw->intreqr & 0x0180) == 0x0180) {
+        /* The queued block is now playing. Refill the consumed block and set
+           its reload pointer for the following boundary. No DOS/device calls.
+           Slow frames may repeat a block, but never free or overwrite DMA's
+           active block. Clear after queuing to discard repeats during mixing. */
+        music_mix((int8_t *)stream_pcm[stream_next], STREAM_SAMPLES);
+        hw->aud[0].ac_ptr = hw->aud[1].ac_ptr = (UWORD *)stream_pcm[stream_next];
+        hw->aud[0].ac_len = hw->aud[1].ac_len = STREAM_SAMPLES / 2;
+        hw->intreq = 0x0180;
+        stream_next = 1 - stream_next;
+    }
     if (audio_opened && !rtg && effect_until &&
         ((ULONG)clock_now() - effect_until) % 0x1000000UL < 0x800000UL) {
         hw->dmacon = 4; hw->aud[2].ac_vol = 0; effect_until = 0;
@@ -133,9 +159,8 @@ static void sound_update(void) {
     if (!audio_opened) return;
     if (rtg) {
         /* Service in submission order to preserve PCM time when both finish. */
-        static int oldest;
         for (n = 0; n < 2; n++) {
-            int b = oldest;
+            int b = stream_oldest;
             if (!CheckIO((struct IORequest *)audio_requests[b * 2]) ||
                 !CheckIO((struct IORequest *)audio_requests[b * 2 + 1])) break;
             WaitIO((struct IORequest *)audio_requests[b * 2]);
@@ -146,10 +171,10 @@ static void sound_update(void) {
                 sound_close(); return; /* a stolen channel is no longer ours */
             }
             audio_submit(b);
-            oldest = 1 - oldest;
+            stream_oldest = 1 - stream_oldest;
         }
     } else {
-        hw->aud[0].ac_vol = hw->aud[1].ac_vol = sound.paused ? 0 : 24;
+        hw->aud[0].ac_vol = hw->aud[1].ac_vol = sound.paused ? 0 : 48;
         hw->aud[3].ac_vol = sound.active && !sound.paused ? sound.throttle * 18 / 4000 : 0;
         if (effect && !sound.paused) {
             unsigned size = effect == SOUND_LASER ? 1200 : EFFECT_SAMPLES;

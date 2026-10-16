@@ -1,20 +1,10 @@
-/* SPDX-License-Identifier: Unlicense. Music is an original eight-second motif.
-   No assets, floating point, allocation or OS calls in the synthesizer. */
+/* SPDX-License-Identifier: Unlicense. Procedural effects and MOD music mix. */
 #include "audio.h"
+#include "music.h"
 #include <string.h>
 static int triangle(unsigned phase) {
     int p = phase & 255;
     return p < 128 ? p * 2 - 127 : 383 - p * 2;
-}
-int8_t audio_music(uint32_t sample) {
-    static const unsigned melody[16] = {262, 330, 392, 330, 294, 349, 440, 349,
-                                       220, 262, 330, 392, 247, 294, 370, 294};
-    unsigned t = sample % MUSIC_SAMPLES, beat = t / 4000, within = t % 4000;
-    unsigned freq = melody[beat];
-    int env = within < 160 ? (int)within : within > 3600 ? (4000 - (int)within) / 3 : 120;
-    int lead = triangle((t * freq * 32U) / 1000U) * env / 1024;
-    int bass = triangle((t * (beat < 4 ? 131U : beat < 8 ? 147U : beat < 12 ? 110U : 123U) * 32U) / 1000U);
-    return (int8_t)(lead + bass * env / 1440);
 }
 int8_t audio_engine(unsigned sample) {
     return (int8_t)(triangle(sample * 3) / 3 + (int)(hash32(sample & 255) & 31) - 16);
@@ -52,20 +42,22 @@ int audio_observe(SpaceAudio *s, const Game *g) {
     s->hull = g->hull; s->shield = g->shield; s->kills = g->kills; s->docked = g->docked;
     s->active = g->page == FLIGHT && g->docked == -1 && !g->dead;
     s->paused = g->paused;
+    music_observe(g);
     s->throttle = g->throttle < 4000 ? g->throttle : 4000;
     if (effect) { s->effect = effect; s->effect_pos = 0; }
     return effect;
 }
 void audio_mix(SpaceAudio *s, int8_t *out, unsigned count) {
     unsigned i;
+    music_mix(out, count);
     for (i = 0; i < count; i++) {
         int value = 0;
         if (!s->paused) {
-            value = audio_music(s->cursor) / 2;
+            value = out[i];
             if (s->active) value += audio_engine(s->cursor & 255) * s->throttle / 12000;
             value += audio_effect(s->effect, (unsigned)s->effect_pos);
             if (s->effect_pos < EFFECT_SAMPLES) s->effect_pos++;
-            s->cursor = (s->cursor + 1) % MUSIC_SAMPLES;
+            s->cursor++;
         }
         out[i] = (int8_t)(value > 127 ? 127 : value < -128 ? -128 : value);
     }

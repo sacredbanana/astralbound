@@ -20,6 +20,17 @@
     (prompt "Install Space game files?")
     (help "Use Space.000 on a 68000. Other CPU builds require the named CPU or newer.")
     (confirm))
+(makedir (tackon destination "music"))
+(makedir (tackon destination "music/battle"))
+(makedir (tackon destination "music/planetary-flight"))
+(makedir (tackon destination "music/space-flight"))
+(makedir (tackon destination "music/docked"))
+(makedir (tackon destination "music/game-over"))
+(copyfiles
+    (source (tackon install-source "music"))
+    (dest (tackon destination "music"))
+    (all)
+    (optional nofail))
 (copyfiles
     (source (tackon (pathonly install-source) "Space.info"))
     (dest (pathonly destination))

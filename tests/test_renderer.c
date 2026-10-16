@@ -3,6 +3,33 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+static void warp_readout(void) {
+    Game g;
+    Frame f = {320, 200, 0, 0, {0}};
+    uint8_t actual[114 * 7];
+    int layout, paused, x, y, top;
+    game_init(&g, 3);
+    g.effective_warp = 256;
+    g.warp = 4096;
+    f.pixels = malloc(320 * 256); assert(f.pixels);
+    for (layout = 0; layout < 2; layout++) {
+        f.h = layout ? 256 : 200;
+        top = f.h - 80;
+        assert(render_init(&f));
+        for (paused = 0; paused < 2; paused++) {
+            g.paused = paused;
+            render_game(&g, &f);
+            for (y = 0; y < 7; y++) for (x = 0; x < 114; x++)
+                actual[y * 114 + x] = f.pixels[(top + 39 + y) * 320 + 104 + x] == 12;
+            rect(104, top + 39, 114, 7, 0);
+            text(104, top + 39, 12, paused ? "PAUSED 256X" : "TIME 256X");
+            for (y = 0; y < 7; y++) for (x = 0; x < 114; x++)
+                assert(actual[y * 114 + x] == (f.pixels[(top + 39 + y) * 320 + 104 + x] == 12));
+        }
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS single actual warp multiplier in PAL/NTSC and paused HUD");
+}
 static void resource_visibility(void) {
     Game g;
     Frame f = {320, 200, 0, 0, {0}};
@@ -557,6 +584,7 @@ int main(void) {
     compact_display();
     orbital_and_radar();
     hetha_target_bearing();
+    warp_readout();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");
     return 0;
 }

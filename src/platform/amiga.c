@@ -379,6 +379,7 @@ static void close_all(void) {
     int i;
     restore();
     sound_close();
+    music_close();
     if (pot_bits) FreePotBits(pot_bits);
     if (LowLevelBase) {
         SetJoyPortAttrs(1, SJA_Reinitialize, TRUE, TAG_DONE);
@@ -538,9 +539,6 @@ int main(int argc, char **argv) {
             if (rtg) clock_rate = ReadEClock(&ec);
         }
     }
-    if (!sound_open()) {
-        sound_close(); puts("Audio unavailable; continuing silently.");
-    }
     if (rtg) {
         if (!open_rtg()) {
             puts("Unable to open RTG screen.");
@@ -571,6 +569,20 @@ int main(int argc, char **argv) {
             }
             ecs_map[i] = (UBYTE)best;
         }
+    }
+    /* Reserve display/audio buffers first, so optional tracks cannot consume
+       memory needed to start the game. DOS is still available here. */
+    if (!sound_open()) {
+        sound_close(); puts("Audio unavailable; continuing silently.");
+    } else if (!audio_muted) {
+        music_load("PROGDIR:music", (uint32_t)clock_now());
+        audio_observe(&sound, &g);
+        if (!rtg) {
+            music_mix((int8_t *)stream_pcm[0], STREAM_SAMPLES);
+            music_mix((int8_t *)stream_pcm[1], STREAM_SAMPLES);
+        }
+    }
+    if (!rtg) {
         takeover();
         render_set_pump(keyboard);
     }
