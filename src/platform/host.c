@@ -195,6 +195,7 @@ int main(int argc, char **argv) {
                 SDL_SetRelativeMouseMode(SDL_FALSE);
                 mouse_stick(&mouse, 0, 0, 0);
             }
+            if (e.type == SDL_MOUSEWHEEL && e.wheel.y && g.page==MAP && !g.ui_quit) game_action(&g,e.wheel.y>0?'+':'-');
             if (e.type == SDL_MOUSEMOTION) {
                 if (!mouse_right) {
                     ui_move(&g, &f, e.motion.x, e.motion.y);

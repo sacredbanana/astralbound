@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 static Game g;
-unsigned long __stack=262144;
+unsigned long __stack=1048576;
 static int click(Frame *f,int action) {
     UiWidget v[UI_MAX_WIDGETS]; int i,n=ui_widgets(&g,f,v),s=ui_scale(f);
     for(i=n-1;i>=0;i--) if(v[i].action==action) {

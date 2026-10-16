@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #ifdef __AMIGAOS3__
-unsigned long __stack = 131072;
+unsigned long __stack = 1048576;
 #define TEST_SAVE "astralbound-test.sav"
 #else
 #define TEST_SAVE "build/test.sav"

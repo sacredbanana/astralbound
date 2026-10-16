@@ -15,7 +15,6 @@
 #define UI_THROTTLE 6000
 #define UI_SCAN 7000
 #define UI_TAB 8000
-#define UI_SECTOR 9000
 #define UI_BODY 10000
 #define UI_PORT 11000
 void ui_orbit_geometry(const Game *g, Vec *origin, int64_t *extent, int *parent);

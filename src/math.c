@@ -227,7 +227,7 @@ void aim_angles(Vec direction, int *yaw, int *pitch) {
     *pitch = best_pitch;
 }
 /* All coordinates for this query are metres. Projection clamps to the segment. */
-int swept_sphere(Vec start, Vec end, Vec center, int radius) {
+int swept_sphere(Vec start, Vec end, Vec center, int64_t radius) {
     Vec d = sub(end, start), r = sub(center, start);
     int64_t l = length(d), t;
     Vec n;

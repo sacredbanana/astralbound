@@ -2,6 +2,8 @@
    SPC1: magic, generator version, payload length, FNV1a checksum (all BE32),
    then explicit BE32/BE64 fields. Never serialize C structure layout. */
 #include "astralbound.h"
+#include "galaxy.h"
+#include "solar.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -206,6 +208,10 @@ static void payload(Stream *s, Game *g, uint32_t version) {
         }
     }
     if (version >= 7) FIELD(g->roll);
+    if (version >= 8) {
+        for(i=0;i<16;i++) { FIELD(g->solar_visited[i]); FIELD(g->solar_surveyed[i]); }
+        FIELD(g->waypoint_set); sector(s,&g->waypoint);
+    }
 }
 #undef FIELD
 static uint32_t checksum(const unsigned char *p, size_t n) {
@@ -225,8 +231,11 @@ static int good_vec(Vec v, int64_t bound) {
 }
 static int valid(const Game *g) {
     int i;
+    if(g->waypoint_set<0 || g->waypoint_set>1 || !good_sector(g->waypoint)) return 0;
+    for(i=0;i<16;i++) if(g->solar_surveyed[i] & ~g->solar_visited[i]) return 0;
+    for(i=solar_body_count();i<512;i++) if((g->solar_visited[i/32]|g->solar_surveyed[i/32])&(1U<<(i%32))) return 0;
     if (!g->system.count || !good_sector(g->system.sector) || !good_sector(g->selected) ||
-        !good_vec(g->pos, 2000000000000000LL) || !good_vec(g->vel, (SYSTEM_DRIVE_SPEED + 1000000) * FP) || g->ship < 0 ||
+        !good_vec(g->pos, 80000000000000000LL) || !good_vec(g->vel, (SYSTEM_DRIVE_SPEED + 1000000) * FP) || g->ship < 0 ||
         g->ship >= SHIPS ||
         (g->target < -1 || g->target >= g->nports ||
          (g->target < 0 && (g->target_body < 0 || g->target_body >= g->system.count))) ||
@@ -264,7 +273,7 @@ static int valid(const Game *g) {
     for (i = 0; i < g->explored_count; i++) {
         const Exploration *e = &g->explored[i];
         if (!good_sector(e->sector) || (e->surveyed & ~e->visited) ||
-            e->visited >= (1U << MAX_PLANETS) || e->first_tick > e->last_tick ||
+            e->visited >= (1U << GENERATED_PLANETS) || e->first_tick > e->last_tick ||
             e->last_tick > g->tick || exploration_index(g, e->sector) != i)
             return 0;
     }
@@ -402,7 +411,7 @@ int load_game(Game *g, const char *path) {
     if (word(&s, 0) != 0x53504331)
         return 0;
     version = word(&s, 0);
-    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != 6 && version != SAVE_VERSION)
+    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != 6 && version != 7 && version != SAVE_VERSION)
         return 0;
     size = word(&s, 0);
     crc = word(&s, 0);
@@ -450,6 +459,8 @@ int load_game(Game *g, const char *path) {
     copy.ui_down = copy.ui_fire = copy.ui_weapons = 0;
     copy.ui_capture = -1;
     copy.ui_quit = 0;
+    { Sector waypoint=copy.waypoint; int active=copy.waypoint_set;
+      galaxy_reset(&copy); copy.waypoint=waypoint; copy.waypoint_set=active; }
     copy.paused = 0;
     copy.turret_yaw = copy.yaw;
     copy.turret_pitch = copy.pitch;

@@ -12,6 +12,7 @@ files = [root/'dist/amiga'/('Astralbound.'+cpu) for cpu in ('000','020','030','0
 files += [
          root/'Astralbound.guide', root/'LICENSE', root/'README.md', root/'THIRD_PARTY.txt']
 files += sorted((root/'docs').glob('*.md'))
+files += [root/'data/README.md', root/'data/LICENSE-HYG.txt']
 music_dirs = sorted(p for p in (root/'music').rglob('*') if p.is_dir())
 # Users add their own tracks locally; never redistribute them implicitly.
 files += [root/'music/README.txt']

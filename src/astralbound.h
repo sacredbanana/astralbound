@@ -15,14 +15,15 @@
 #define MAX_NPC 12
 #define MAX_MISSIONS 8
 #define GOODS 8
-#define MAX_PLANETS 12
+#define MAX_PLANETS 512
+#define GENERATED_PLANETS 12
 #define PORTS_PER_PLANET 4
-#define MAX_PORTS (MAX_PLANETS * PORTS_PER_PLANET)
+#define MAX_PORTS (GENERATED_PLANETS * PORTS_PER_PLANET)
 #define GENERATOR_VERSION 3
 #define MAX_EXPLORED 128
 #define MAX_MARKETS 128
 #define MARKET_INTERVAL (HZ * 3600U)
-#define SAVE_VERSION 7
+#define SAVE_VERSION 8
 #define SHIPS 6
 #define FACTIONS 3
 #define MAX_PODS 8
@@ -40,8 +41,11 @@ typedef struct {
 } Sector;
 typedef enum { ROCKY, OCEAN, DESERT, ICE, GAS_GIANT, MOON, BODY_TYPES } BodyType;
 typedef enum { VACUUM, TEMPERATE, THIN, DENSE, FROZEN, HYDROGEN } AtmosphereType;
+typedef enum { ST_O, ST_B, ST_A, ST_F, ST_G, ST_K, ST_M, ST_GIANT,
+    ST_WHITE_DWARF, ST_BROWN_DWARF, ST_NEUTRON, ST_BLACK_HOLE, ST_RED_GIANT, ST_TYPES } StellarType;
 typedef struct {
-    int32_t radius;
+    int64_t radius;
+    StellarType type;
     Vec center;
     int64_t orbit;
     uint32_t period;
@@ -54,7 +58,11 @@ typedef struct {
     AtmosphereType climate;
     int parent, settled, rings, inclination, phase;
     int64_t orbit, influence;
-    uint32_t period;
+    uint64_t period;
+    uint32_t spin_period; /* optional catalog rotation period in seconds */
+    int32_t orbit_basis[6]; /* catalog orbital plane, Q14 periapsis/tangent vectors */
+    int eccentricity, ascending_node, periapsis; /* catalog ellipse; e in millionths */
+    int catalog; /* 0 generated, 1 measured radius, 2 unknown radius (proxy geometry) */
     Vec orbit_start, orbit_end, velocity;
     Vec cruise_velocity; /* transient averaged Q8 system velocity */
     int32_t spin_sin, spin_cos; /* transient Q30 rotation about body Z */
@@ -67,7 +75,7 @@ typedef struct {
     char name[24];
     int economy, government, count, stars, density, world_ready;
     uint32_t orbit_tick;
-    Star star[2];
+    Star star[6];
     Planet planets[MAX_PLANETS];
 } System;
 typedef struct {
@@ -173,7 +181,16 @@ typedef struct {
     int npc_port[MAX_NPC]; /* transient: port each police ship patrols, refreshed from position */
     int police_alert; /* transient: 0 calm, 1 weapons fine issued, 2 police engaging */
     uint32_t police_warned, police_tick; /* transient: fine time; earliest patrol reinforcement */
+    uint32_t solar_visited[16], solar_surveyed[16]; /* full Sol body journal */
     uint32_t ui_clock; /* transient real-time ticks for presentation animation */
+    /* Transient 3D galaxy camera, search and independent waypoint. */
+    Vec galaxy_center;
+    int galaxy_extent, galaxy_yaw, galaxy_pitch, galaxy_ready;
+    int galaxy_detail, galaxy_pan_mode;
+    int galaxy_searching, galaxy_result, galaxy_dragged, galaxy_down_x, galaxy_down_y;
+    char galaxy_query[32];
+    Sector waypoint;
+    int waypoint_set;
     char message[80];
 } Game;
 typedef struct {
@@ -241,6 +258,7 @@ void generate_system(uint32_t seed, Sector s, System *out);
 void setup_system(Game *g, Sector sector);
 void update_world(Game *g);
 Vec body_position(const System *s, int body, uint32_t tick);
+Vec body_orbit_sample(const Planet *p, int phase);
 Vec body_velocity(const System *s, int body, uint32_t tick);
 Vec frame_velocity(const Game *g);
 Vec port_relative_velocity(const Game *g, int port);
@@ -298,7 +316,7 @@ int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int acceleration, int radius);
 Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed);
 Vec guidance_step(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed, int ticks);
-int swept_sphere(Vec start, Vec end, Vec center, int radius);
+int swept_sphere(Vec start, Vec end, Vec center, int64_t radius);
 int market_stock(const Game *g, int good);
 int market_index(const Game *g, Sector sector, int port);
 int price(const Game *g, int good);

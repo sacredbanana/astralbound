@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #ifdef __AMIGAOS3__
-unsigned long __stack = 262144;
+unsigned long __stack = 1048576;
 #define SLOT "career-test.sav"
 #else
 #define SLOT "build/career-test.sav"
@@ -261,7 +261,7 @@ static void test_legacy_and_extension(void) {
         data[end+2] == 0x52 && data[end+3] == 0x36) break;
     assert(end < len);
     for (version = 4; version <= 6; version++) {
-        size_t legacy_len = version == 6 ? len - 4 : end;
+        size_t legacy_len = version == 6 ? len - 148 : end;
         put_word(data + 4, (uint32_t)version); put_word(data + 8, (uint32_t)(legacy_len - 16));
         sum = 2166136261U; for (i = 16; i < legacy_len; i++) sum = (sum ^ data[i]) * 16777619U;
         put_word(data + 12, sum);

@@ -5,7 +5,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-unsigned long __stack = 131072;
+unsigned long __stack = 1048576;
 static Game g;
 static void sound_tests(void) {
     SpaceAudio a, b;

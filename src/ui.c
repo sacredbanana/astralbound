@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "ui.h"
+#include "galaxy.h"
 #include <stdio.h>
 #include <string.h>
 int ui_scale(const Frame *f) { return f->w >= 640 ? 2 : 1; }
@@ -18,6 +19,10 @@ void ui_orbit_geometry(const Game *g, Vec *origin, int64_t *extent, int *parent)
     for(i=0;i<g->system.count;i++) {
         const Planet *p=&g->system.planets[i];
         int64_t d=g->map_local?(p->parent==*parent?p->orbit:0):p->orbit+(p->parent>=0?g->system.planets[p->parent].orbit:0);
+        if(p->catalog) {
+            d+=p->orbit*p->eccentricity/1000000;
+            if(!g->map_local && p->parent>=0) d+=g->system.planets[p->parent].orbit*g->system.planets[p->parent].eccentricity/1000000;
+        }
         if(d>*extent) *extent=d;
     }
     if(g->map_local) for(i=0;i<g->nports;i++) if(g->ports[i].body==*parent) {
@@ -35,7 +40,9 @@ void ui_map_point(Vec p,Vec origin,int64_t extent,int *x,int *y) {
 }
 static void button(UiWidget *v, int *n, int x, int y, int w, int h,
                    int action, const char *label, int enabled, int active) {
-    UiWidget *b = &v[(*n)++];
+    UiWidget *b;
+    if(*n>=UI_MAX_WIDGETS) return;
+    b = &v[(*n)++];
     *b = (UiWidget){x,y,w,h,action,enabled,active,{0}};
     snprintf(b->label, sizeof(b->label), "%s", label);
 }
@@ -110,13 +117,13 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         for(i=0;i<g->system.count;i++) {
             if(g->map_local && i!=parent && g->system.planets[i].parent!=parent) continue;
             ui_map_point(g->system.planets[i].center,origin,extent,&x,&y);
-            if(x>=12 && x<308 && y>=34 && y<=136)
+            if(n<UI_MAX_WIDGETS-20 && x>=12 && x<308 && y>=34 && y<=136)
                 button(v,&n,x-4,y-4,9,9,UI_BODY+i,g->system.planets[i].name,1,i==(g->target<0?g->target_body:g->ports[g->target].body));
         }
         for(i=0;i<g->nports;i++) {
             if(i!=g->target && (!g->map_local || g->ports[i].body!=parent)) continue;
             ui_map_point(scale(g->ports[i].pos,1,FP),origin,extent,&x,&y);
-            if(x>=12 && x<308 && y>=34 && y<=136)
+            if(n<UI_MAX_WIDGETS-20 && x>=12 && x<308 && y>=34 && y<=136)
                 button(v,&n,x-4,y-4,9,9,UI_PORT+i,g->ports[i].name,1,i==g->target);
         }
     }
@@ -141,11 +148,29 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         button(v,&n,110,y,100,14,'-',"DISMISS",dock,0);
         button(v,&n,212,y,100,14,'f',"PAY FINE",dock,0); break;
       case MAP:
-        button(v,&n,8,y,74,14,1003,"LEFT",1,0);
-        button(v,&n,84,y,74,14,1004,"RIGHT",1,0);
-        button(v,&n,160,y,74,14,'c',"CENTRE",1,0);
-        button(v,&n,236,y,76,14,'x',"JUMP",g->docked==-1,0);
-        for(i=0;i<9;i++) button(v,&n,8+(i%3)*102,35+(i/3)*35,100,33,UI_SECTOR+i,"",1,i==4);
+        button(v,&n,6,36,200,h-104,GAL_DRAG,"",1,0);
+        button(v,&n,6,22,308,12,GAL_SEARCH,"",1,g->galaxy_searching);
+        button(v,&n,6,h-64,22,13,1003,"<",1,0);
+        button(v,&n,30,h-64,22,13,1004,">",1,0);
+        button(v,&n,54,h-64,22,13,1001,"UP",1,0);
+        button(v,&n,78,h-64,22,13,1002,"DN",1,0);
+        button(v,&n,102,h-64,22,13,'+',"+",1,0);
+        button(v,&n,126,h-64,22,13,'-',"-",1,0);
+        button(v,&n,150,h-64,46,13,GAL_PAN,"PAN",1,g->galaxy_pan_mode);
+        button(v,&n,198,h-64,54,13,GAL_HOME,"HOME",1,0);
+        button(v,&n,254,h-64,60,13,GAL_OVERVIEW,"GALAXY",1,0);
+        button(v,&n,6,h-49,56,13,GAL_FOCUS,"FOCUS",1,0);
+        button(v,&n,64,h-49,74,13,GAL_WAYPOINT,"WAYPOINT",1,g->waypoint_set && same_sector(g->waypoint,g->selected));
+        button(v,&n,140,h-49,50,13,GAL_INFO,"INFO",1,g->galaxy_detail);
+        button(v,&n,192,h-49,50,13,GAL_CLEAR,"CLEAR",1,0);
+        button(v,&n,244,h-49,70,13,'x',"JUMP",!strcmp(galaxy_jump_status(g,g->selected),"JUMP READY"),0);
+        if(g->galaxy_searching || g->galaxy_query[0]) {
+            Sector result[GALAXY_SEARCH]; int count=galaxy_search(g,result,GALAXY_SEARCH),first=g->galaxy_result/6*6;
+            for(i=0;i<6 && first+i<count;i++)
+                button(v,&n,210,38+i*12,104,11,GAL_RESULT+i,"",1,first+i==g->galaxy_result);
+            button(v,&n,210,112,50,13,GAL_PREV,"PREV",count>6,0);
+            button(v,&n,262,112,52,13,GAL_NEXT,"NEXT",count>6,0);
+        }
         break;
       case SYSTEM_MAP:
         button(v,&n,8,y,59,14,'q',"BODY",1,0);
@@ -162,6 +187,12 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
     return n;
 }
 void ui_move(Game *g, const Frame *f, int x, int y) {
+    if(g->page==MAP && g->ui_down && g->ui_capture==GAL_DRAG) {
+        int s=ui_scale(f),dx=(x-g->ui_x)/s,dy=(y-g->ui_y)/s;
+        int tx=x/s-g->galaxy_down_x,ty=y/s-g->galaxy_down_y;
+        if(tx*tx+ty*ty>16) g->galaxy_dragged=1;
+        if(g->galaxy_dragged) galaxy_drag(g,dx,dy);
+    }
     g->ui_x = x<0?0:x>=f->w?f->w-1:x;
     g->ui_y = y<0?0:y>=f->h?f->h-1:y;
     g->ui_visible = 1;
@@ -175,20 +206,15 @@ static UiWidget *pick(const Game *g,const Frame *f,UiWidget *v,int n) {
     return NULL;
 }
 static void activate(Game *g,int action,int x) {
+    if(action>=GAL_SEARCH && action<GAL_RESULT+6) { galaxy_key(g,action); return; }
     if(action==UI_RESTART) game_action(g,'r');
     else if(action>=UI_PORT && action<UI_PORT+MAX_PORTS) {
         g->target=action-UI_PORT; g->target_body=-1; g->resource_target=-1; g->clearance=-1; g->dock_stage=0;
     } else if(action>=UI_BODY && action<UI_BODY+MAX_PLANETS) {
         g->target=-1; g->target_body=action-UI_BODY; g->resource_target=-1; g->clearance=-1; g->dock_stage=0;
-    } else if(action>=UI_SECTOR && action<UI_SECTOR+9) {
-        int i=action-UI_SECTOR;
-        if(g->selected.x+i%3-1>=-1000000 && g->selected.x+i%3-1<=1000000)
-            g->selected.x+=i%3-1;
-        if(g->selected.z+i/3-1>=-1000000 && g->selected.z+i/3-1<=1000000)
-            g->selected.z+=i/3-1;
     } else if(action==UI_TAB) {
-        if(g->target<0) g->target_body=(g->target_body/8*8+8)%g->system.count;
-        else if(g->nports) g->target=(g->target/8*8+8)%g->nports;
+        if(g->target<0) g->target_body=g->target_body/8*8+8<g->system.count?g->target_body/8*8+8:0;
+        else if(g->nports) g->target=g->target/8*8+8<g->nports?g->target/8*8+8:0;
         g->resource_target=-1; g->clearance=-1; g->dock_stage=0;
     } else if(action==UI_SCAN) g->ui_weapons=!g->ui_weapons;
     else if(action==UI_THROTTLE || action==UI_THROTTLE+1) {
@@ -196,6 +222,7 @@ static void activate(Game *g,int action,int x) {
     } else if(action>=UI_WARP && action<UI_WARP+7) g->warp=1<<((action-UI_WARP)*2);
     else if(action>=UI_NAV && action<UI_NAV+128) {
         int k=action-UI_NAV;
+        g->galaxy_searching=0;
         if(k=='v') g->page=FLIGHT; else game_action(g,k);
     } else if(action>=UI_ROW && action<UI_ROW+8) {
         int i=action-UI_ROW;
@@ -217,6 +244,7 @@ int ui_pointer(Game *g,const Frame *f,int x,int y,int down) {
     if(down && !was) {
         g->ui_capture = b ? b->action : -1;
         g->ui_press_page=g->page;
+        if(g->page==MAP) { g->galaxy_down_x=x/ui_scale(f); g->galaxy_down_y=y/ui_scale(f); g->galaxy_dragged=0; }
         g->ui_fire = !g->ui_quit && !b && g->page==FLIGHT && y<ui_view_height(g,f) && !g->paused && !g->dead;
         if(b && b->enabled && !g->dead && b->action==UI_THROTTLE) activate(g,b->action,g->ui_x/ui_scale(f));
     }
@@ -228,7 +256,10 @@ int ui_pointer(Game *g,const Frame *f,int x,int y,int down) {
         if(b && b->enabled && b->action==action && g->page==g->ui_press_page && (!g->dead || g->ui_quit || action==UI_RESTART)) {
             if(action==UI_CANCEL_EXIT) { g->ui_quit=0; ui_cancel(g); return 0; }
             if(action==UI_SAVE || action==UI_LOAD || action==UI_EXIT || action==UI_SAVE_EXIT) return action;
-            activate(g,action,g->ui_x/ui_scale(f));
+            if(action==GAL_DRAG) {
+                Sector selected;
+                if(!g->galaxy_detail && !g->galaxy_dragged && galaxy_pick(g,f,g->ui_x/ui_scale(f),g->ui_y/ui_scale(f),&selected)) g->selected=selected;
+            } else activate(g,action,g->ui_x/ui_scale(f));
         }
     }
     return 0;
@@ -237,6 +268,7 @@ int ui_fire(const Game *g,const Frame *f) {
     return !g->ui_quit && g->ui_down && g->ui_fire && g->page==FLIGHT && g->ui_y<ui_view_height(g,f) && !g->paused && !g->dead;
 }
 int ui_quit_key(Game *g, int key) {
+    if(key==27 && !g->ui_quit && g->page==MAP && g->galaxy_searching) { g->galaxy_searching=0; return 0; }
     if (key == 27) {
         g->ui_quit = g->ui_quit ? 0 : 1;
         ui_cancel(g);

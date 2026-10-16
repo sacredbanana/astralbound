@@ -56,3 +56,12 @@ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ---
+
+Astronomical catalog:
+  data/stars.csv and src/star_catalog.inc adapt David Nash's HYG v4.1 database
+  (Hipparcos/Yale/Gliese), https://github.com/astronexus/HYG-Database .
+  These adapted data are CC BY-SA 4.0, not Unlicense. Attribution, source IDs,
+  changes and reproducible import instructions: data/README.md.
+  License text: data/LICENSE-HYG.txt; https://creativecommons.org/licenses/by-sa/4.0/ .
+  Solar System elements/physical parameters are from NASA/JPL Solar System
+  Dynamics; see data/README.md for sources, snapshot and approximation limits.

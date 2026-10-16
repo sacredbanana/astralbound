@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "astralbound.h"
+#include "galaxy.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -70,6 +71,7 @@ void game_init(Game *g, uint32_t seed) {
         g->contracts[i].state = COMPLETE;
     refresh_board(g);
     say(g, "ASTRALBOUND / FLIGHT PROTOTYPE - H FOR HELP");
+    galaxy_reset(g);
 }
 /* Turrets use independent world angles. Steering them never changes flight guidance. */
 void view_angles(const Game *g, int *yaw, int *pitch) {
@@ -319,7 +321,9 @@ static Vec autopilot_route(const Game *g, int *detour) {
     return dest;
 }
 static int64_t along(Vec a, Vec unit_axis) {
-    return (a.x * unit_axis.x + a.y * unit_axis.y + a.z * unit_axis.z) / 16384;
+    return scale(vec(a.x,0,0),unit_axis.x,16384).x +
+           scale(vec(a.y,0,0),unit_axis.y,16384).x +
+           scale(vec(a.z,0,0),unit_axis.z,16384).x;
 }
 /* Cleared to descend from the gate and still over the pad: the autopilot
    flies the rest like a lander instead of diving nose-first at the pad. */
@@ -955,12 +959,10 @@ void game_frame(Game *g, Controls c, int ticks) {
 }
 
 int jump(Game *g, Sector d) {
-    Vec delta = vec((int64_t)d.x - g->system.sector.x, (int64_t)d.y - g->system.sector.y,
-                    (int64_t)d.z - g->system.sector.z);
     int i, cost;
     System destination;
-    int64_t distance = length(scale(delta, 100, 1));
-    if (g->dead || g->docked != -1 || distance == 0 || distance > 600 || d.x < -1000000 ||
+    int64_t distance = galaxy_distance(d,g->system.sector);
+    if (g->dead || g->docked != -1 || distance == 0 || distance > 6000 || d.x < -1000000 ||
         d.x > 1000000 || d.y < -1000000 || d.y > 1000000 || d.z < -1000000 || d.z > 1000000 ||
         altitude_at(g, g->pos) < 12000)
         return 0;
@@ -971,7 +973,7 @@ int jump(Game *g, Sector d) {
     generate_system(g->seed, d, &destination);
     if (!destination.count)
         return 0;
-    cost = (int)(distance + 49) / 50;
+    cost = galaxy_jump_cost(g,d);
     if (g->fuel < cost)
         return 0;
     g->fuel -= cost;
@@ -1000,6 +1002,7 @@ void game_action(Game *g, int k) {
     }
     if (g->dead)
         return;
+    if (g->page==MAP && galaxy_key(g,k)) return;
     switch (k) {
     case 'h':
         g->page = g->page == HELP ? FLIGHT : HELP;
@@ -1039,6 +1042,7 @@ void game_action(Game *g, int k) {
         g->system_display = 0;
         break;
     case 'g':
+        if(!g->galaxy_ready) galaxy_reset(g);
         g->page = MAP;
         break;
     case 'b':
@@ -1239,20 +1243,6 @@ void game_action(Game *g, int k) {
             g->clearance = -1;
             g->dock_stage = 0;
         }
-        if (g->page == MAP) {
-            if (k == 1001 && g->selected.z < 1000000)
-                g->selected.z++;
-            if (k == 1002 && g->selected.z > -1000000)
-                g->selected.z--;
-        }
-        break;
-    case 1003:
-        if (g->page == MAP && g->selected.x > -1000000)
-            g->selected.x--;
-        break;
-    case 1004:
-        if (g->page == MAP && g->selected.x < 1000000)
-            g->selected.x++;
         break;
     default:
         break;

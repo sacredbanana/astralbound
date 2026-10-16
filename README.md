@@ -2,8 +2,9 @@
 
 An original space trading and combat game for the Commodore Amiga, inspired by
 the scope and solid-polygon presentation of Frontier: Elite II. Astralbound's source,
-ship geometry, font, names and generated worlds are original and released under
-the [Unlicense](LICENSE). Reference screenshots and Frontier assets are not
+ship geometry, font and generated worlds are original and released under
+the [Unlicense](LICENSE). The adapted HYG star catalog is CC BY-SA 4.0; see
+[data sources and approximation limits](data/README.md). Reference screenshots and Frontier assets are not
 included in the game.
 
 **Status: playable development prototype, not a finished Frontier-scale game.**
@@ -82,7 +83,9 @@ renderer. `Astralbound-tests.020` runs the full core suite on an Amiga;
 `Astralbound-tests.020 --quick` runs the shorter native smoke suite.
 `Astralbound-career-tests.020` runs the careers/resources/equipment regressions.
 `Astralbound-ui-tests.020` exercises mouse workflows at all three display layouts.
-`Astralbound-RunTests` starts the presentation/core/UI/career suites with an explicit 256 KiB
+`Astralbound-galaxy-tests.020` validates the catalog, Sol, map interactions and waypoint saves.
+Standalone native test programs require `Stack 1048576`.
+`Astralbound-RunTests` starts the galaxy/presentation/core/UI/career suites with an explicit 1 MiB
 child stack and writes their result files; use it in a bare boot CLI. Full trajectories
 remain in the default suite, which can take a long time under emulation.
 
@@ -138,7 +141,7 @@ safety limits; the cockpit shows delivered/requested compression. **PAUSE/PLAY**
 works with the mouse. Click the scanner to show missile/decoy controls and click
 its background again to return. In SYS, click a body or station marker to choose
 that navigation target; overlapping distant markers are resolved through NAV's
-list and BODY/PORT/PAGE buttons. GAL's nine sector tiles are clickable. SAVE and
+list and BODY/PORT/PAGE buttons. GAL is a navigable 3D star map. SAVE and
 LOAD are available in the panels. Mouse UI state is not stored in a
 commander. All keyboard shortcuts remain available.
 
@@ -161,10 +164,38 @@ turns it off; time compression remains limited to autopilot flight.
 At a port, **B** opens contracts, **M** opens the market and **U** opens the
 shipyard, where the selected hull turns in a 3D preview beside stat bars compared
 with your current ship (1-6 or Up/Down select, Return buys). **J** lists contracts and destinations. **G** opens the galaxy map;
-select a sector using arrows and press **X** above 12 km altitude to jump. **C**
-centres the map on the current system. Jump range is six one-light-year sectors.
-Star occupancy follows a four-arm galactic disc; empty sectors reject jumps. Green
-map markers identify visited systems. Unsettled systems have body targets and no
+drag to rotate, use **+/-** or the mouse wheel to zoom, and click a star to target it.
+**PAN** changes dragging to camera translation; WASD pans in the horizontal plane
+and Q/E moves vertically. Arrows rotate. **HOME/C** centres on the current system,
+**FOCUS/F** centres on the target, and **GALAXY** opens the spiral-disc overview.
+**SEARCH** or **/** focuses name entry; type a partial name or alias, use Up/Down
+or PREV/NEXT to browse matches, then Return or a result row to select it. Backspace
+edits, Escape leaves search, and CLEAR clears the query. Search covers all 94 real
+catalog entries, the local sampled field and visited systems. **INFO** shows component
+spectra, distance, economy, government, bodies, ports and exploration status.
+**WAYPOINT** pins a separate cyan diamond and route line; clicking it again for the
+same target removes the pin. The selected target has a gold box, current system a
+red cross, and visited systems a green dot. Hover reveals a star's name.
+
+Press **X/JUMP** above 12 km altitude to jump. Jump range is six light-years;
+range and fuel use the actual 3D positions, including sub-sector catalog precision.
+The map reports launch, altitude, range, fuel and traffic restrictions. Overview
+points sample the procedural galaxy; zoom to 8 ly or closer to resolve every system
+in the local 17-sector cube. Catalog and journal/navigation entries are retained at
+all scales. Empty sectors reject jumps. All axes are navigable; the overview is a
+fictional four-arm galactic disc, not an observational Milky Way reconstruction.
+
+Real entries include Sol, Proxima/Alpha Centauri, Sirius, Procyon, Tau Ceti, Vega,
+Arcturus, Aldebaran, Polaris, Rigel, Betelgeuse and Deneb. Multiple systems support
+up to six stellar components. Stellar classes include normal O/B/A/F/G/K/M stars,
+giants/red giants, white and brown dwarfs, neutron stars and black holes. Catalog
+stars use HYG J2000 positions rounded to 0.001 ly; their close binary orbits and
+flight radii are gameplay approximations. Sol contains eight planets, five dwarf
+planets, all 459 unique moons in the retrieved JPL planetary satellite table, four
+additional dwarf moons, and eight representative minor bodies: 484 navigable bodies.
+Sol uses eccentric Kepler orbits and real radii/periods where available; unknown
+small-moon sizes use explicitly labelled proxy geometry. Earth/Mars/Moon ports are
+fictional. See [catalog provenance](data/README.md) for epochs and limitations. Unsettled systems have body targets and no
 markets or contract boards. The commander journal preserves up to 128 systems with
 visited/surveyed body masks. Close approaches below 100 km mark a body surveyed.
 
@@ -289,11 +320,12 @@ fuel point per second in the upper two thirds of a hydrogen atmosphere at
 civilian economy and strategic faction wars are not simulated.
 
 Read [Astralbound.guide](Astralbound.guide) on the Amiga for the controls and prototype limits.
-Save format 7 preserves ship roll as well as crew, cabins, mount upgrades, factions, legal status,
+Save format 8 adds the independent galaxy waypoint and complete Sol survey masks.
+It preserves ship roll as well as crew, cabins, mount upgrades, factions, legal status,
 contract stages, cargo pods, missiles, mining rigs and finite asteroid deposits,
 alongside exploration, markets, frame, fuel-impulse and approach state. Formats
 3, 4 and 5 migrate with default faction records and enough crew for their hull.
-Formats 3 through 6 load with zero bank. World generation stays at version 3. Version 3 commanders load
+Formats 3 through 6 load with zero bank; version 7 retains bank. Formats 3–7 load with empty new catalog records. World generation stays at version 3. Version 3 commanders load
 with their saved stock assigned to the docked port; other ports start with generated
 supply. Version 4 commanders also load; older open-ground landings are reattached
 to rotating terrain and docked ships follow their ports. Version 2 remains incompatible.
@@ -368,7 +400,7 @@ ADF generation needs amitools' `xdftool` (`XDFTOOL=/path/to/xdftool`) and vasm;
 using the system Installer (V42.12+), choose a destination, then use a CPU icon
 or Play-AGA/Play-RTG/Play-RTG16. The installer preserves `astralbound.sav`.
 Workbench icons request a 256 KiB stack. Set `Stack 262144` in a CLI before
-running CPU variants or standalone tests; the bare CLI stack-swap exit path
+running CPU variants; use 1 MiB for standalone tests. The bare CLI stack-swap exit path
 needs further toolchain QA. CPU icon tooltypes accept `MODE=ECS`, `AGA`, `RTG` or `RTG16`, plus `LOWRES`,
 `NOSOUND` and `ANALOG`. The original icons can be regenerated by running
 `Astralbound-Icons` beside the executables and copying its `.info` files into `release/`.

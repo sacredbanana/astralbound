@@ -69,7 +69,7 @@
   Escape    Ask whether to save before quitting; Escape again cancels.
 
   Mouse console: FLY returns to flight; VIEW cycles the camera. GAL opens
-  galaxy tiles; NAV lists destinations; SYS shows clickable orbital markers.
+  3D galaxy map; NAV lists destinations; SYS shows clickable orbital markers.
   PORT opens Contracts/Market/Shipyard tabs. LOG, KIT, CREW and HLP open
   the other panels. Select a row, then click its action button. Dim controls
   are unavailable. Release inside the pressed control to activate it; drag
@@ -163,11 +163,35 @@
   Work is limited to 128 simulation steps per displayed frame. The HUD
   shows the delivered rate, which may be below the requested compression.
 
-  G opens the galaxy map. Arrows select a sector. C centres on the
-  current system. X jumps when above 12 km with sufficient fuel,
-  no nearby traffic and a destination within six sectors.
+  G opens the 3D galaxy map. Drag to rotate; +/- zoom. PAN changes
+  dragging to translation. Arrows rotate; WASD pans; Q/E moves vertically.
+  HOME/C centres on the current system, FOCUS/F on the selected target.
+  GALAXY opens the sampled spiral-disc overview. Zoom to 8 ly or closer
+  for all systems in the local 17-sector cube. Click any star to target it.
+  SEARCH or / starts name entry. Type a name or alias, Up/Down selects
+  a result, Return targets it. Click result rows or PREV/NEXT to browse.
+  Backspace edits, Escape leaves search, CLEAR clears the query.
+  Search covers all 94 real entries, local sampled stars and visited systems.
+  INFO shows stellar components, distance, bodies, ports and local records.
+  WAYPOINT pins a cyan diamond/line independently of the gold target box;
+  click WAYPOINT again on the same target to remove it. The current system
+  has a red cross; green dots mark visited systems. Hover shows a name.
+  X/JUMP travels above 12 km with sufficient fuel, no nearby traffic,
+  and a destination within six light-years. Distances use full 3D positions.
   J shows contract destination sectors and port numbers.
-  Empty galaxy cells reject jumps. Star density follows four spiral arms.
+
+  Real stars include Sol, Proxima/Alpha Centauri, Sirius, Tau Ceti, Vega,
+  Polaris, Rigel, Betelgeuse and Deneb. Systems support up to six components.
+  Normal stars, red giants, brown/white dwarfs, neutron stars and black
+  holes have distinct types. HYG J2000 positions retain 0.001 ly precision;
+  companion orbits and flight radii are game approximations. Catalog data
+  is CC BY-SA 4.0 (David Nash / Astronomy Nexus); see data/README.md.
+  Sol has eight planets, five dwarf planets, all 459 unique moons from
+  the retrieved JPL planetary table, four more dwarf moons and eight minor
+  bodies: 484 navigable bodies plus the Sun. Planets use eccentric Kepler
+  orbits, real radii and periods. Unknown small-moon sizes are labelled
+  proxy geometry. Earth/Mars/Moon ports are fictional. Small asteroid moons
+  absent from the planetary table are outside this bounded catalog.
   Unsettled systems have no ports; use Q and P to explore their bodies.
   Green map markers show previously visited systems. The commander
   journal records up to 128 systems and their visited/surveyed bodies.
@@ -303,7 +327,8 @@
   Native modes restore the OS for file access, then resume takeover.
   The save includes its format/generator version and checksum, exploration
   journal, local frame, accumulated fuel impulse, docking approach and markets.
-  Save format 7 stores ship roll and keeps world generator version 3. Version 3 commanders load
+  Save format 8 stores the galaxy waypoint, all Sol body survey masks and
+  ship roll. Generated planetary streams retain version 3. Version 3 commanders load
   with saved supply assigned to the docked port; other ports use generated
   supply. Old version 2 prototype commanders remain incompatible.
   A rejected or corrupt load leaves the current game unchanged.
@@ -311,7 +336,8 @@
   New data is written and closed before replacing the old slot.
   On filesystems that cannot replace via Rename, the old slot is kept
   as astralbound.sav.bak. A failed replacement attempts to restore it.
-  Versions 3 through 6 load with zero bank. Version 4 and 5 commanders load, with default faction records
+  Versions 3 through 7 load with empty new Sol records; 3 through 6
+  load with zero bank. Version 4 and 5 commanders load, with default faction records
   and the crew needed by their hull. Careers/equipment/resources are saved. Old open-ground landings are attached to
   the rotating terrain; docked commanders follow their moving port.
   Prototype save formats can change between development revisions.

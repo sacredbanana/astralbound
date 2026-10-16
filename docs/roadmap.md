@@ -8,6 +8,17 @@ list remains part of that request; it is not a claim of feature completeness.
 
 Implemented in the current development build:
 
+- [x] Interactive 3D galaxy navigation, rotation/pan/zoom, exact shared picking,
+  global real-star name/alias search, local/journal search, component data, target
+  selection, independent persistent waypoint and physical jump distances.
+- [x] 94 catalog entries with J2000 positions, up to six stellar components,
+  normal/giant/red-giant/white-dwarf/brown-dwarf/neutron/black-hole types.
+- [x] Sol: eight planets, five dwarf planets, 459 unique JPL planetary moons,
+  four supplemental dwarf moons and eight representative minor bodies; eccentric
+  fixed-point Kepler orbits and long periods. See `data/README.md` for limits.
+- [x] Save v8 waypoint/Sol surveys, 3-7 migration, 512 catalog-body capacity,
+  original 12-body procedural cap and bounded 12-slot terrain globe cache.
+
 - [x] Astronomical metre scales, translated hierarchical local frames, and a central star
   (or a binary pair orbiting the system barycentre).
 - [x] Analytic moving orbits, parented moons, rendered rings, and vacuum, thin,
@@ -33,7 +44,7 @@ sectors cannot be jumped to; unsettled star systems can be explored using body t
 - [x] Multiple gas-giant moons and separated equatorial ring bands.
 - [x] Version 5 saves with version 3/4 ground/docked commander migration.
 
-These are bounded procedural game models: circular inclined orbits rather than an
+These are bounded game models: circular generated orbits and catalog Kepler ellipses rather than an
 N-body solver, a 128-system exploration journal, decorative flora/buildings and procedural weather,
 and scheduled clearance traffic rather than a persistent civilian fleet. The local
 terrain grid has shared edges and a skirt to the globe, and uses a raster depth buffer. Hardware frame rates and long-duration play remain QA work.

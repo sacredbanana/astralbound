@@ -1,8 +1,8 @@
 CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Isrc
-HEADERS = $(wildcard src/*.h) src/third_party/micromod/micromod.h
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/game.c src/career.c src/save.c src/ui.c src/render.c
+HEADERS = $(wildcard src/*.h src/*.inc) src/third_party/micromod/micromod.h
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/solar.c src/game.c src/career.c src/save.c src/ui.c src/render.c
 .PHONY: all test sanitize preview clean amiga
 all: build/astralbound
 build:
@@ -17,7 +17,8 @@ build/presentation-tests: $(CORE) $(HEADERS) tests/test_presentation.c src/contr
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_presentation.c -o $@
 build/music-tests: $(CORE) $(HEADERS) tests/test_music.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_music.c -o $@
-test: build/tests build/renderer-tests build/presentation-tests build/music-tests build/career-tests build/ui-tests
+test: build/galaxy-tests build/tests build/renderer-tests build/presentation-tests build/music-tests build/career-tests build/ui-tests
+	./build/galaxy-tests
 	./build/music-tests
 	./build/ui-tests
 	./build/career-tests
@@ -25,6 +26,8 @@ test: build/tests build/renderer-tests build/presentation-tests build/music-test
 	./build/renderer-tests
 	./build/tests
 sanitize: | build
+	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_galaxy.c -o build/galaxy-tests-sanitize
+	./build/galaxy-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_music.c -o build/music-tests-sanitize
 	./build/music-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_ui.c -o build/ui-tests-sanitize
@@ -45,7 +48,7 @@ preview: build/astralbound
 amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
-	rm -f build/music-tests build/music-tests-sanitize
+	rm -f build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
 	rm -f build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 .PHONY: benchmark package
@@ -117,3 +120,16 @@ build/landform-preview: $(CORE) $(HEADERS) tools/landform_preview.c | build
 landform-preview: build/landform-preview
 	mkdir -p build/evidence
 	./build/landform-preview
+
+build/galaxy-tests: $(CORE) $(HEADERS) src/star_catalog.inc src/solar_catalog.inc tests/test_galaxy.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_galaxy.c -o $@
+.PHONY: galaxy-test
+galaxy-test: build/galaxy-tests
+	./build/galaxy-tests
+
+build/galaxy-preview: $(CORE) $(HEADERS) tools/galaxy_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/galaxy_preview.c -o $@
+.PHONY: galaxy-preview
+galaxy-preview: build/galaxy-preview
+	mkdir -p build/evidence
+	./build/galaxy-preview

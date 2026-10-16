@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "astralbound.h"
 #include "ui.h"
+#include "galaxy.h"
 #include "fpu.h"
 #include <string.h>
 #include <stdio.h>
@@ -55,10 +56,11 @@ static Vec camera_to_local(const Planet *p, Vec v) {
 static void (*platform_pump)(void);
 static uint32_t plane_low[256], plane_high[256];
 static int tables_ready;
-static Vec globe_vertices[MAX_PLANETS][17][33];
+static Vec globe_vertices[GENERATED_PLANETS][17][33];
+static uint32_t globe_keys[GENERATED_PLANETS];
+static int globe_valid[GENERATED_PLANETS];
 
-static uint32_t globe_seed, globe_hour;
-static int globe_ready, globe_enhanced;
+static int globe_enhanced;
 
 void render_set_pump(void (*pump)(void)) {
     platform_pump = pump;
@@ -142,6 +144,8 @@ static void text(int x, int y, int c, const char *s) {
         else if (ch == '+') {
             rect(x, y + 3, 5, 1, c);
             rect(x + 2, y + 1, 1, 5, c);
+        } else if(ch=='<') {
+            pixel(x+3,y+1,c);pixel(x+2,y+2,c);pixel(x+1,y+3,c);pixel(x+2,y+4,c);pixel(x+3,y+5,c);
         } else if (ch == '>') {
             pixel(x + 1, y + 1, c);
             pixel(x + 2, y + 2, c);
@@ -1032,34 +1036,28 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     if (shade > 14) shade = 14;
     return frame->enhanced ? aga[material]+shade : ecs[material]+shade/6;
 }
-static uint8_t globe_material[MAX_PLANETS][17][33];
-static int8_t globe_albedo[MAX_PLANETS][17][33];
+static uint8_t globe_material[GENERATED_PLANETS][17][33];
+static int8_t globe_albedo[GENERATED_PLANETS][17][33];
 static void cache_globes(void) {
-    int b, x, y;
-    if (globe_ready && globe_seed == game->system.seed && globe_enhanced == frame->enhanced &&
-        globe_hour == 0)
-        return;
-    for (b = 0; b < game->system.count; b++) {
-        Planet fixed = game->system.planets[b];
-        const Planet *p = &fixed;
-        set_rotation(&fixed, 0);
-        for (y = 0; y <= 16; y++) {
-            if (platform_pump)
-                platform_pump();
-            for (x = 0; x <= 32; x++) {
-                Vec dir = forward(x * 32, y * 32 - 256);
-                Vec local = radial(dir, p->radius + terrain_height(p, dir));
-                globe_vertices[b][y][x] = local;
-                globe_material[b][y][x] = (uint8_t)terrain_material(p, local);
-                globe_albedo[b][y][x] = (int8_t)terrain_regional_albedo(p, local,
-                    globe_material[b][y][x]);
-            }
+    if(globe_enhanced!=frame->enhanced) memset(globe_valid,0,sizeof(globe_valid));
+    globe_enhanced=frame->enhanced;
+}
+static int cache_globe(int body) {
+    int x,y,slot=body%GENERATED_PLANETS;
+    Planet fixed=game->system.planets[body]; const Planet *p=&fixed;
+    if(globe_valid[slot] && globe_keys[slot]==p->seed) return slot;
+    set_rotation(&fixed,0);
+    for(y=0;y<=16;y++) {
+        if(platform_pump) platform_pump();
+        for(x=0;x<=32;x++) {
+            Vec dir=forward(x*32,y*32-256),local=radial(dir,p->radius+terrain_height(p,dir));
+            globe_vertices[slot][y][x]=local;
+            globe_material[slot][y][x]=(uint8_t)terrain_material(p,local);
+            globe_albedo[slot][y][x]=(int8_t)terrain_regional_albedo(p,local,globe_material[slot][y][x]);
         }
     }
-    globe_seed = game->system.seed;
-    globe_hour = 0;
-    globe_enhanced = frame->enhanced;
-    globe_ready = 1;
+    globe_keys[slot]=p->seed; globe_valid[slot]=1;
+    return slot;
 }
 /* Geometry clipmaps use a fixed body-space lattice. Camera motion chooses
    visible cells, but never relocates the terrain samples. Outer vertices
@@ -1182,7 +1180,7 @@ static void terrain_clipmap(const Planet *p, Vec local) {
 static void planet_mesh(int body) {
     const Planet *p = &game->system.planets[body];
     Vec cam_local = sub(scale(game->pos, 1, FP), p->center);
-    int radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
+    int slot, radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
     int64_t distance = length(cam_local), altitude = distance - radius;
     terrain_surface = body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE ? p : NULL;
     if (terrain_surface) surface_lod_prepare(p, altitude);
@@ -1192,27 +1190,34 @@ static void planet_mesh(int body) {
             terrain_surface = NULL;
             return;
         }
+        if(p->catalog && c.z>0) {
+            /* Hundreds of distant moons are unresolved. Cull before building
+               terrain samples, keeping Sol within the original cache budget. */
+            if((int64_t)radius*frame->w<c.z*2) { terrain_surface=NULL; return; }
+            if(llabs(c.x)>(c.z+radius)*2 || llabs(c.y)>(c.z+radius)*2) { terrain_surface=NULL; return; }
+        }
         if (distance > radius * 80LL) {
             lons = 8;
             lats = 4;
         }
         {
             int step = 32 / lons;
+            slot=cache_globe(body);
             for (y = 0; y < lats; y++)
                 for (x = 0; x < lons; x++) {
                     int row = y * step, column = x * step;
-                    Vec a = add(p->center, body_rotate(p, globe_vertices[body][row][column], 0)),
-                        b = add(p->center, body_rotate(p, globe_vertices[body][row][column + step], 0));
-                    Vec c2 = add(p->center, body_rotate(p, globe_vertices[body][row + step][column + step], 0)),
-                        d = add(p->center, body_rotate(p, globe_vertices[body][row + step][column], 0));
-                    int color = material_color(p, sub(a, p->center), globe_material[body][row][column]);
+                    Vec a = add(p->center, body_rotate(p, globe_vertices[slot][row][column], 0)),
+                        b = add(p->center, body_rotate(p, globe_vertices[slot][row][column + step], 0));
+                    Vec c2 = add(p->center, body_rotate(p, globe_vertices[slot][row + step][column + step], 0)),
+                        d = add(p->center, body_rotate(p, globe_vertices[slot][row + step][column], 0));
+                    int color = material_color(p, sub(a, p->center), globe_material[slot][row][column]);
                     if (!terrain_surface) {
                         static const int ecs[] = {25,8,8,16,28,21};
                         static const int aga[] = {80,64,64,96,112,96};
-                        int material=globe_material[body][row][column];
+                        int material=globe_material[slot][row][column];
                         int base=frame->enhanced ? aga[material] : ecs[material];
                         int shade=(color-base)*(frame->enhanced ? 1 : 6);
-                        int variation=globe_albedo[body][row][column];
+                        int variation=globe_albedo[slot][row][column];
                         shade += variation*shade/14;
                         if (shade<0) shade=0;
                         if (shade>14) shade=14;
@@ -1320,7 +1325,7 @@ static void stellar_discs(void) {
             Vec b = add(center,
                         add(scale(right, (int64_t)cosi((j + 1) * 64) * s->radius / 16384, 16384),
                             scale(up, (int64_t)sini((j + 1) * 64) * s->radius / 16384, 16384)));
-            triangle(center, a, b, i ? 14 : 12);
+            triangle(center, a, b, stellar_colour(s->type));
         }
     }
 }
@@ -1799,7 +1804,14 @@ static void orbital_map(void) {
         Vec center = p->parent >= 0 ? game->system.planets[p->parent].center : vec(0, 0, 0);
         if (game->map_local && i != parent && p->parent != parent)
             continue;
-        if (!game->map_local || i != parent)
+        if ((!game->map_local || i != parent) && p->catalog && p->orbit*62/extent>=2) {
+            int a,x1,y1,x2,y2;
+            for(a=0;a<1024;a+=32) {
+                map_point(add(center,body_orbit_sample(p,a)),origin,extent,&x1,&y1);
+                map_point(add(center,body_orbit_sample(p,a+32)),origin,extent,&x2,&y2);
+                line(x1,y1,x2,y2,3);
+            }
+        } else if ((!game->map_local || i != parent) && !p->catalog)
             orbit_path(origin, center, p->orbit, p->inclination, extent);
         map_point(p->center, origin, extent, &x, &y);
         rect(x - 2, y - 2, 5, 5, i == b ? 12 : p->settled ? 11 : 13);
@@ -1849,7 +1861,7 @@ static void system_data(void) {
     snprintf(s, sizeof(s), "%s / %s", p->name, body_names[p->type]);
     text(12, 52, 12, s);
     snprintf(s, sizeof(s), "RADIUS %ld KM / GRAVITY %d M/S2", (long)(p->radius / 1000), (int)p->gravity);
-    text(12, 62, 15, s);
+    text(12, 62, 15, p->catalog==2 ? "SIZE/GRAVITY UNKNOWN - PROXY GEOMETRY" : s);
     snprintf(s, sizeof(s), "%s / ATMOSPHERE %ld KM", climates[p->climate], (long)(p->atmosphere / 1000));
     text(12, 72, 15, s);
     snprintf(s, sizeof(s), "PARENT %s / %s", p->parent >= 0 ? game->system.planets[p->parent].name : "STARS",
@@ -1864,7 +1876,7 @@ static void system_data(void) {
     for (i = 0; i < game->nports; i++)
         ports += game->ports[i].body == b;
     snprintf(s, sizeof(s), "%d PORTS / %s", ports,
-             j >= 0 && (game->explored[j].surveyed & (1U << b)) ? "SURVEYED" : "UNSURVEYED");
+             (same_sector(game->system.sector,catalog_sector(0)) ? (game->solar_surveyed[b/32] & (1U << (b%32))) : j >= 0 && b<GENERATED_PLANETS && (game->explored[j].surveyed & (1U << b))) ? "SURVEYED" : "UNSURVEYED");
     text(12, 112, 13, s);
     snprintf(s, sizeof(s), "NAV RANGE %ld KM", (long)(length(sub(navigation_position(game), game->pos)) / (FP * 1000)));
     text(12, 124, 15, s);
@@ -1899,33 +1911,7 @@ static void menus(void) {
     char s[110];
     int i;
     switch (game->page) {
-    case MAP: {
-        System sel;
-        panel("GALACTIC NAVIGATION");
-        generate_system(game->seed, game->selected, &sel);
-        for (i = 0; i < 9; i++) {
-            Sector ss = game->selected;
-            System sys;
-            ss.x += i % 3 - 1;
-            ss.z += i / 3 - 1;
-            generate_system(game->seed, ss, &sys);
-            int x = 55 + (i % 3) * 100, y = 60 + (i / 3) * 35;
-            line(x - 40, y + 8, x + 40, y + 8, 3);
-            if (sys.count)
-                rect(x, y, 3, 3, i == 4 ? 12 : exploration_index(game, ss) >= 0 ? 11 : 13);
-            text(x - 30, y + 12, i == 4 ? 12 : 7, sys.count ? sys.name : "EMPTY");
-        }
-        snprintf(s, sizeof(s), "%s  SECTOR %ld / %ld", sel.name, (long)game->selected.x,
-                 (long)game->selected.z);
-        text(12, 29, 15, s);
-        snprintf(s, sizeof(s), "DENSITY %d / PORTS %d / %s", sel.density, system_port_count(&sel),
-                 !sel.count                                     ? "EMPTY"
-                 : exploration_index(game, game->selected) >= 0 ? "VISITED"
-                                                                : "UNEXPLORED");
-        text(12, 157, 13, s);
-        text(12, 173, 7, "ARROWS SELECT / X JUMP / V FLIGHT");
-        break;
-    }
+    case MAP: break;
     case SYSTEM_MAP: {
         if (game->system_display == 1) {
             orbital_map();
@@ -1944,7 +1930,7 @@ static void menus(void) {
                 int journal = exploration_index(game, game->system.sector);
                 snprintf(s, sizeof(s), "%s %s %ld KM %s", p->name, body_names[p->type],
                          (long)(p->radius / 1000),
-                         journal >= 0 && (game->explored[journal].surveyed & (1U << i)) ? "SCAN"
+                         (same_sector(game->system.sector,catalog_sector(0)) ? (game->solar_surveyed[i/32] & (1U << (i%32))) : journal >= 0 && i<GENERATED_PLANETS && (game->explored[journal].surveyed & (1U << i))) ? "SCAN"
                                                                                         : "");
                 text(12, 32 + (i - first_body) * 16, i == game->target_body ? 12 : 15, s);
             }
@@ -2063,7 +2049,7 @@ static void menus(void) {
             const char *help[] = {
                 "ARROWS ROLL PITCH / W S SET SPEED",  "CTRL FIRE / E ASSIST / A DRIVE",
                 "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
-                "[ ] TIME TO 4096X / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
+                "[ ] TIME TO 4096X / SPACE PAUSE",          "G MAP / DRAG ROTATE / +/- ZOOM",
                 "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
                 "F5 SAVE / F9 LOAD / ESC QUIT DIALOG",         "R CONTACT / Z ORBITS / I BODY DATA",
                 "0 EQUIP / 9 CREW / , MISSILE . DECOY", "BACKSLASH ROCK / O MINE N CARGO / / POD"};
@@ -2233,21 +2219,140 @@ static int gui_buttons(UiWidget *v,int n,int s) {
         UiWidget *b=&v[i]; int over=game->ui_visible && game->ui_x/s>=b->x && game->ui_x/s<b->x+b->w && game->ui_y/s>=b->y && game->ui_y/s<b->y+b->h;
         int pressed=game->ui_down && game->ui_capture==b->action && over;
         if(over) hover=i;
-        if(b->action==UI_SCAN || b->action>=UI_BODY) continue;
+        if(b->action==UI_SCAN || (b->action>=UI_BODY && b->action<UI_BODY+MAX_PLANETS) || (b->action>=UI_PORT && b->action<UI_PORT+MAX_PORTS)) continue;
         if(b->action==UI_THROTTLE) {
             rect(b->x,b->y,b->w,b->h,0); rect(b->x+1,b->y+1,game->throttle*(b->w-2)/4000,b->h-2,13); continue;
         }
+        if(b->action==GAL_DRAG) continue;
         bevel(b->x,b->y,b->w,b->h,pressed || b->active);
         if(over && b->enabled) line(b->x+1,b->y+1,b->x+b->w-2,b->y+1,13);
         if(b->label[0]) text(b->x+(b->w-(int)strlen(b->label)*6)/2,b->y+(b->h-7)/2,b->enabled?(b->active?12:15):7,b->label);
-        if(b->action>=UI_SECTOR && b->action<UI_SECTOR+9) {
-            int id=b->action-UI_SECTOR; Sector sector=game->selected; System sys;
-            sector.x+=id%3-1; sector.z+=id/3-1; generate_system(game->seed,sector,&sys);
-            rect(b->x+48,b->y+6,3,3,sys.count?exploration_index(game,sector)>=0?11:13:7);
-            text(b->x+6,b->y+20,b->active?12:15,sys.count?sys.name:"EMPTY");
-        }
+
     }
     return hover;
+}
+static void galaxy_line(Vec a,Vec b,int colour) {
+    int x,y,xx,yy,d;
+    if(galaxy_project(game,frame,a,&x,&y,&d) && galaxy_project(game,frame,b,&xx,&yy,&d)) line(x,y,xx,yy,colour);
+}
+static void galaxy_map(void) {
+    int n,i,x,y,d,h=frame->h/draw_scale;
+    const GalaxyMarker *m=galaxy_markers(game,frame,&n);
+    int64_t step=game->galaxy_extent/4;
+    Vec home=galaxy_position(game->system.sector);
+    rect(6,36,200,h-104,0);
+    for(i=-4;i<=4;i++) {
+        galaxy_line(add(game->galaxy_center,vec(i*step,0,-4*step)),add(game->galaxy_center,vec(i*step,0,4*step)),2);
+        galaxy_line(add(game->galaxy_center,vec(-4*step,0,i*step)),add(game->galaxy_center,vec(4*step,0,i*step)),2);
+    }
+    if(game->galaxy_extent>1000000) {
+        int arm,r;
+        /* Dim arm contours describe aggregate disc density at overview scale. */
+        for(arm=0;arm<4;arm++) for(r=1000;r<30000;r+=500) {
+            int a=r/50+arm*256,b=(r+500)/50+arm*256;
+            galaxy_line(vec((int64_t)r*1000*sini(a)/16384,0,(int64_t)r*1000*cosi(a)/16384),
+                vec((int64_t)(r+500)*1000*sini(b)/16384,0,(int64_t)(r+500)*1000*cosi(b)/16384),2);
+        }
+    }
+    for(i=0;i<32;i++) {
+        Vec a=add(home,vec(6000LL*sini(i*32)/16384,0,6000LL*cosi(i*32)/16384));
+        Vec b=add(home,vec(6000LL*sini((i+1)*32)/16384,0,6000LL*cosi((i+1)*32)/16384));
+        galaxy_line(a,b,8);
+    }
+    if(game->waypoint_set) galaxy_line(home,galaxy_position(game->waypoint),13);
+    galaxy_line(home,galaxy_position(game->selected),12);
+    for(i=0;i<n;i++) {
+        int c=stellar_colour((StellarType)m[i].type),r=m[i].catalog>=0?1:0;
+        x=m[i].x; y=m[i].y;
+        if(m[i].catalog>=0 && (m[i].type==ST_GIANT || m[i].type==ST_RED_GIANT)) r=2;
+        if(m[i].type==ST_BLACK_HOLE && (m[i].catalog>=0 || game->galaxy_extent<=4000)) { line(x-2,y-2,x+2,y-2,25); line(x-2,y+2,x+2,y+2,25); pixel(x-2,y,13); pixel(x+2,y,13); }
+        else if(m[i].type==ST_NEUTRON && (m[i].catalog>=0 || game->galaxy_extent<=4000)) { line(x-2,y,x+2,y,13); line(x,y-3,x,y+3,13); pixel(x,y,15); }
+        else if(r==1) { line(x-1,y,x+1,y,c); line(x,y-1,x,y+1,c); }
+        else rect(x-r,y-r,2*r+1,2*r+1,c);
+        if(exploration_index(game,m[i].sector)>=0) pixel(x+3,y+3,11);
+    }
+    if(game->galaxy_extent<=80000) {
+        int boxes[8][4],labels=0,j;
+        for(i=0;i<n && labels<8;i++) if(m[i].catalog>=0) {
+            const char *name=star_catalog[m[i].catalog].name;
+            int w=(int)strlen(name)*6,l=m[i].x+4,t=m[i].y-9,overlap=0;
+            if(w>138) w=138;
+            if(l+w>203) l=m[i].x-w-4;
+            if(l<10 || t<40 || t+8>h-82) continue;
+            for(j=0;j<labels;j++) if(l<boxes[j][0]+boxes[j][2]+3 && l+w>boxes[j][0]-3 && t<boxes[j][1]+11 && t+8>boxes[j][1]-3) overlap=1;
+            if(overlap) continue;
+            boxes[labels][0]=l;boxes[labels][1]=t;boxes[labels][2]=w;labels++;
+            rect(l-1,t-1,w+2,9,0);text(l,t,7,name);
+        }
+    }
+    if(galaxy_project(game,frame,home,&x,&y,&d)) { line(x-4,y,x+4,y,14); line(x,y-4,x,y+4,14); }
+    if(game->waypoint_set && galaxy_project(game,frame,galaxy_position(game->waypoint),&x,&y,&d)) {
+        line(x-5,y,x,y-5,13); line(x,y-5,x+5,y,13); line(x+5,y,x,y+5,13); line(x,y+5,x-5,y,13);
+    }
+    if(galaxy_project(game,frame,galaxy_position(game->selected),&x,&y,&d)) {
+        line(x-5,y-5,x-5,y+5,12); line(x+5,y-5,x+5,y+5,12);
+        line(x-5,y-5,x+5,y-5,12); line(x-5,y+5,x+5,y+5,12);
+    }
+}
+static void galaxy_text(void) {
+    char s[110]; static System selected; int h=frame->h/draw_scale,c=catalog_index(game->selected),i;
+    int64_t distance=galaxy_distance(game->system.sector,game->selected);
+    { static Sector previous; static uint32_t seed; static int ready;
+      if(!ready || seed!=game->seed || !same_sector(previous,game->selected)) {
+          generate_system(game->seed,game->selected,&selected);
+          previous=game->selected;seed=game->seed;ready=1;
+      } }
+    snprintf(s,sizeof(s),"%s %.31s%s",game->galaxy_searching?"FIND":"SEARCH /",game->galaxy_query,game->galaxy_searching?"-":"");
+    text(10,25,13,s);
+    if(game->galaxy_searching || game->galaxy_query[0]) {
+        Sector results[GALAXY_SEARCH]; int count=galaxy_search(game,results,GALAXY_SEARCH),first=game->galaxy_result/6*6;
+        for(i=0;i<6 && first+i<count;i++) {
+            char name[24]; galaxy_name(game->seed,results[first+i],name);
+            if(catalog_index(results[first+i])<0) snprintf(s,sizeof(s),"%.8s %ldLY",name,(long)(galaxy_distance(game->system.sector,results[first+i])/1000));
+            else { snprintf(s,sizeof(s),"%.16s",name); }
+            text(213,40+i*12,first+i==game->galaxy_result?12:15,s);
+        }
+        if(!count) text(212,40,14,"NO MATCHES");
+        if(h>218) { snprintf(s,sizeof(s),"%d RESULTS",count); text(212,130,7,s); }
+    } else {
+        snprintf(s,sizeof(s),"%.17s",selected.name); text(212,40,12,s);
+        snprintf(s,sizeof(s),"%ld.%03ld LY",(long)(distance/1000),(long)(distance%1000)); text(212,51,15,s);
+        snprintf(s,sizeof(s),"%d STARS",selected.stars); text(212,62,13,s);
+        text(212,73,stellar_colour(galaxy_type(game->seed,game->selected)),stellar_names[galaxy_type(game->seed,game->selected)]);
+        snprintf(s,sizeof(s),"%d BODIES",selected.count); text(212,84,7,s);
+        snprintf(s,sizeof(s),"%d PORTS",system_port_count(&selected)); text(212,95,7,s);
+        snprintf(s,sizeof(s),"FUEL %d / %d",galaxy_jump_cost(game,game->selected),game->fuel); text(212,106,7,s);
+        text(212,117,7,c>=0?"REAL CATALOG":"GENERATED");
+        if(h>218) for(i=0;i<selected.stars && 130+i*10<h-72;i++) {
+            snprintf(s,sizeof(s),"%d %.13s",i+1,c>=0?star_catalog[c].spectra[i]:stellar_names[selected.star[i].type]); text(212,130+i*10,15,s);
+        }
+    }
+    if(game->galaxy_detail) {
+        Vec p=galaxy_position(game->selected);
+        rect(6,36,308,h-104,1);
+        snprintf(s,sizeof(s),"%s / %s",selected.name,c>=0?"REAL STELLAR CATALOG":"GENERATED SYSTEM"); text(10,40,12,s);
+        snprintf(s,sizeof(s),"RANGE %ld.%03ld LY / SOL %ld.%03ld LY",(long)(distance/1000),(long)(distance%1000),(long)(length(p)/1000),(long)(length(p)%1000)); text(10,51,15,s);
+        snprintf(s,sizeof(s),"%d STARS / %d BODIES / %d PORTS",selected.stars,selected.count,system_port_count(&selected)); text(10,62,13,s);
+        snprintf(s,sizeof(s),"%s / %s / %s",(const char *const[]){"FARMING","INDUSTRY","TECHNOLOGY","MINING"}[selected.economy],(const char *const[]){"COUNCIL","FEDERATION","CORPORATE","INDEPENDENT"}[selected.government],exploration_index(game,game->selected)>=0?"VISITED":"UNEXPLORED"); text(10,73,7,s);
+        for(i=0;i<selected.stars;i++) {
+            snprintf(s,sizeof(s),"%c %.8s %.12s",'A'+i,c>=0?star_catalog[c].spectra[i]:"",stellar_names[selected.star[i].type]); text(10+(i/3)*152,84+(i%3)*11,stellar_colour(selected.star[i].type),s);
+        }
+        if(h>220) {
+            snprintf(s,sizeof(s),"XYZ 0.001 LY %ld / %ld / %ld",(long)p.x,(long)p.y,(long)p.z); text(10,121,7,s);
+            text(10,132,7,c==0?"SOL: REAL BODIES / FICTIONAL PORTS":c>=0?"PLANETS/PORTS AND BINARY ORBITS GENERATED":"PROCEDURAL GALACTIC DISC");
+        }
+    } else if(game->ui_visible && !game->galaxy_searching) {
+        Sector hover; int px=game->ui_x/draw_scale,py=game->ui_y/draw_scale;
+        if(px>=6 && px<206 && py>=36 && py<h-80 && galaxy_pick(game,frame,px,py,&hover)) {
+            char name[24]; galaxy_name(game->seed,hover,name);
+            snprintf(s,sizeof(s),"%.22s",name); rect(10,39,138,10,0); text(12,40,13,s);
+        }
+    }
+    if(game->galaxy_detail) snprintf(s,sizeof(s),"INFO TO RETURN TO MAP");
+    else if(game->galaxy_extent>8000) snprintf(s,sizeof(s),"%ld LY / SAMPLED - ZOOM IN",(long)(game->galaxy_extent/1000));
+    else snprintf(s,sizeof(s),"%ld LY / ALL LOCAL",(long)(game->galaxy_extent/1000));
+    rect(8,h-81,196,11,0); text(10,h-79,7,s);
+    snprintf(s,sizeof(s),"%.23s / %.23s",selected.name,galaxy_jump_status(game,game->selected)); text(8,h-31,12,s);
 }
 static void gui(void) {
     UiWidget v[UI_MAX_WIDGETS]; int i,n=ui_widgets(game,frame,v),s=ui_scale(frame);
@@ -2290,16 +2395,13 @@ static void gui(void) {
                 snprintf(buf,sizeof(buf),"REP %d / FINE %d / MEDALS %d",game->reputation[i],game->wanted[i],game->medals[i]); text(12,76+i*26,7,buf);
             }
         }
-        if(game->page==MAP) {
-            System selected; generate_system(game->seed,game->selected,&selected);
-            snprintf(buf,sizeof(buf),"%s  %ld/%ld",selected.name,(long)game->selected.x,(long)game->selected.z); text(12,24,13,buf);
-            snprintf(buf,sizeof(buf),"%d BODIES / %d PORTS / %d FUEL",selected.count,system_port_count(&selected),game->fuel); text(12,143,7,buf);
-        }
+        if(game->page==MAP) galaxy_map();
     }
     if (!game->ui_quit) hover=gui_buttons(v,n,s);
     if (!game->ui_quit && (game->page==MARKET || game->page==BOARD || game->page==EQUIPMENT || (game->page==SYSTEM_MAP && !game->system_display))) gui_rows();
     if (game->page==SHIPYARD) shipyard();
-    if(game->page!=FLIGHT) {
+    if (game->page==MAP) galaxy_text();
+    if(game->page!=FLIGHT && game->page!=MAP) {
         snprintf(buf,sizeof(buf),"%d CR / HOLD %d/%dT",game->credits,cargo_used(game),ship_capacity[game->ship]); text(8,h-28,12,buf);
         /* Status ribbon stays clear of both action buttons and navigation. */
         if(game->page==BOARD) {
@@ -2311,7 +2413,7 @@ static void gui(void) {
             text(8,h-62,7,buf);
         }
         snprintf(buf,sizeof(buf),"%.50s",game->message); text(8,h-52,13,buf);
-    } else {
+    } else if(game->page==FLIGHT) {
         draw_scale=1;
         { int64_t alt=altitude_at(game,game->pos);
           snprintf(buf,sizeof(buf),"ALT %ld %s / %s",(long)(alt>=1000000?alt/1000:alt),alt>=1000000?"KM":"M",game->drive_manual?(game->drive_active?(game->autopilot?"AUTO DRIVE":"DRIVE"):(game->autopilot?"AUTO DRIVE LOCK":"DRIVE LOCK")):(game->autopilot?"AUTO":game->drive_active?"BRAKING":"MANUAL")); text(7,view_h-23,13,buf); }
@@ -2339,6 +2441,7 @@ void render_shutdown(void) {
     depth_buffer = 0;
     depth_capacity = 0;
     terrain_surface = NULL;
+    memset(globe_valid,0,sizeof(globe_valid));
     memset(surface_cache, 0, sizeof(surface_cache));
 }
 int render_init(Frame *f) {

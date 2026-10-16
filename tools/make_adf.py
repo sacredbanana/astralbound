@@ -22,11 +22,13 @@ files = {
     'Disk.info': root/'release/Disk.info',
     'LICENSE': root/'LICENSE',
     'THIRD_PARTY.txt': root/'THIRD_PARTY.txt',
+    'data/README.md': root/'data/README.md',
+    'data/LICENSE-HYG.txt': root/'data/LICENSE-HYG.txt',
     'music/README.txt': root/'music/README.txt',
     's/startup-sequence': root/'release/startup-sequence',
 }
 cmd = [xdftool, '-f', str(output), 'create', '+', 'format', 'Astralbound', 'DOS0', '+', 'boot', 'write', str(boot), '+', 'makedir', 's']
-cmd += ['+', 'makedir', 'music']
+cmd += ['+', 'makedir', 'music', '+', 'makedir', 'data']
 for folder in sorted(p for p in (root/'music').iterdir() if p.is_dir()):
     cmd += ['+', 'makedir', 'music/'+folder.name]
 for name, source in files.items(): cmd += ['+', 'write', str(source), name]

@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "astralbound.h"
+#include "galaxy.h"
+#include "solar.h"
 #include <stdio.h>
 #include <string.h>
 const char *goods_names[GOODS] = {"WATER",    "GRAIN",     "ALLOYS",   "MEDICINE",
@@ -55,7 +57,7 @@ static int64_t sine_fine(uint64_t angle) {
     sum += term;
     return quadrant >= 2 ? -sum : sum;
 }
-static Vec orbit_position(int64_t radius, uint32_t period, int phase, int inclination,
+static Vec orbit_position(int64_t radius, uint64_t period, int phase, int inclination,
                           uint32_t tick) {
     uint64_t cycle = (uint64_t)period * HZ;
     uint64_t time = (uint64_t)tick % cycle;
@@ -68,9 +70,38 @@ static Vec orbit_position(int64_t radius, uint32_t period, int phase, int inclin
     p.z = p.z * cosi(inclination) / 16384;
     return p;
 }
+/* Fixed point Kepler ellipse for catalog bodies. Epochs and plane frames are
+   recorded in data/solar-moons.csv; this is a two-body visualization, not DE440. */
+static Vec catalog_orbit(const Planet *p,uint32_t tick) {
+    const int64_t turn=1024LL<<30;
+    uint64_t cycle=p->period*HZ, t=(uint64_t)tick%cycle;
+    int64_t mean=(int64_t)(((t<<30)/cycle)<<10)+
+        (int64_t)((((t<<30)%cycle)<<10)/cycle)+((int64_t)p->phase*(1LL<<30));
+    int64_t anomaly=mean, ecc=p->eccentricity;
+    int i;
+    Vec v;
+    for(i=0;i<10;i++) {
+        int64_t sine=sine_fine((uint64_t)anomaly), cosine=sine_fine((uint64_t)(anomaly+(256LL<<30)));
+        int64_t f=anomaly-mean-sine*ecc/1000000*166886/1024;
+        int64_t derivative=1000000-cosine*ecc/(1LL<<30);
+        anomaly-=f*1000000/derivative;
+    }
+    anomaly=(anomaly%turn+turn)%turn;
+    v=scale(vec(sine_fine((uint64_t)anomaly),0,
+        sine_fine((uint64_t)(anomaly+(256LL<<30)))-ecc*(1LL<<30)/1000000),p->orbit,1LL<<30);
+    v.x=scale(vec(v.x,0,0),(int64_t)isqrt64(1000000000000ULL-(uint64_t)(ecc*ecc)),1000000).x;
+    v=vec((v.x*p->orbit_basis[0]+v.z*p->orbit_basis[3])/16384,
+          (v.x*p->orbit_basis[1]+v.z*p->orbit_basis[4])/16384,
+          (v.x*p->orbit_basis[2]+v.z*p->orbit_basis[5])/16384);
+    return v;
+}
+Vec body_orbit_sample(const Planet *p,int phase) {
+    Planet sample=*p; sample.phase=phase;
+    return p->catalog?catalog_orbit(&sample,0):orbit_position(p->orbit,p->period,phase,p->inclination,0);
+}
 Vec body_position(const System *s, int body, uint32_t tick) {
     const Planet *p = &s->planets[body];
-    Vec position = orbit_position(p->orbit, p->period, p->phase, p->inclination, tick);
+    Vec position = p->catalog ? catalog_orbit(p,tick) : orbit_position(p->orbit, p->period, p->phase, p->inclination, tick);
     if (p->parent >= 0)
         position = add(position, body_position(s, p->parent, tick));
     return position;
@@ -111,7 +142,7 @@ void generate_system(uint32_t seed, Sector s, System *out) {
     out->density = galaxy_density(s);
     /* Sparse cells in the disc/arms contain stars; the local inhabited
        bubble remains connected for the initial courier/trading routes. */
-    if (frontier && hash32(out->seed ^ 0x47414c58U) % 100 >= (unsigned)out->density)
+    if (catalog_index(s)<0 && frontier && hash32(out->seed ^ 0x47414c58U) % 100 >= (unsigned)out->density)
         return;
     out->stars = 1 + (next(&r) % 4 == 0);
     out->star[0].radius = 696000000;
@@ -157,7 +188,7 @@ void generate_system(uint32_t seed, Sector s, System *out) {
                                                  : 20000;
         snprintf(p->name, sizeof(p->name), "%.20s %c", out->name, 'B' + i);
     }
-    for (i = 0; i < primaries && out->count < MAX_PLANETS; i++) {
+    for (i = 0; i < primaries && out->count < GENERATED_PLANETS; i++) {
         if (i == 0 || out->planets[i].type == GAS_GIANT || next(&r) % 2 == 0) {
             Planet *p = &out->planets[out->count++];
             p->seed = next(&r);
@@ -178,10 +209,10 @@ void generate_system(uint32_t seed, Sector s, System *out) {
     }
     /* Extra gas-giant satellites use a separate stream: old body indices,
        markets and mission destinations remain stable. */
-    for (i = 0; i < primaries && out->count < MAX_PLANETS; i++) {
+    for (i = 0; i < primaries && out->count < GENERATED_PLANETS; i++) {
         int n;
         if (out->planets[i].type != GAS_GIANT) continue;
-        for (n = 0; n < 1 + (int)(hash32(out->planets[i].seed) & 1) && out->count < MAX_PLANETS; n++) {
+        for (n = 0; n < 1 + (int)(hash32(out->planets[i].seed) & 1) && out->count < GENERATED_PLANETS; n++) {
             Planet *p = &out->planets[out->count++];
             const Planet *parent = &out->planets[i];
             p->seed = hash32(parent->seed ^ (0x4d4f4f4eU + (unsigned)n));
@@ -196,11 +227,13 @@ void generate_system(uint32_t seed, Sector s, System *out) {
             snprintf(p->name, sizeof(p->name), "%.16s %c M%d", out->name, 'B' + i, n + 2);
         }
     }
+    galaxy_apply(out);
+    if (same_sector(s,catalog_sector(0))) solar_system(out);
     for (i = 0; i < out->count; i++)
         out->planets[i].center = body_position(out, i, 0);
 }
 uint32_t rotation_period(const Planet *p) {
-    return p->parent >= 0 ? p->period : 18000U + hash32(p->seed ^ 0x5350494eU) % 90000U;
+    return p->spin_period ? p->spin_period : p->parent >= 0 ? (uint32_t)p->period : 18000U + hash32(p->seed ^ 0x5350494eU) % 90000U;
 }
 void set_rotation(Planet *p, uint32_t tick) {
     uint64_t cycle = (uint64_t)rotation_period(p) * HZ;
@@ -408,9 +441,12 @@ void record_exploration(Game *g) {
     }
     e = &g->explored[i];
     e->last_tick = g->tick;
-    e->visited |= 1U << g->body;
-    if (altitude_at(g, g->pos) < 100000)
-        e->surveyed |= 1U << g->body;
+    if(g->body<GENERATED_PLANETS) e->visited |= 1U << g->body;
+    if(same_sector(g->system.sector,catalog_sector(0))) g->solar_visited[g->body/32] |= 1U << (g->body%32);
+    if (altitude_at(g, g->pos) < 100000) {
+        if(g->body<GENERATED_PLANETS) e->surveyed |= 1U << g->body;
+        if(same_sector(g->system.sector,catalog_sector(0))) g->solar_surveyed[g->body/32] |= 1U << (g->body%32);
+    }
 }
 void refresh_board(Game *g) {
     int i;

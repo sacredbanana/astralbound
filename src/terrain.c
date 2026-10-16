@@ -86,6 +86,7 @@ static int landform_height(const Planet *p, Vec n, Vec q) {
     return h;
 }
 int terrain_elevation(const Planet *p, Vec relative) {
+    if(p->catalog && p->radius<100000) return 0;
     Vec fixed = body_rotate(p, relative, 1);
     Vec n, q, pad;
     int h;
@@ -282,7 +283,7 @@ static int stellar_light(const System *s, const Planet *p, Vec point, Vec normal
     int dot = ((int)normal.x * (int)sun.x + (int)normal.y * (int)sun.y +
                (int)normal.z * (int)sun.z) / 16384;
     int j;
-    if (dot <= 0) return 0;
+    if (dot <= 0 || s->star[star].type==ST_BLACK_HOLE) return 0;
     for (j = 0; j < s->count; j++) {
         const Planet *other = &s->planets[j];
         if (other != p && swept_sphere(point, s->star[star].center, other->center, other->radius))

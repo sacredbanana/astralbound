@@ -859,3 +859,47 @@ level instead of snapping it.
 at 3.4 m/s after 2,383 ticks, and the tilted D Reach pad at 3.4 m/s after 2,494
 ticks, its nose held within 2° of the pad horizon below 300 m and 0.3° at
 touchdown. `make test` and the sanitized navigation build pass.
+
+## 2026-10-16: 3D galaxy and real Solar System catalog
+
+Implemented the shared native/host 3D galaxy map, camera rotation/pan/zoom,
+projection-based picking, star name/alias search, selected-system component data,
+physical jump distances and separate persistent waypoint. The catalog contains
+94 real stellar entries; Sol has 484 navigable bodies, including 463 moons.
+Sources, exact coverage, licenses and approximation limits are in `data/README.md`.
+
+Verified in this worktree:
+
+- `make test`: core, renderer, presentation, music, career, mouse UI and new galaxy
+  suite pass. The existing starting world/planet stream and navigation regressions
+  remain covered. The map adapts to viewport height, so its old pixel-identical
+  compact-menu assertion was replaced by dedicated three-layout picking/render tests.
+- `make sanitize`: AddressSanitizer/UndefinedBehaviorSanitizer suites pass, including
+  the full interplanetary navigation test and flight/render probes at Earth, the
+  Moon and Sedna. No sanitizer diagnostics were reported.
+- `make galaxy-test`: real-star identity/type/distance consistency, unique catalog
+  sector IDs, every stellar category, Sol's planet/moon hierarchy, J2000 Earth
+  position, long periods, all-body ellipse bounds, large body IDs, v7 migration,
+  v8 waypoint/survey persistence and malformed extra survey bits pass.
+- `./build-amiga.sh -j4 all variants tests`: 68000, 020, 030, 020+68881, 040 and
+  060 games and the native test programs build with warnings treated as errors.
+- `Astralbound-galaxy-tests.020` passes under the existing AmiKit/Amiberry 68040
+  configuration, using an explicit 1 MiB child stack. Its output is captured at
+  `build/evidence/native-galaxy-results.txt`.
+- Live `Astralbound.040 --aga --lowres --nosound` opens GAL and finds/targets Sol
+  through native keyboard input. IPC screenshots show the working native map and
+  selected Sol destination. This validates that presentation/input path, not RTG
+  driver focus, physical controllers, real Amiga frame rates or real hardware.
+- `make galaxy-preview`: host evidence for local/overview maps, search, component
+  details, compact ECS, Earth/Titan/Sedna data and the final moon-list page is under
+  `build/evidence/galaxy-*` and `build/evidence/sol-*`.
+- AmigaGuide checker: zero errors/warnings; `git diff --check` passes.
+
+Overview density is sampled; close zoom resolves the local sector cube. Real star
+positions use catalog precision, while close binary orbits, stellar flight radii,
+minor-body phases and unmeasured small-moon geometry remain approximations.
+The satellite snapshot covers all unique entries in the JPL planetary table and
+four supplemental dwarf moons, not every asteroid satellite in the Solar System.
+The original Hetha start remains intact. Save format 8 adds full Sol surveys and
+waypoints while accepting formats 3 through 7. No physical-hardware performance
+claim is made, and release archives/ADF have not been rebuilt as part of this change.

@@ -174,7 +174,9 @@ static void compact_display(void) {
         render_game(&g, &small);
         /* The shipyard preview and its stat bars grow with the screen; the
            hull list and purchase status beside them keep one layout. */
-        for (y = 20; y < 138; y++)
+        /* Galaxy viewport responds to height; separate galaxy tests exercise
+           picking and controls in every layout. Other menus retain fixed rows. */
+        for (y = 20; page != MAP && y < 138; y++)
             assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12,
                            page == SHIPYARD ? 106 : 296));
     }

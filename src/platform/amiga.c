@@ -275,6 +275,7 @@ static void keyboard(void) {
 }
 static int raw_action(int k) {
     switch (k) {
+    case 0x41: return 8;
     case 0x29: return ';';
     case 0x09: return '9';
     case 0x0a: return '0';
