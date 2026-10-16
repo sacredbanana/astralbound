@@ -1584,6 +1584,49 @@ static void weather_overlay(void) {
         text(8, 44, 15, rain == 1 ? "RAIN" : "SNOW");
     }
 }
+/* NPC hulls point along their velocity through the local air when inside an
+   atmosphere (as the autopilot reckons it), else through the frame, and roll
+   level with the nearest body. Below 2 m/s they hold a fixed level heading. */
+static void npc_ship(const Npc *n, int ship, Vec p) {
+    const ShipSpec *spec = &ship_specs[ship];
+    const Planet *body = &game->system.planets[nearest_body(game, n->pos)];
+    Vec local = sub(p, body->center), level = unit(local, 16384), vel = n->vel, front, right, up;
+    int64_t distance = length(sub(p, scale(camera_position, 1, FP)));
+    if (!length(level))
+        level = vec(0, 16384, 0);
+    if (length(local) < (int64_t)body->radius + body->atmosphere + TERRAIN_MAX_HEIGHT + 2000)
+        vel = sub(vel, surface_velocity(body, local));
+    if (length(vel) < 2 * FP) {
+        right = cross(level, vec(0, 0, 16384));
+        if (length(right) < 2048)
+            right = cross(level, vec(16384, 0, 0));
+        right = unit(right, 16384);
+        front = unit(cross(right, level), 16384);
+    } else {
+        front = unit(vel, 16384);
+        right = cross(level, front);
+        /* Climbing or diving straight down the vertical: any roll will do,
+           but it must not flip frame to frame. */
+        if (length(right) < 2048)
+            right = cross(abs((int)front.z) < 12000 ? vec(0, 0, 16384) : vec(16384, 0, 0), front);
+        right = unit(right, 16384);
+    }
+    up = cross(front, right);
+    /* Past the range where the half-length spans 8 pixels the loft is a few
+       pixels of noise; an oriented tetrahedron keeps 68000 frame time flat. */
+    if (distance * 8 > (int64_t)spec->depth * (frame->w / 2)) {
+        Vec a = add(p, scale(front, spec->depth, 16384));
+        Vec tail = sub(p, scale(front, spec->depth / 2, 16384));
+        Vec b = sub(tail, scale(right, spec->width, 16384)), c = add(tail, scale(right, spec->width, 16384));
+        Vec d = add(sub(p, scale(front, spec->depth / 4, 16384)), scale(up, spec->height, 16384));
+        triangle(a, b, d, 23);
+        triangle(a, d, c, 24);
+        triangle(b, c, d, 22);
+        triangle(a, c, b, 21);
+        return;
+    }
+    ship_mesh(ship, p, right, up, front, 1, unit(sub(game->system.star[0].center, p), 16384));
+}
 static void world(void) {
     int i, x, b;
     cache_globes();
@@ -1672,13 +1715,7 @@ static void world(void) {
                 box(add(p, scale(up, 100, 16384)), up, 20, 60, 24);
                 continue;
             }
-            const ShipSpec *spec = &ship_specs[game->npc_ship[i]];
-            Vec a = add(p, vec(0, 0, -spec->depth)), b2 = add(p, vec(-spec->width, 0, spec->depth / 2)),
-                c = add(p, vec(spec->width, 0, spec->depth / 2)), d = add(p, vec(0, spec->height, 15));
-            triangle(a, b2, d, 23);
-            triangle(a, d, c, 24);
-            triangle(b2, c, d, 22);
-            triangle(a, c, b2, 21);
+            npc_ship(&game->npc[i], game->npc_ship[i], p);
         }
     for (i = 0; i < ASTEROIDS; i++) {
         Vec p = scale(asteroid_position(game, i), 1, FP);
