@@ -1,4 +1,4 @@
-/* BSD-3-Clause; see LICENSE. Space adaptations documented in README.md. */
+/* BSD-3-Clause; see LICENSE. Astralbound adaptations documented in README.md. */
 #include <string.h>
 
 #include "micromod.h"

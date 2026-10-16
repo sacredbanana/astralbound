@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Unlicense; normalized seven-button controller. */
-#ifndef SPACE_CONTROLLER_H
-#define SPACE_CONTROLLER_H
+#ifndef ASTRALBOUND_CONTROLLER_H
+#define ASTRALBOUND_CONTROLLER_H
 #include "flight_input.h"
 enum { PAD_FIRE=1, PAD_BRAKE=2, PAD_TARGET=4, PAD_AUTO=8,
        PAD_THRUST=16, PAD_REVERSE=32, PAD_PAUSE=64 };

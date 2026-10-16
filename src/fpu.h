@@ -5,10 +5,10 @@
 /* FPU executables (-m68881, or -DSPACE_FPU for host checks) replace 64-bit
    libgcc division and square-root loops with 6888x/040/060 arithmetic.
    Simulation results stay bit-identical; only rendering may round differently. */
-#if defined(__HAVE_68881__) && !defined(SPACE_FPU)
-#define SPACE_FPU 1
+#if defined(__HAVE_68881__) && !defined(ASTRALBOUND_FPU)
+#define ASTRALBOUND_FPU 1
 #endif
-#ifdef SPACE_FPU
+#ifdef ASTRALBOUND_FPU
 /* The FPU converts only 32-bit integers. Splitting 64-bit values keeps every
    conversion inline instead of calling libgcc's soft-float helpers. */
 static inline double fpu_unsigned32(uint32_t v) {

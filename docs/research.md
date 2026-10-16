@@ -1,6 +1,6 @@
 # Reference research — 12 October 2026
 
-Space uses original code and content. The references below inform behaviour and
+Astralbound uses original code and content. The references below inform behaviour and
 visual goals; they are not game assets and no reverse-engineered Frontier source
 was imported.
 
@@ -16,7 +16,7 @@ the current prototype implements only the subset identified in the README.
 Primary reference: [Frontier: Elite II manual transcript](https://www.x-speed.de/computer/elite/manual_txt_frontier.html).
 
 Mission research also considers delivery, passenger, assassination, military
-reconnaissance and installation-attack work. Space's first contract templates are
+reconnaissance and installation-attack work. Astralbound's first contract templates are
 courier, freight, orbital patrol, atmospheric patrol, survey and bounty.
 See the [mission guide](https://gamefaqs.gamespot.com/cd32/971966-frontier-elite-ii/faqs/80509/missions)
 and [Frontierverse](https://sharoma.com/frontierverse/).
@@ -27,7 +27,7 @@ The Amiga CD32 [city screenshot](https://sharoma.com/frontierverse/images/pictur
 shows solid polygon buildings, simple green ground, blue atmospheric bands,
 sparse clouds and a compact cockpit strip. The [space screenshot](https://sharoma.com/frontierverse/images/pictures/cd32/space.png)
 shows a sparse star field, central sight, speed/relative-frame readouts and the
-same compact lower controls. Space adopts the broad visual approach with its own
+same compact lower controls. Astralbound adopts the broad visual approach with its own
 palette, glyphs, cockpit, cities and ship geometry.
 
 The [reference gallery](https://www.mobygames.com/game/802/frontier-elite-ii/screenshots/)
@@ -39,7 +39,7 @@ the screenshots above were inspected through the browser instead.
 The [Frontierverse flight guide](https://sharoma.com/frontierverse/basics.htm)
 reports autopilots flying straight through intervening planets, atmospheric
 burn-up and orbiting without arriving. Its passenger discussion also describes
-failed contracts leaving occupied cabins behind. Space's tests must cover route
+failed contracts leaving occupied cabins behind. Astralbound's tests must cover route
 obstacles, bounded braking, hazard-triggered compression reduction, terminal
 contract states and resource release. Enemy collision avoidance is additionally
 an explicit user requirement.
@@ -66,5 +66,5 @@ is verified through emulator output, including the 320-pixel row layout.
 The original control layout follows the interaction described in the
 [Frontier: Elite II manual](https://www.lemonamiga.com/doc/frontier-elite-2/679):
 a persistent console, display selectors, contextual controls, a scanner that
-opens weapon controls, and mouse-operated time compression. Space uses its own
+opens weapon controls, and mouse-operated time compression. Astralbound uses its own
 labels, geometry, palette, code and existing game rules; no game artwork is used.

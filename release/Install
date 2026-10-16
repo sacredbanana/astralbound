@@ -1,25 +1,25 @@
 ; SPDX-License-Identifier: Unlicense
 ; Standard Commodore Installer language; preserve any existing commander save.
-(set @app-name "Space")
+(set @app-name "Astralbound")
 (set install-source (pathonly @icon))
-(set @default-dest "SYS:Games/Space")
-(welcome "Install the original Space Amiga game.")
+(set @default-dest "SYS:Games/Astralbound")
+(welcome "Install the original Astralbound Amiga game.")
 (set destination (askdir
-    (prompt "Choose the Space destination drawer.")
-    (help "Copies the game and guide. Existing space.sav is preserved.")
+    (prompt "Choose the Astralbound destination drawer.")
+    (help "Copies the game and guide. Existing astralbound.sav is preserved.")
     (default @default-dest) (newpath)))
 (makedir destination)
 (copyfiles
     (source install-source)
     (dest destination)
-    (choices "Space.000" "Space.020" "Space.030" "Space.020fpu" "Space.040" "Space.060"
-             "Space.000.info" "Space.020.info" "Space.030.info" "Space.020fpu.info"
-             "Space.040.info" "Space.060.info"
+    (choices "Astralbound.000" "Astralbound.020" "Astralbound.030" "Astralbound.020fpu" "Astralbound.040" "Astralbound.060"
+             "Astralbound.000.info" "Astralbound.020.info" "Astralbound.030.info" "Astralbound.020fpu.info"
+             "Astralbound.040.info" "Astralbound.060.info"
              "Play-AGA" "Play-AGA.info" "Play-RTG" "Play-RTG.info"
              "Play-RTG16" "Play-RTG16.info" "Play-ECS-Lowres" "Play-ECS-Lowres.info"
-             "Space.guide" "Space.guide.info" "README.md" "LICENSE" "THIRD_PARTY.txt")
-    (prompt "Install Space game files?")
-    (help "Use Space.000 on a 68000. Space.020/.030 need no FPU. Space.020fpu needs a 68020/030 with a 68881/68882; Space.040 and Space.060 need a full 68040/68060 with its FPU. Use Space.020 on an LC/EC040 or LC/EC060.")
+             "Astralbound.guide" "Astralbound.guide.info" "README.md" "LICENSE" "THIRD_PARTY.txt")
+    (prompt "Install Astralbound game files?")
+    (help "Use Astralbound.000 on a 68000. Astralbound.020/.030 need no FPU. Astralbound.020fpu needs a 68020/030 with a 68881/68882; Astralbound.040 and Astralbound.060 need a full 68040/68060 with its FPU. Use Astralbound.020 on an LC/EC040 or LC/EC060.")
     (confirm))
 (makedir (tackon destination "music"))
 (makedir (tackon destination "music/battle"))
@@ -33,8 +33,8 @@
     (all)
     (optional nofail))
 (copyfiles
-    (source (tackon (pathonly install-source) "Space.info"))
+    (source (tackon (pathonly install-source) "Astralbound.info"))
     (dest (pathonly destination))
     (newname (cat (fileonly destination) ".info"))
     (optional nofail))
-(message "Space installed. Open the drawer, choose a CPU icon or Play-AGA/Play-RTG. Escape exits.")
+(message "Astralbound installed. Open the drawer, choose a CPU icon or Play-AGA/Play-RTG. Escape exits.")

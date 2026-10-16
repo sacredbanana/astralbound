@@ -47,8 +47,8 @@ static int write_icon(const char *name, int type, const char *tool, STRPTR *type
 }
 int main(void) {
     static STRPTR ecs[] = {(STRPTR)"MODE=ECS", NULL};
-    static STRPTR install[] = {(STRPTR)"MINUSER=AVERAGE", (STRPTR)"APPNAME=Space", NULL};
-    static const char *tools[] = {"Space.000", "Space.020", "Space.030", "Space.020fpu", "Space.040", "Space.060"};
+    static STRPTR install[] = {(STRPTR)"MINUSER=AVERAGE", (STRPTR)"APPNAME=Astralbound", NULL};
+    static const char *tools[] = {"Astralbound.000", "Astralbound.020", "Astralbound.030", "Astralbound.020fpu", "Astralbound.040", "Astralbound.060"};
     static const char *scripts[] = {"Play-AGA", "Play-RTG", "Play-RTG16", "Play-ECS-Lowres"};
     int x, y, i, ok = 1;
     IconBase = OpenLibrary((CONST_STRPTR)"icon.library", 39);
@@ -66,8 +66,8 @@ int main(void) {
     for (i = 0; i < 6; i++) ok &= write_icon(tools[i], WBTOOL, NULL, ecs);
     for (i = 0; i < 4; i++) ok &= write_icon(scripts[i], WBPROJECT, "C:IconX", NULL);
     ok &= write_icon("Install", WBPROJECT, "SYS:Utilities/Installer", install);
-    ok &= write_icon("Space.guide", WBPROJECT, "SYS:Utilities/MultiView", NULL);
-    ok &= write_icon("Space", WBDRAWER, NULL, NULL);
+    ok &= write_icon("Astralbound.guide", WBPROJECT, "SYS:Utilities/MultiView", NULL);
+    ok &= write_icon("Astralbound", WBDRAWER, NULL, NULL);
     ok &= write_icon("Disk", WBDISK, NULL, NULL);
     CloseLibrary(IconBase);
     puts(ok ? "Original Workbench icons written and reloaded." : "Icon generation failed.");

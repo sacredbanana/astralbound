@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
    Native low-resolution display layout; never changes the OS video standard. */
-#ifndef SPACE_NATIVE_VIDEO_H
-#define SPACE_NATIVE_VIDEO_H
+#ifndef ASTRALBOUND_NATIVE_VIDEO_H
+#define ASTRALBOUND_NATIVE_VIDEO_H
 typedef struct {
     int height, start, stop, rate;
 } NativeVideo;

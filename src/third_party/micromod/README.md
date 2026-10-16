@@ -1,7 +1,7 @@
 Micromod by Martin Cameron, BSD-3-Clause (see LICENSE).
 Source: https://github.com/martincameron/micromod/tree/83b5d9aebddb528ea177e115b0afed5d75f6b92a/micromod-c
 
-Vendored micromod.c/micromod.h, with line endings normalized. Space changes:
+Vendored micromod.c/micromod.h, with line endings normalized. Astralbound changes:
 - Mask signed header bytes before shifting the format signature.
 - Accept all 128 orders in the song-length byte.
 - Clamp invalid sample loop starts to sample length before correcting loop lengths.

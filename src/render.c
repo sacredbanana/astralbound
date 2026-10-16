@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense */
-#include "space.h"
+#include "astralbound.h"
 #include "ui.h"
 #include "fpu.h"
 #include <string.h>
@@ -36,7 +36,7 @@ static int camera_yaw, camera_pitch, camera_roll;
    All zero (the full frame) except while an inset is being drawn. */
 static int proj_dx, proj_dy, view_left, view_top, view_right_inset;
 /* Q4 coordinates retain fractional ray hits between fixed mesh vertices. */
-#ifndef SPACE_FPU
+#ifndef ASTRALBOUND_FPU
 static Vec camera_to_local(const Planet *p, Vec v) {
     int sy = sini(camera_yaw), cy = cosi(camera_yaw);
     int sp = sini(camera_pitch), cp = cosi(camera_pitch);
@@ -244,7 +244,7 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     t = &triangles[nt];
     t->surface = terrain_surface;
     t->slope = (int8_t)slope;
-#ifdef SPACE_FPU
+#ifdef ASTRALBOUND_FPU
     /* One reciprocal replaces six 64-bit divisions per vertex. Clipping
        guarantees z >= 8, so every projected quantity stays finite. */
     for (i = 0; i < 3; i++) {
@@ -292,7 +292,7 @@ static int64_t clip_distance(Vec v, int plane) {
     }
 }
 static Vec cross(Vec a, Vec b);
-#ifdef SPACE_FPU
+#ifdef ASTRALBOUND_FPU
 /* Same Q14 facet lighting as the integer path, with one square root per
    direction instead of length/unit chains of 64-bit divisions. */
 static void fpu_unit(Vec v, double *out) {
@@ -387,7 +387,7 @@ static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u,
 }
 /* Reconstruct the hit from the pixel ray and subpixel depth. Rounded polygon
    vertices must not move the colour plane independently of the camera ray. */
-#ifdef SPACE_FPU
+#ifdef ASTRALBOUND_FPU
 /* camera_to_local folded into one matrix: camera roll/pitch/yaw, then the
    inverse body spin, applied to the Q4 ray and planet offset. It is rebuilt
    only when the camera or body changes, normally once per frame. */
@@ -2058,7 +2058,7 @@ static void menus(void) {
         }
         break;
     case HELP:
-        panel("SPACE / FLIGHT MANUAL");
+        panel("ASTRALBOUND / FLIGHT MANUAL");
         {
             const char *help[] = {
                 "ARROWS ROLL PITCH / W S SET SPEED",  "CTRL FIRE / E ASSIST / A DRIVE",

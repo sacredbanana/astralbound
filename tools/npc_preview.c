@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 /* Nearby NPC hulls oriented along their velocity, plus one far tetrahedron. */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

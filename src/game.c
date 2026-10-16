@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -69,7 +69,7 @@ void game_init(Game *g, uint32_t seed) {
     for (i = 0; i < MAX_MISSIONS; i++)
         g->contracts[i].state = COMPLETE;
     refresh_board(g);
-    say(g, "SPACE / FLIGHT PROTOTYPE - H FOR HELP");
+    say(g, "ASTRALBOUND / FLIGHT PROTOTYPE - H FOR HELP");
 }
 /* Turrets use independent world angles. Steering them never changes flight guidance. */
 void view_angles(const Game *g, int *yaw, int *pitch) {

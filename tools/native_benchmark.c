@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense; timings belong to this machine/config. */
-#include "space.h"
+#include "astralbound.h"
 #include <exec/memory.h>
 #include <devices/timer.h>
 #include <proto/exec.h>

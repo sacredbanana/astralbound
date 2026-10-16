@@ -1,4 +1,4 @@
-# Space full-game work
+# Astralbound full-game work
 
 The user requested a full, original Frontier-style Amiga game. The current
 prototype establishes flight, world generation and platform integration. This

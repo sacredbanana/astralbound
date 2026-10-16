@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense; host-side renderer workload benchmark. */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>

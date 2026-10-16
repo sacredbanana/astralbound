@@ -630,7 +630,7 @@ static void rolled_camera(void) {
             v = camera(add(scale(g.pos, 1, FP), vec(1000,0,2000)));
             assert(v.x == 0 && v.y == 1000 && v.z == 2000);
             /* Terrain rays must invert the same rolled projection as meshes. */
-#ifdef SPACE_FPU
+#ifdef ASTRALBOUND_FPU
             {
                 double q[3];
                 ray_local(&g.system.planets[g.body], v.x * 16.0, v.y * 16.0, v.z * 16.0, q);

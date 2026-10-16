@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
-#ifndef SPACE_H
-#define SPACE_H
+#ifndef ASTRALBOUND_H
+#define ASTRALBOUND_H
 #include <stdint.h>
 #include <stddef.h>
 #define FP 256

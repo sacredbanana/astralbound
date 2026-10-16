@@ -57,7 +57,7 @@ hardware and peripheral validation remain open, as recorded in the roadmap.
   destination selection/confirmation still needs a manual run; host UI automation
   could not click the main emulator window (`noWindowsAvailable` / focus rejection).
   Evidence: `build/evidence/hardware-installer-check.json`.
-- The OFS boot disk includes only Space.000, its guide/icons/license and an original
+- The OFS boot disk includes only Astralbound.000, its guide/icons/license and an original
   resident-DOS boot entry/startup sequence. The filesystem and boot checksum pass;
   every packaged file was read back. The final disk is shipped without a commander.
 
@@ -74,7 +74,7 @@ digital precedence, button edges, braking and menu isolation.
 AmiKit ran the new native presentation tests and the native benchmark.
 The new test executable declares its stack requirement. In a bare boot CLI,
 a direct stack-swapped 020 test run passed assertions but faulted at exit.
-`Space-RunTests` avoids that path by starting its children with 256 KiB stacks;
+`Astralbound-RunTests` avoids that path by starting its children with 256 KiB stacks;
 Workbench icons now request the same size, and CLI documentation sets it
 explicitly. The launcher passed the final presentation and core quick suites in
 the separate NTSC emulator (JIT off); its logs were extracted from the test ADF. The direct bare-CLI stack-swap exit remains toolchain QA. PAL AGA
@@ -148,7 +148,7 @@ Verified on 13 October 2026:
   ledger together with the full exploration journal in the bounded save buffer.
 - `make` builds the host preview. `./build-amiga.sh all tests` builds both 68000 and
   68020 games and the native test executable with warnings treated as errors.
-- The final `Space-tests.020 --quick` passes in AmiKit/Amiberry, including the new
+- The final `Astralbound-tests.020 --quick` passes in AmiKit/Amiberry, including the new
   market and save regressions. Output: `build/evidence/market-tests-amiga.txt`.
 - The ECS market screen is readable at native resolution and shows the port name,
   buy/sell quotes, stock and cargo (`build/evidence/market-ecs.png`). Escape returns
@@ -176,8 +176,8 @@ hardware performance or completion of the remaining careers/presentation roadmap
 - `make test` passes with C99, `-Wall -Wextra -Werror`.
 - `make sanitize` passes with AddressSanitizer and UndefinedBehaviorSanitizer.
 - `make navigation-test` passes the longer, actual AU-scale interplanetary route.
-- `./build-amiga.sh all tests` produces `Space.000`, `Space.020` and
-  `Space-tests.020`, with soft float, libnix and warnings treated as errors.
+- `./build-amiga.sh all tests` produces `Astralbound.000`, `Astralbound.020` and
+  `Astralbound-tests.020`, with soft float, libnix and warnings treated as errors.
   `-Wl,-u,___stkinit` links the stack-swap constructor so the declared 128 KiB
   stack is honoured for the expanded world and commander data.
 - The AmigaGuide checker reports zero errors and zero warnings.
@@ -208,7 +208,7 @@ version 2 commanders.
 
 ## Current Amiga runtime checks
 
-The rebuilt `Space-tests.020 --quick` suite passes in AmiKit/Amiberry on the
+The rebuilt `Astralbound-tests.020 --quick` suite passes in AmiKit/Amiberry on the
 configured accelerated 68020. It verifies the cross-CPU generation/orbit golden
 values, frames, exploration/save integrity, station collisions, rendering, five
 generated port arrivals, waypoints for all six body types and compression safety.
@@ -332,7 +332,7 @@ payloads still load. Camera mode is retained, with neutral aim after loading.
   turret-mode saves and legacy commander migration. Renderer checks cover
   compact panel equivalence, AU-origin cancellation, heading-relative radar
   positions and out-of-range removal, and maps/data for all bodies in eight seeds.
-- `./build-amiga.sh -j4 all tests` builds both CPU games and `Space-tests.020`.
+- `./build-amiga.sh -j4 all tests` builds both CPU games and `Astralbound-tests.020`.
   AmiKit runs the native `--quick` suite successfully, including the new turret
   and contact checks. Output: `build/evidence/presentation-native-tests.txt`.
 - AmiKit PAL AGA `--lowres` displays the system/local maps, body data and dorsal
@@ -344,7 +344,7 @@ payloads still load. Camera mode is retained, with neutral aim after loading.
   Workbench on Escape. Evidence: `build/evidence/presentation-rtg-{data,map,exit}.png`.
 - Host deterministic previews include orbital/local maps, compact body data,
   a selected hostile radar contact and turret view; RTG previews use 640 x 480.
-- `Space.guide` passes the AmigaGuide checker with no warnings or errors.
+- `Astralbound.guide` passes the AmigaGuide checker with no warnings or errors.
 
 Orbits are true-scale projected circular/inclined paths. At system scale, moons
 and ports can overlap; local scale resolves their separation. Radar represents
@@ -414,7 +414,7 @@ Validation:
   caching material classifications reduced an initial 0.752 ms/frame result.
   No Amiga frame rate is inferred from these host timings.
 - Isolated PAL 68020/AGA-configured Amiberry, with a distinct runtime/socket,
-  runs `Space-RunTests` with 256 KiB parent/child stacks. Native presentation
+  runs `Astralbound-RunTests` with 256 KiB parent/child stacks. Native presentation
   and core quick suites pass. ECS low-resolution screenshots show rain, cloud
   fog, the deck from above and clear polar snowfall. Native F5 resumes with
   SAVED; the written version 5 commander has a verified payload/checksum.
@@ -422,7 +422,7 @@ Validation:
   Evidence is `environment-native-ecs-*.png` and native suite logs under
   `build/evidence/`. The user's existing AmiKit process was preserved.
 - `./package.sh` builds and verifies ZIP/LHA contents and the bootable ADF;
-  `Space.guide` passes the AmigaGuide checker without warnings/errors.
+  `Astralbound.guide` passes the AmigaGuide checker without warnings/errors.
 
 Limits: this uses common system-frame Z spin axes, type-assigned climates and
 circular orbits, rather than per-body obliquity, stellar thermodynamics or an
@@ -518,7 +518,7 @@ separate turret upgrades, missiles, decoys and escape-pod rescue.
   including the career suite and existing astronomical navigation regressions.
 - `./build-amiga.sh -j4 all variants tests` builds software-integer
   68000/020/030/040/060 games and native tests without SDL/OpenGL. The test runner
-  includes `Space-career-tests.020` with a 256 KiB child stack.
+  includes `Astralbound-career-tests.020` with a 256 KiB child stack.
 - Save format 6 appends explicit big-endian career fields to the existing
   commander prefix. Formats 3/4/5 migrate with default faction data, hull crew,
   no passenger reservations and preserved legacy turret upgrade levels.
@@ -555,7 +555,7 @@ persistent civilian economy or strategic war simulation.
   autopilot, warp, pause, weapons-panel switching, throttle, cancelled/disabled
   controls, death/restart, platform requests and transient save state at
   320x200, 320x256 and 640x480. It is part of host/native builds and the native
-  `Space-RunTests` wrapper.
+  `Astralbound-RunTests` wrapper.
 - Host core/career/presentation/renderer suites and ASan/UBSan checks pass,
   including astronomical navigation. 68000/020/030/040/060 soft-float binaries
   build with warnings treated as errors. AmigaGuide checker: zero defects.
@@ -738,7 +738,7 @@ cruise steps. Commander format 7 appends roll; formats 3 through 6 load level.
   Evidence: `build/roll-native-{launched,banked,exit}.png` and
   `build/roll-guest/{presentation,core}-results.txt`.
 - AmigaGuide validation passed with zero diagnostics. ZIP/LHA/boot ADF packages
-  were rebuilt and read back successfully. The five installed `OUT:Space.*`
+  were rebuilt and read back successfully. The five installed `OUT:Astralbound.*`
   executables were refreshed, with previous binaries backed up under
   `build/evidence/out-programs-before-roll`.
 
@@ -755,17 +755,17 @@ Host presentation tests and the core `--quick` suite passed. Native
 packages were rebuilt. Isolated ECS/68020 emulation passed native presentation
 and core smoke tests. Live Down/Up arrows produced saved pitch values +39/-45,
 confirming nose-up/nose-down respectively; see `build/invert-y-native-pitch.txt`
-and `build/invert-y-native-down.png`. Installed `OUT:Space.*` binaries were
+and `build/invert-y-native-down.png`. Installed `OUT:Astralbound.*` binaries were
 updated with previous copies in `build/evidence/out-programs-before-invert-y`.
 Physical controller and live AGA/RTG input checks remain untested.
 
 ### FPU builds (2026-10-16)
 
 `./build-amiga.sh all variants benchmarks tests release-tools` now produces
-`Space.000`, `Space.020` and `Space.030` (soft float) plus `Space.020fpu`
-(68020/030 + 68881/2), `Space.040` and `Space.060` (`-m68881`; this GCC defaults
-to soft float even for `-m68040`/`-m68060`). Previously `Space.030` and
-`Space.040` linked the 68000 libgcc multilib; 030/040 now link the 020 libraries,
+`Astralbound.000`, `Astralbound.020` and `Astralbound.030` (soft float) plus `Astralbound.020fpu`
+(68020/030 + 68881/2), `Astralbound.040` and `Astralbound.060` (`-m68881`; this GCC defaults
+to soft float even for `-m68040`/`-m68060`). Previously `Astralbound.030` and
+`Astralbound.040` linked the 68000 libgcc multilib; 030/040 now link the 020 libraries,
 and 060 links the 060 libgcc so no 64-bit MULU/DIVU forms (which the 68060 traps)
 are present. No FPU object references libgcc soft-float helpers; the 040 build
 contains no FINTRZ and none of the FPU builds use transcendental instructions.
@@ -780,7 +780,7 @@ edges in 32 bits when exact, instead of a 64-bit division per pixel.
 the terrain colour stability tests. The host orbit benchmark hash is unchanged
 (`981fbe0b`) for the integer and FPU paths.
 
-`Space-benchmark.<cpu>` was run from the AmiKit shell (emulated 68040 + FPU at
+`Astralbound-benchmark.<cpu>` was run from the AmiKit shell (emulated 68040 + FPU at
 maximum speed, so only the ratios matter). Surface render, ms per frame:
 
 | Build | Before | After | Surface hash |
@@ -809,7 +809,7 @@ ground still uses 256 m tiles.
 
 Host: 5–20 km frames fell from 10–29 ms to 4.5–6.5 ms, with at most 2,830 material
 evaluations per frame; at most 31 of 64,000 viewport pixels changed in any tested
-view. `make test` and `make fpu-test` pass. `Space-benchmark` gained a 12 km
+view. `make test` and `make fpu-test` pass. `Astralbound-benchmark` gained a 12 km
 "high terrain" scene. In AmiKit (ms/frame, before → after, two runs for 000/020):
 
 | Build | 12 km terrain | 220 m surface |

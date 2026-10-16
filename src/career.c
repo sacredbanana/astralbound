@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
    Bounded career, resource and encounter simulation shared by host and Amiga.
    All recurring events use commander time; no allocation or OS calls here. */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <string.h>
 const ShipSpec ship_specs[SHIPS] = {

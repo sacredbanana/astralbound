@@ -11,7 +11,7 @@
 unsigned long __stack = 131072;
 static Game g;
 #ifdef __AMIGAOS3__
-#define ROOT "RAM:SpaceMusicTests"
+#define ROOT "RAM:AstralboundMusicTests"
 #else
 static char music_root[128];
 #define ROOT music_root
@@ -23,7 +23,7 @@ static void fixture(const char *relative, int kind) {
     char path[256];
     FILE *f;
     int i;
-    memcpy(data, "Space regression", 16);
+    memcpy(data, "Astralbound test", 16);
     data[42] = 0; data[43] = 16; /* instrument 1: 32 signed samples */
     data[45] = 64;
     data[49] = 16; /* loop all 32 */

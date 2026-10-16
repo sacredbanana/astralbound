@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense */
-#include "space.h"
+#include "astralbound.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>

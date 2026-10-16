@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Unlicense
    Coherent, immutable terrain sampled by both collision and rendering. */
-#include "space.h"
+#include "astralbound.h"
 #include <stdlib.h>
 static int mix(int a, int b, int f) {
     return a + (b - a) * f / 4096;

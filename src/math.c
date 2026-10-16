@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense */
-#include "space.h"
+#include "astralbound.h"
 #include "trig.h"
 #include "fpu.h"
 uint32_t hash32(uint32_t x) {
@@ -13,7 +13,7 @@ uint32_t sector_seed(uint32_t seed, Sector s) {
     return hash32(seed ^ hash32((uint32_t)s.x) ^ hash32((uint32_t)s.y + 0x9e3779b9U) ^
                   hash32((uint32_t)s.z + 0x85ebca6bU));
 }
-#ifdef SPACE_FPU
+#ifdef ASTRALBOUND_FPU
 /* FSQRT lands within one of the root; the integer correction keeps results
    bit-identical to the shift-subtract loop, so cross-CPU golden values hold. */
 uint64_t isqrt64(uint64_t n) {

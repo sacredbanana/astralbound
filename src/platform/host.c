@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense; SDL is used only by the host harness. */
-#include "space.h"
+#include "astralbound.h"
 #include "flight_input.h"
 #include "ui.h"
 #include "audio.h"
@@ -32,14 +32,14 @@ static void ppm(Frame *f, const char *path) {
 static int platform_request(int request) {
     if (request == UI_EXIT) return 1;
     if (request == UI_SAVE || request == UI_SAVE_EXIT) {
-        int saved = save_game(&g, "space.sav");
+        int saved = save_game(&g, "astralbound.sav");
         snprintf(g.message, sizeof(g.message), "%s", saved ? "SAVED" : "SAVE FAILED");
         if (request == UI_SAVE_EXIT) {
             if (saved) return 1;
             g.ui_quit = 2;
         }
     }
-    if (request == UI_LOAD && !load_game(&g, "space.sav"))
+    if (request == UI_LOAD && !load_game(&g, "astralbound.sav"))
         snprintf(g.message, sizeof(g.message), "LOAD FAILED");
     return 0;
 }
@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s\n", SDL_GetError());
         return 1;
     }
-    window = SDL_CreateWindow("SPACE - Amiga development preview", SDL_WINDOWPOS_CENTERED,
+    window = SDL_CreateWindow("ASTRALBOUND - Amiga development preview", SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED, 960, 768, SDL_WINDOW_RESIZABLE);
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
     if (!renderer)
@@ -218,9 +218,9 @@ int main(int argc, char **argv) {
                 }
                 else if (k == SDLK_F5)
                     snprintf(g.message, sizeof(g.message), "%s",
-                             save_game(&g, "space.sav") ? "SAVED" : "SAVE FAILED");
+                             save_game(&g, "astralbound.sav") ? "SAVED" : "SAVE FAILED");
                 else if (k == SDLK_F9) {
-                    if (!load_game(&g, "space.sav"))
+                    if (!load_game(&g, "astralbound.sav"))
                         snprintf(g.message, sizeof(g.message), "LOAD FAILED");
                 } else if (k == SDLK_UP)
                     game_action(&g, 1001);

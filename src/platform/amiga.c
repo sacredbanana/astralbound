@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Unlicense
    Native PAL/NTSC ECS/AGA takeover; RTG stays under the graphics driver. */
-#include "space.h"
+#include "astralbound.h"
 #include "flight_input.h"
 #include "ui.h"
 #include "native_video.h"
@@ -463,7 +463,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--lowres"))
             lowres = 1;
         else if (strcmp(argv[i], "--ecs")) {
-            puts("Space --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--profile]");
+            puts("Astralbound --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--profile]");
             return 1;
         }
     }
@@ -474,7 +474,7 @@ int main(int argc, char **argv) {
     GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR) "graphics.library", 39);
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR) "intuition.library", 39);
     if (!GfxBase || !IntuitionBase) {
-        puts("Space currently requires Kickstart 3.0+.");
+        puts("Astralbound currently requires Kickstart 3.0+.");
         close_all();
         return 1;
     }
@@ -658,7 +658,7 @@ int main(int argc, char **argv) {
             restore();
             if (!rtg) sound_close();
             if (request == 1 || request == 3) {
-                int saved = save_game(&g, "PROGDIR:space.sav");
+                int saved = save_game(&g, "PROGDIR:astralbound.sav");
                 int flushed = 0;
                 LONG storage_error = 0;
                 if (saved) {
@@ -688,7 +688,7 @@ int main(int argc, char **argv) {
                     quit = 1; break;
                 }
             }
-            else if (!load_game(&g, "PROGDIR:space.sav"))
+            else if (!load_game(&g, "PROGDIR:astralbound.sav"))
                 snprintf(g.message, sizeof(g.message), "LOAD FAILED");
             if (!rtg) {
                 if (!sound_open()) sound_close();

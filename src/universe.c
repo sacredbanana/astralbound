@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <string.h>
 const char *goods_names[GOODS] = {"WATER",    "GRAIN",     "ALLOYS",   "MEDICINE",

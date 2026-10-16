@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
    SPC1: magic, generator version, payload length, FNV1a checksum (all BE32),
    then explicit BE32/BE64 fields. Never serialize C structure layout. */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

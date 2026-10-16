@@ -1,7 +1,7 @@
-# Space
+# Astralbound
 
 An original space trading and combat game for the Commodore Amiga, inspired by
-the scope and solid-polygon presentation of Frontier: Elite II. Space's source,
+the scope and solid-polygon presentation of Frontier: Elite II. Astralbound's source,
 ship geometry, font, names and generated worlds are original and released under
 the [Unlicense](LICENSE). Reference screenshots and Frontier assets are not
 included in the game.
@@ -21,7 +21,7 @@ police/piracy, mining, six hulls, missiles and portable commander saves.
 ./build-amiga.sh tests
 ```
 
-With no targets the script builds the game for every CPU (`Space.000`, `.020`,
+With no targets the script builds the game for every CPU (`Astralbound.000`, `.020`,
 `.030`, `.020fpu`, `.040` and `.060`); named targets build only those. The
 script uses an installed `m68k-amigaos-gcc`, `/opt/amiga/bin`, or the
 `sacredbanana/amiga-compiler:m68k-amigaos` Docker image. `DEBUG=1` enables debug
@@ -32,11 +32,11 @@ Copy the contents of `dist/amiga` to an Amiga drawer and run from Shell:
 
 ```text
 Stack 262144
-Space.000 --ecs
-Space.020 --aga
-Space.020 --rtg
-Space.020 --rtg16
-Space.020 --aga --lowres
+Astralbound.000 --ecs
+Astralbound.020 --aga
+Astralbound.020 --rtg
+Astralbound.020 --rtg16
+Astralbound.020 --aga --lowres
 ```
 
 - **ECS:** PAL 320 x 256 or NTSC 320 x 200, 32 colours, double-buffered bitplanes and a private Copper
@@ -66,7 +66,7 @@ Requires a C99 compiler and SDL2 with `sdl2-config` in PATH.
 
 ```sh
 make
-./build/space
+./build/astralbound
 make test
 make sanitize
 make navigation-test  # longer, full interplanetary transfer
@@ -78,11 +78,11 @@ frames without opening a window. `--render FILE.ppm --city-overhead --rtg`
 reproduces a downward view of the starting city at 1232 metres in RTG resolution;
 use `--ecs` for the reduced palette. `--lowres` or `--ntsc` previews the 320 x 200
 layout on the host; these flags cannot be combined with `--rtg`. The host and Amiga use the same simulation and
-renderer. `Space-tests.020` runs the full core suite on an Amiga;
-`Space-tests.020 --quick` runs the shorter native smoke suite.
-`Space-career-tests.020` runs the careers/resources/equipment regressions.
-`Space-ui-tests.020` exercises mouse workflows at all three display layouts.
-`Space-RunTests` starts the presentation/core/UI/career suites with an explicit 256 KiB
+renderer. `Astralbound-tests.020` runs the full core suite on an Amiga;
+`Astralbound-tests.020 --quick` runs the shorter native smoke suite.
+`Astralbound-career-tests.020` runs the careers/resources/equipment regressions.
+`Astralbound-ui-tests.020` exercises mouse workflows at all three display layouts.
+`Astralbound-RunTests` starts the presentation/core/UI/career suites with an explicit 256 KiB
 child stack and writes their result files; use it in a bare boot CLI. Full trajectories
 remain in the default suite, which can take a long time under emulation.
 
@@ -286,7 +286,7 @@ fuel point per second in the upper two thirds of a hydrogen atmosphere at
 1/32-second physics. These are bounded game careers and local encounters; the
 civilian economy and strategic faction wars are not simulated.
 
-Read [Space.guide](Space.guide) on the Amiga for the controls and prototype limits.
+Read [Astralbound.guide](Astralbound.guide) on the Amiga for the controls and prototype limits.
 Save format 7 preserves ship roll as well as crew, cabins, mount upgrades, factions, legal status,
 contract stages, cargo pods, missiles, mining rigs and finite asteroid deposits,
 alongside exploration, markets, frame, fuel-impulse and approach state. Formats
@@ -337,16 +337,16 @@ Analogue steering preserves fractional turn rates. Physical analogue and CD32 de
 remain unverified. Poseidon analogue reports are accepted in RTG, where USB tasks run.
 
 `./build-amiga.sh all variants tests benchmarks release-tools` builds the CPU
-executables, test programs, native benchmarks and `Space-Icons`. Choose the binary
+executables, test programs, native benchmarks and `Astralbound-Icons`. Choose the binary
 for the installed processor:
 
 | Executable | CPU | FPU |
 | --- | --- | --- |
-| `Space.000` | 68000 or newer | none |
-| `Space.020`, `Space.030` | 68020/68030 or newer, including LC/EC040 and LC/EC060 | none |
-| `Space.020fpu` | 68020/68030 | 68881/68882 required |
-| `Space.040` | full 68040 | built-in FPU required |
-| `Space.060` | full 68060 | built-in FPU required |
+| `Astralbound.000` | 68000 or newer | none |
+| `Astralbound.020`, `Astralbound.030` | 68020/68030 or newer, including LC/EC040 and LC/EC060 | none |
+| `Astralbound.020fpu` | 68020/68030 | 68881/68882 required |
+| `Astralbound.040` | full 68040 | built-in FPU required |
+| `Astralbound.060` | full 68060 | built-in FPU required |
 
 The FPU builds replace the renderer's chains of 64-bit libgcc divisions and the
 bit-by-bit integer square root with FPU arithmetic. Square roots are corrected to
@@ -355,23 +355,23 @@ every build; only rendered pixels may round differently. The 030/040 builds link
 020 libgcc instead of the 68000 fallback, and the 060 build uses the 060 libgcc, which
 avoids the 64-bit MULU/DIVU forms the 68060 traps. `make fpu-test` runs the host
 suites through the FPU code paths.
-`Space-benchmark.<cpu>` measures C2P into Chip RAM and orbit/surface rendering.
-`Space.020 --aga --lowres --profile` exits after 120 frames and reports render and
+`Astralbound-benchmark.<cpu>` measures C2P into Chip RAM and orbit/surface rendering.
+`Astralbound.020 --aga --lowres --profile` exits after 120 frames and reports render and
 output/synchronization times; native uses CIA display ticks, RTG uses EClock.
 Emulated acceleration does not establish physical-machine frame rates.
 
-Run `./package.sh` for ZIP/LHA drawer packages and `dist/Space-0.1-boot.adf`.
+Run `./package.sh` for ZIP/LHA drawer packages and `dist/Astralbound-0.1-boot.adf`.
 ADF generation needs amitools' `xdftool` (`XDFTOOL=/path/to/xdftool`) and vasm;
 `build/release-venv/bin/xdftool` is also recognized. On Workbench, open Install
 using the system Installer (V42.12+), choose a destination, then use a CPU icon
-or Play-AGA/Play-RTG/Play-RTG16. The installer preserves `space.sav`.
+or Play-AGA/Play-RTG/Play-RTG16. The installer preserves `astralbound.sav`.
 Workbench icons request a 256 KiB stack. Set `Stack 262144` in a CLI before
 running CPU variants or standalone tests; the bare CLI stack-swap exit path
 needs further toolchain QA. CPU icon tooltypes accept `MODE=ECS`, `AGA`, `RTG` or `RTG16`, plus `LOWRES`,
 `NOSOUND` and `ANALOG`. The original icons can be regenerated by running
-`Space-Icons` beside the executables and copying its `.info` files into `release/`.
+`Astralbound-Icons` beside the executables and copying its `.info` files into `release/`.
 
-The OFS ADF boots directly into Space.000 in ECS 320 x 200 and can store a commander
+The OFS ADF boots directly into Astralbound.000 in ECS 320 x 200 and can store a commander
 on a writable disk. It needs a user-supplied Kickstart 3.0+ and enough RAM for the
 expanded procedural world and depth buffer (2 MiB Chip plus 8 MiB Fast is the
 emulator-tested configuration). It is not an unexpanded A500 release. Escape returns

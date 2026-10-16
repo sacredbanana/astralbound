@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense */
-#include "space.h"
+#include "astralbound.h"
 #include "flight_input.h"
 #include <assert.h>
 #include <stdio.h>
@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #ifdef __AMIGAOS3__
 unsigned long __stack = 131072;
-#define TEST_SAVE "space-test.sav"
+#define TEST_SAVE "astralbound-test.sav"
 #else
 #define TEST_SAVE "build/test.sav"
 #endif
@@ -1067,7 +1067,7 @@ static void test_environment(void) {
 int main(int argc, char **argv) {
     quick = argc > 1 && !strcmp(argv[1], "--quick");
     setvbuf(stdout, NULL, _IONBF, 0);
-    puts(quick ? "SPACE QUICK SMOKE SUITE" : "SPACE FULL CORE SUITE");
+    puts(quick ? "ASTRALBOUND QUICK SMOKE SUITE" : "ASTRALBOUND FULL CORE SUITE");
     test_isqrt();
     test_universe();
     test_landforms();
@@ -1092,6 +1092,6 @@ int main(int argc, char **argv) {
     test_safety();
     test_unrestricted_warp();
     test_flight_input();
-    puts(quick ? "All Space quick smoke tests passed." : "All Space tests passed.");
+    puts(quick ? "All Astralbound quick smoke tests passed." : "All Astralbound tests passed.");
     return 0;
 }

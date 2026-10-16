@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Unlicense */
-#ifndef SPACE_UI_H
-#define SPACE_UI_H
-#include "space.h"
+#ifndef ASTRALBOUND_UI_H
+#define ASTRALBOUND_UI_H
+#include "astralbound.h"
 #define UI_MAX_WIDGETS 128
 #define UI_SAVE 2001
 #define UI_LOAD 2002

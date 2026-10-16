@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Unlicense; procedural engine and effects. */
-#ifndef SPACE_AUDIO_H
-#define SPACE_AUDIO_H
-#include "space.h"
+#ifndef ASTRALBOUND_AUDIO_H
+#define ASTRALBOUND_AUDIO_H
+#include "astralbound.h"
 #define AUDIO_RATE 8000
 #define EFFECT_SAMPLES 4000
 enum { SOUND_NONE, SOUND_LASER, SOUND_HIT, SOUND_EXPLOSION, SOUND_DOCK, SOUND_JUMP, SOUND_COUNT };

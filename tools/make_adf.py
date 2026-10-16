@@ -11,27 +11,27 @@ if not xdftool:
 if not xdftool:
     raise SystemExit('Install amitools in a venv and set XDFTOOL to its xdftool.')
 vasm = shutil.which('vasmm68k_mot') or '/opt/amiga/bin/vasmm68k_mot'
-boot = root/'build/space-boot.bin'
+boot = root/'build/astralbound-boot.bin'
 subprocess.run([vasm, '-m68000', '-Fbin', '-quiet', str(root/'release/boot.s'), '-o', str(boot)], check=True)
-output = root/'dist/Space-0.1-boot.adf'
+output = root/'dist/Astralbound-0.1-boot.adf'
 files = {
-    'Space.000': root/'dist/amiga/Space.000',
-    'Space.000.info': root/'release/Space.000.info',
-    'Space.guide': root/'Space.guide',
-    'Space.guide.info': root/'release/Space.guide.info',
+    'Astralbound.000': root/'dist/amiga/Astralbound.000',
+    'Astralbound.000.info': root/'release/Astralbound.000.info',
+    'Astralbound.guide': root/'Astralbound.guide',
+    'Astralbound.guide.info': root/'release/Astralbound.guide.info',
     'Disk.info': root/'release/Disk.info',
     'LICENSE': root/'LICENSE',
     'THIRD_PARTY.txt': root/'THIRD_PARTY.txt',
     'music/README.txt': root/'music/README.txt',
     's/startup-sequence': root/'release/startup-sequence',
 }
-cmd = [xdftool, '-f', str(output), 'create', '+', 'format', 'Space', 'DOS0', '+', 'boot', 'write', str(boot), '+', 'makedir', 's']
+cmd = [xdftool, '-f', str(output), 'create', '+', 'format', 'Astralbound', 'DOS0', '+', 'boot', 'write', str(boot), '+', 'makedir', 's']
 cmd += ['+', 'makedir', 'music']
 for folder in sorted(p for p in (root/'music').iterdir() if p.is_dir()):
     cmd += ['+', 'makedir', 'music/'+folder.name]
 for name, source in files.items(): cmd += ['+', 'write', str(source), name]
 subprocess.run(cmd, check=True)
-with tempfile.TemporaryDirectory(prefix='space-adf-') as temp:
+with tempfile.TemporaryDirectory(prefix='astralbound-adf-') as temp:
     for name, source in files.items():
         extracted = Path(temp)/source.name
         subprocess.run([xdftool, str(output), 'read', name, str(extracted)], check=True, stdout=subprocess.DEVNULL)

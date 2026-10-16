@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense; actual generated-world terrain fixtures. */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

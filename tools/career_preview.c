@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Unlicense */
-#include "space.h"
+#include "astralbound.h"
 #include <stdio.h>
 #include <stdlib.h>
 static void output(const Game *g, Frame *f, const char *path) {

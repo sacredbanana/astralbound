@@ -1,4 +1,4 @@
-Space's original code and generated content use the Unlicense in LICENSE.
+Astralbound's original code and generated content use the Unlicense in LICENSE.
 The Unlicense does not replace the terms of external tools or libraries.
 
 Amiga builds use m68k-amigaos-gcc and its standard runtime and amiga.lib.
@@ -11,7 +11,7 @@ SDL2 and its notices are not bundled in the Amiga archive.
 
 Frontier: Elite II, its manuals and screenshots are research references.
 No Frontier executables, extracted source, ship meshes, fonts, music,
-logos, story text, or screenshot files are included in Space.
+logos, story text, or screenshot files are included in Astralbound.
 
 MOD replay includes Micromod by Martin Cameron, under BSD-3-Clause.
 Source: https://github.com/martincameron/micromod

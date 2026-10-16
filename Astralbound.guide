@@ -1,12 +1,12 @@
-@database "Space.guide"
-@author "Space project"
-@$VER: Space.guide 0.1 (13.10.2026)
+@database "Astralbound.guide"
+@author "Astralbound project"
+@$VER: Astralbound.guide 0.1 (13.10.2026)
 @wordwrap
 @help help
 
-@node main "Space - Flight Manual"
+@node main "Astralbound - Flight Manual"
 
-  @{b}SPACE - Amiga development prototype@{ub}
+  @{b}ASTRALBOUND - Amiga development prototype@{ub}
 
   Original source and generated content released under the Unlicense.
   This is a playable foundation. Full-game development is still ongoing.
@@ -28,11 +28,11 @@
 @toc main
 @next flight
 
-  Copy Space.000 and Space.020 to an Amiga drawer. Run from Shell:
+  Copy Astralbound.000 and Astralbound.020 to an Amiga drawer. Run from Shell:
 
-  Space.000 --ecs
-  Space.020 --aga
-  Space.020 --rtg
+  Astralbound.000 --ecs
+  Astralbound.020 --aga
+  Astralbound.020 --rtg
 
   Native modes require Kickstart 3.0 or later and detect PAL/NTSC.
   Add --lowres on PAL for a centred 320 x 200 display.
@@ -297,7 +297,7 @@
 @prev careers
 @next hardware
 
-  F5 saves to PROGDIR:space.sav. F9 loads the commander.
+  F5 saves to PROGDIR:astralbound.sav. F9 loads the commander.
   Native modes restore the OS for file access, then resume takeover.
   The save includes its format/generator version and checksum, exploration
   journal, local frame, accumulated fuel impulse, docking approach and markets.
@@ -308,7 +308,7 @@
 
   New data is written and closed before replacing the old slot.
   On filesystems that cannot replace via Rename, the old slot is kept
-  as space.sav.bak. A failed replacement attempts to restore it.
+  as astralbound.sav.bak. A failed replacement attempts to restore it.
   Versions 3 through 6 load with zero bank. Version 4 and 5 commanders load, with default faction records
   and the crew needed by their hull. Careers/equipment/resources are saved. Old open-ground landings are attached to
   the rotating terrain; docked commanders follow their moving port.
@@ -335,7 +335,7 @@
   This is the portable RTG path; direct registers differ between cards.
 
   Simulation uses integer coordinates, a lookup trig table and fixed
-  physics ticks. Space.000/.020/.030 require no FPU. The FPU builds give
+  physics ticks. Astralbound.000/.020/.030 require no FPU. The FPU builds give
   identical simulation results and only speed up rendering maths.
 
 @endnode
@@ -427,18 +427,18 @@
   centred at startup; press C to recalibrate. Physical devices need QA.
 
   @{b}Release and timing@{ub}
-  CPU builds: Space.000 (68000), Space.020/.030 (no FPU; also LC040/LC060),
-  Space.020fpu (68020/030 + 68881/68882), Space.040 and Space.060 (full
+  CPU builds: Astralbound.000 (68000), Astralbound.020/.030 (no FPU; also LC040/LC060),
+  Astralbound.020fpu (68020/030 + 68881/68882), Astralbound.040 and Astralbound.060 (full
   CPU with FPU). The FPU builds are faster at rendering on those machines.
   --rtg16 opens high-colour output through the CGX/P96 driver. The renderer
   still uses its original indexed scene palette. --rtg retains 8-bit output.
   --profile exits after 120 frames and reports render/output timings.
-  Space-benchmark.<cpu> measures scene rendering and C2P into Chip RAM.
+  Astralbound-benchmark.<cpu> measures scene rendering and C2P into Chip RAM.
 
   Open Install with SYS:Utilities/Installer V42.12+ and choose a drawer.
-  Existing space.sav is preserved. CPU icons accept MODE=ECS/AGA/RTG/RTG16
+  Existing astralbound.sav is preserved. CPU icons accept MODE=ECS/AGA/RTG/RTG16
   and LOWRES, NOSOUND, ANALOG tooltypes. Play-AGA/Play-RTG/Play-RTG16 scripts
-  use Space.020; Play-ECS-Lowres uses Space.000.
+  use Astralbound.020; Play-ECS-Lowres uses Astralbound.000.
   The original boot ADF starts ECS 320 x 200 with a user-supplied OS3 ROM.
   Tested with 2 MiB Chip and 8 MiB Fast; unexpanded A500s are not validated.
   Escape returns to the boot CLI. A writable ADF can hold a commander save.
