@@ -231,23 +231,23 @@ int main(int argc, char **argv) {
         }
         if (g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             c.pitch = keys[SDL_SCANCODE_UP] - keys[SDL_SCANCODE_DOWN];
-            c.yaw = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
+            c.roll = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
             c.thrust = keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S];
-            int yaw = 0, pitch = 0, fire = 0;
+            int roll = 0, pitch = 0, fire = 0;
             if (joystick && !gamepad) {
                 Uint8 hat = SDL_JoystickNumHats(joystick) ? SDL_JoystickGetHat(joystick, 0) : 0;
                 if (SDL_JoystickNumAxes(joystick) > 0)
-                    yaw = flight_axis(SDL_JoystickGetAxis(joystick, 0), 8000);
+                    roll = flight_axis(SDL_JoystickGetAxis(joystick, 0), 8000);
                 if (SDL_JoystickNumAxes(joystick) > 1)
                     pitch = -flight_axis(SDL_JoystickGetAxis(joystick, 1), 8000);
-                if (hat & SDL_HAT_RIGHT) yaw = 1;
-                if (hat & SDL_HAT_LEFT) yaw = -1;
+                if (hat & SDL_HAT_RIGHT) roll = 1;
+                if (hat & SDL_HAT_LEFT) roll = -1;
                 if (hat & SDL_HAT_UP) pitch = 1;
                 if (hat & SDL_HAT_DOWN) pitch = -1;
                 if (SDL_JoystickNumButtons(joystick)) fire = SDL_JoystickGetButton(joystick, 0);
             }
             c.fire = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL];
-            flight_input(&c, &mouse, yaw, pitch,
+            flight_input(&c, &mouse, roll, pitch,
                          fire || ui_fire(&g, &f));
         }
         if (gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {

@@ -854,17 +854,52 @@ static void test_flight_input(void) {
         int down = (i >> 2) & 1, up = (i >> 3) & 1;
         unsigned joy = (unsigned)((right << 1) | (left << 9) |
                                   (down ^ right) | ((up ^ left) << 8));
-        assert(joystick_yaw(joy) == right - left);
+        assert(joystick_roll(joy) == right - left);
         assert(joystick_pitch(joy) == up - down);
     }
     mouse_stick(&m, 8, -8, 1);
     flight_input(&c, &m, 0, 0, 0);
-    assert(!c.pitch && !c.yaw);
+    assert(!c.pitch && !c.roll);
     mouse_stick(&m, 100, -100, 1);
     flight_input(&c, &m, 1, 1, 1);
-    assert(c.pitch == 1 && c.yaw == 1 && c.fire);
+    assert(c.pitch == 1 && c.roll == 1 && c.fire);
     mouse_stick(&m, 0, 0, 0);
     assert(!m.x && !m.y);
+    /* Roll alone leaves the nose fixed; banked pitch follows the hull axes. */
+    game_init(&g, 3);
+    g.docked = -1; g.assist = 0; g.pos = add(g.pos, vec(0, 100000 * FP, 0));
+    g.yaw = g.pitch = 0;
+    game_tick(&g, (Controls){.roll = 1});
+    assert(g.roll == 3 && !g.yaw && !g.pitch);
+    game_tick(&g, (Controls){.roll = -1});
+    assert(!g.roll && !g.yaw && !g.pitch);
+    game_tick(&g, (Controls){.roll = -1});
+    assert(g.roll == 1021 && !g.yaw && !g.pitch);
+    g.roll = 256;
+    game_tick(&g, (Controls){.pitch = 1});
+    assert(g.yaw == 3 && !g.pitch && g.roll == 256);
+    g.yaw = g.pitch = 0; g.roll = 768;
+    game_tick(&g, (Controls){.pitch = 1});
+    assert(g.yaw == 1021 && !g.pitch && g.roll == 768);
+    g.yaw = g.pitch = 0; g.roll = 512;
+    game_tick(&g, (Controls){.pitch = 1});
+    assert(!g.yaw && g.pitch == -3 && g.roll == 512);
+    /* Crossing a pole keeps the flight direction continuous. */
+    g.yaw = 0; g.pitch = 255; g.roll = 0;
+    game_tick(&g, (Controls){.pitch = 1});
+    assert(g.yaw == 512 && abs(g.pitch - 254) <= 1 && g.roll == 512);
+    g.roll = 137;
+    assert(save_game(&g, TEST_SAVE) && load_game(&h, TEST_SAVE));
+    assert(h.roll == 137 && h.yaw == g.yaw && h.pitch == g.pitch);
+    remove(TEST_SAVE);
+    g.paused = 1; h = g;
+    game_tick(&g, (Controls){.roll = 1, .pitch = 1});
+    assert(g.roll == h.roll && g.yaw == h.yaw && g.pitch == h.pitch);
+    g.paused = 0; g.camera_mode = 3; g.turret_yaw = g.turret_pitch = 0; h = g;
+    game_tick(&g, (Controls){.roll = 1, .pitch = 1});
+    assert(g.roll == h.roll && g.yaw == h.yaw && g.pitch == h.pitch);
+    assert(g.turret_yaw == 3 && g.turret_pitch == 3);
+    puts("PASS roll-only steering, banked pitch, pole crossing, pause, turret isolation and bank save");
     game_init(&g, 3);
     for (i = 0; i < 10; i++) game_action(&g, ']');
     assert(g.warp == MAX_WARP);

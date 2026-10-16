@@ -22,7 +22,7 @@
 #define MAX_EXPLORED 128
 #define MAX_MARKETS 128
 #define MARKET_INTERVAL (HZ * 3600U)
-#define SAVE_VERSION 6
+#define SAVE_VERSION 7
 #define SHIPS 6
 #define FACTIONS 3
 #define MAX_PODS 8
@@ -133,6 +133,7 @@ typedef struct {
     int explored_count;
     Vec pos, vel;
     int yaw, pitch, target, docked, gear, autopilot, assist, body;
+    int roll; /* v7 commander bank, 0..1023 */
     int throttle, hull, shield, fuel, heat, credits, ship, upgrade, kills;
     int cargo[GOODS];
     Market markets[MAX_MARKETS];
@@ -144,7 +145,7 @@ typedef struct {
     int laser, dead, paused, camera_mode;
     /* Presentation state is transient; version 3/4 commander payloads stay compatible. */
     int turret_yaw, turret_pitch, combat_target, system_display, map_local;
-    int yaw_fraction, pitch_fraction;
+    int roll_fraction, pitch_fraction;
     int drive_manual, drive_active; /* transient; player drive switch and available thrust, independent of AP */
     Vec ground_anchor; /* transient body-fixed Q8 landed position */
     uint32_t shots, fuel_burn;
@@ -163,8 +164,8 @@ typedef struct {
     char message[80];
 } Game;
 typedef struct {
-    int pitch, yaw, thrust, fire;
-    int axis_yaw, axis_pitch; /* calibrated analogue, -256..256 */
+    int pitch, roll, thrust, fire;
+    int axis_roll, axis_pitch; /* calibrated analogue, -256..256 */
 } Controls;
 typedef struct {
     int w, h, enhanced;

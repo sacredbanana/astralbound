@@ -251,14 +251,19 @@ static void test_legacy_and_extension(void) {
     for (end = 16; end + 4 < len; end += 4) if (data[end] == 0x43 && data[end+1] == 0x41 &&
         data[end+2] == 0x52 && data[end+3] == 0x36) break;
     assert(end < len);
-    for (version = 4; version <= 5; version++) {
-        put_word(data + 4, (uint32_t)version); put_word(data + 8, (uint32_t)(end - 16));
-        sum = 2166136261U; for (i = 16; i < end; i++) sum = (sum ^ data[i]) * 16777619U;
+    for (version = 4; version <= 6; version++) {
+        size_t legacy_len = version == 6 ? len - 4 : end;
+        put_word(data + 4, (uint32_t)version); put_word(data + 8, (uint32_t)(legacy_len - 16));
+        sum = 2166136261U; for (i = 16; i < legacy_len; i++) sum = (sum ^ data[i]) * 16777619U;
         put_word(data + 12, sum);
-        f = fopen(SLOT, "wb"); assert(f && fwrite(data, 1, end, f) == end); fclose(f);
-        assert(load_game(&h, SLOT)); assert(h.crew == 1 && h.ship == 1 && h.credits == g.credits && h.turret_upgrade[0] == 2);
-        assert(h.board[6].passengers == 0);
+        f = fopen(SLOT, "wb"); assert(f && fwrite(data, 1, legacy_len, f) == legacy_len); fclose(f);
+        assert(load_game(&h, SLOT));
+        assert(h.crew == (version == 6 ? g.crew : 1) && h.ship == 1 && h.credits == g.credits);
+        assert(h.turret_upgrade[0] == (version == 6 ? g.turret_upgrade[0] : 2));
+        assert(h.board[6].passengers == (version == 6 ? g.board[6].passengers : 0));
         assert(h.equipment == ((1 << DORSAL) | (1 << VENTRAL)));
+        assert(h.roll == 0);
+        if (version == 6) h.crew = ship_specs[h.ship].crew;
         game_action(&h, 'l'); assert(h.docked == -1);
     }
     g.crew = 2; g.cabins = 2; g.reputation[0] = 30; g.wanted[1] = 1200;
@@ -281,7 +286,7 @@ static void test_legacy_and_extension(void) {
     f = fopen(SLOT, "wb"); assert(f && fwrite(data, 1, len, f) == len); fclose(f);
     assert(!load_game(&h, SLOT) && !memcmp(&h, &before, sizeof(h)));
     remove(SLOT); remove(SLOT ".bak");
-    puts("PASS v4/v5 crew migration, career/combat extension roundtrip and checksummed semantic rejection");
+    puts("PASS v4/v5/v6 migration, career/combat extension roundtrip and checksummed semantic rejection");
 }
 int main(void) {
     test_ships_crew(); test_terms_passengers(); test_rescue_escort();

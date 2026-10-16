@@ -98,7 +98,7 @@ static void persistent_target_markers(void) {
         g.docked = -1; g.target = 0; g.resource_target = -1;
         g.pos = scale(add(g.system.planets[g.body].center,
                          vec(0, g.system.planets[g.body].radius + 1000000, 0)), FP, 1);
-        g.yaw = 73; g.pitch = 31; g.turret_yaw = 41; g.turret_pitch = -29;
+        g.yaw = 73; g.pitch = 31; g.roll = 137; g.turret_yaw = 41; g.turret_pitch = -29;
         for (mode = 0; mode < 5; mode++) {
             g.camera_mode = mode;
             render_game(&g, &f);
@@ -106,6 +106,9 @@ static void persistent_target_markers(void) {
                 Vec v = scale(bearings[b], 1, 1000), world_offset, actual;
                 int cy = cosi(camera_yaw), syaw = sini(camera_yaw);
                 int cp = cosi(camera_pitch), sp = sini(camera_pitch);
+                int cr = cosi(camera_roll), sr = sini(camera_roll);
+                v = vec((v.x * cr + v.y * sr) / 16384,
+                        (v.y * cr - v.x * sr) / 16384, v.z);
                 int64_t wy = (v.y * cp + v.z * sp) / 16384;
                 int64_t wz = (v.z * cp - v.y * sp) / 16384;
                 world_offset = vec((v.x * cy + wz * syaw) / 16384, wy,
@@ -607,6 +610,32 @@ static void procedural_geology(void) {
     render_shutdown();
     puts("PASS seeded geological diversity, spherical sampling and shared tile boundaries");
 }
+static void rolled_camera(void) {
+    Game g;
+    Frame f = {320,200,0,0,{0}};
+    Vec v, local, expected;
+    int mode;
+    game_init(&g, 3);
+    g.yaw = g.pitch = 0; g.roll = 256;
+    f.pixels = calloc(320 * 200, 1); assert(f.pixels && render_init(&f));
+    for (mode = 0; mode < 5; mode++) {
+        g.camera_mode = mode;
+        render_game(&g, &f);
+        assert(camera_roll == (mode == 0 ? 256 : mode == 1 ? 768 : 0));
+        if (!mode) {
+            v = camera(add(scale(g.pos, 1, FP), vec(1000,0,2000)));
+            assert(v.x == 0 && v.y == 1000 && v.z == 2000);
+            /* Terrain rays must invert the same rolled projection as meshes. */
+            local = camera_to_local(&g.system.planets[g.body], scale(v, 16, 1));
+            expected = body_rotate(&g.system.planets[g.body],
+                sub(add(scale(g.pos, 1, FP / 16), vec(16000,0,32000)),
+                    scale(g.system.planets[g.body].center, 16, 1)), 1);
+            assert(length(sub(local, expected)) <= 2);
+        }
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS rolled front/rear cameras, stable turret/external cameras and inverse terrain rays");
+}
 int main(void) {
     persistent_target_markers();
     Frame f = {64, 120, 1, 0, {0}};
@@ -663,6 +692,7 @@ int main(void) {
     orbital_and_radar();
     hetha_target_bearing();
     warp_readout();
+    rolled_camera();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");
     return 0;
 }

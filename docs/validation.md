@@ -700,3 +700,44 @@ Evidence and reproduction:
 Physical hardware, volcano eruptions, and real-machine performance remain
 unverified. Host/emulator frames establish visible geometry, not a hardware
 performance budget.
+
+Final checks passed: `make -j4 test navigation-test`,
+`UBSAN_OPTIONS=halt_on_error=1 make sanitize`, native 020 quick core tests with an
+explicit 262144-byte CLI stack, the AmigaGuide checker (zero diagnostics), and
+`./package.sh` ZIP/LHA/boot-ADF readback. The native terrain golden ranges matched
+the host. The new test fixture initially lacked `parent=-1`, causing a divide by
+zero in rotation setup; this was corrected before the final passing runs.
+
+AmiKit exited during an attempted IPC restore of the pre-test snapshot. It was
+relaunched successfully; exact live-session restoration was not established.
+The snapshot/config remain under `build/evidence/terrain-before-native.*`.
+The final five CPU executables were installed in `/Volumes/repos/AmigaGPT/out`,
+with previous installed binaries backed up under
+`build/evidence/out-programs-before-terrain`. No commander slots were replaced.
+
+### Roll steering (2026-10-16)
+
+Horizontal arrows, right-drag mouse movement, digital joystick/CD32 directions
+and calibrated analogue X now control roll. Vertical input pitches about the
+banked hull axis; roll alone preserves the nose direction. Front/rear cameras,
+terrain ray inversion and the external hull mesh include bank. Turret steering
+continues to aim independently. Autopilot levels the hull in local and compressed
+cruise steps. Commander format 7 appends roll; formats 3 through 6 load level.
+
+- `make -j4 test navigation-test all` passed, including banked/inverted pitch,
+  pole crossing, analogue fractional roll, pause/turret isolation, saved bank,
+  v3/v4/v5/v6 migration and rolled target-marker/terrain-ray rendering.
+- `make sanitize` passed all suites with no AddressSanitizer or undefined
+  behaviour diagnostics.
+- `./build-amiga.sh -j4 all variants tests` passed for 68000/020/030/040/060.
+- Isolated PAL ECS Amiberry with a 68020 and 262144-byte CLI stack passed the
+  native presentation tests and core `--quick` suite. Right-arrow steering
+  visibly banked the launched ship; Escape returned to the guest shell.
+  Evidence: `build/roll-native-{launched,banked,exit}.png` and
+  `build/roll-guest/{presentation,core}-results.txt`.
+- AmigaGuide validation passed with zero diagnostics. ZIP/LHA/boot ADF packages
+  were rebuilt and read back successfully. The five installed `OUT:Space.*`
+  executables were refreshed, with previous binaries backed up under
+  `build/evidence/out-programs-before-roll`.
+
+Physical controllers, real hardware, and live AGA/RTG roll input remain untested.

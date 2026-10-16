@@ -29,11 +29,16 @@ static const Game *game;
 static int view_h;
 static int draw_scale = 1;
 static Vec camera_position;
-static int camera_yaw, camera_pitch;
+static int camera_yaw, camera_pitch, camera_roll;
 /* Q4 coordinates retain fractional ray hits between fixed mesh vertices. */
 static Vec camera_to_local(const Planet *p, Vec v) {
     int sy = sini(camera_yaw), cy = cosi(camera_yaw);
     int sp = sini(camera_pitch), cp = cosi(camera_pitch);
+    if (camera_roll) {
+        int cr = cosi(camera_roll), sr = sini(camera_roll);
+        v = vec((v.x * cr + v.y * sr) / 16384,
+                (v.y * cr - v.x * sr) / 16384, v.z);
+    }
     int64_t y = (v.y * cp + v.z * sp) / 16384;
     int64_t z = (v.z * cp - v.y * sp) / 16384;
     Vec world = vec((v.x * cy + z * sy) / 16384, y, (z * cy - v.x * sy) / 16384);
@@ -163,7 +168,13 @@ static Vec camera(Vec p) {
     int sy = sini(camera_yaw), cy = cosi(camera_yaw), sp = sini(camera_pitch),
         cp = cosi(camera_pitch);
     int64_t x = (r.x * cy - r.z * sy) / 16384, z = (r.x * sy + r.z * cy) / 16384;
-    return vec(x, (r.y * cp - z * sp) / 16384, (r.y * sp + z * cp) / 16384);
+    int64_t y = (r.y * cp - z * sp) / 16384;
+    int64_t depth = (r.y * sp + z * cp) / 16384;
+    if (camera_roll) {
+        int cr = cosi(camera_roll), sr = sini(camera_roll);
+        return vec((x * cr - y * sr) / 16384, (y * cr + x * sr) / 16384, depth);
+    }
+    return vec(x, y, depth);
 }
 static int screen_coord(int64_t value) {
     return value < -32760 ? -32760 : value > 32760 ? 32760 : (int)value;
@@ -1109,6 +1120,9 @@ static void world(void) {
         int wide = spec->width;
         Vec p = scale(game->pos, 1, FP), f = forward(game->yaw, game->pitch);
         Vec right = vec(cosi(game->yaw), 0, -sini(game->yaw)), up = unit(cross(f, right), 16384);
+        Vec level_right = right;
+        right = sub(scale(right, cosi(game->roll), 16384), scale(up, sini(game->roll), 16384));
+        up = add(scale(level_right, sini(game->roll), 16384), scale(up, cosi(game->roll), 16384));
         Vec tip = add(p, scale(f, spec->depth, 16384)), left = add(p, scale(right, -wide, 16384));
         Vec r = add(p, scale(right, wide, 16384)),
             roof = add(sub(p, scale(f, wide / 2, 16384)), scale(up, spec->height, 16384));
@@ -1434,7 +1448,7 @@ static void menus(void) {
         panel("SPACE / FLIGHT MANUAL");
         {
             const char *help[] = {
-                "ARROWS STEER / W S CHANGE SET SPEED",  "CTRL FIRE / E ASSIST / A DRIVE",
+                "ARROWS ROLL PITCH / W S SET SPEED",  "CTRL FIRE / E ASSIST / A DRIVE",
                 "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
                 "[ ] TIME TO 4096X / SPACE PAUSE",          "G GALAXY / ARROWS SELECT / X JUMP",
                 "B CONTRACTS / M MARKET / U SHIPYARD",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
@@ -1659,6 +1673,8 @@ void render_game(const Game *g, Frame *f) {
     }
     camera_position = g->pos;
     view_angles(g, &camera_yaw, &camera_pitch);
+    camera_roll = g->camera_mode == 0 ? g->roll :
+                  g->camera_mode == 1 ? (-g->roll & 1023) : 0;
     if (g->camera_mode == 2) {
         Vec up = unit(sub(g->pos, scale(g->system.planets[g->body].center, FP, 1)), 16384);
         camera_position = add(sub(g->pos, scale(forward(g->yaw, g->pitch), 600 * FP, 16384)),

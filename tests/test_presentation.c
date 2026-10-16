@@ -44,7 +44,7 @@ static void sound_tests(void) {
 static void controller_tests(void) {
     Controller p = {0};
     Controls c = {0};
-    int i, yaw;
+    int i, roll, yaw;
     game_init(&g, 0x53504143);
     assert(analogue_axis(128,128) == 0 && analogue_axis(140,128) == 0);
     assert(analogue_axis(0,128) == -256 && analogue_axis(255,128) == 256);
@@ -52,14 +52,14 @@ static void controller_tests(void) {
     controller_calibrate(&p, 100, 150);
     g.docked = -1; g.pos = add(g.pos, vec(0, 18000 * FP, 0)); g.page = FLIGHT;
     controller_apply(&p, &g, &c, PAD_FIRE | PAD_THRUST, 255, 0, 1);
-    assert(c.axis_yaw == 256 && c.axis_pitch == 256 && c.fire && c.thrust == 1);
-    c = (Controls){0}; c.axis_yaw = 64;
-    yaw = g.yaw;
+    assert(c.axis_roll == 256 && c.axis_pitch == 256 && c.fire && c.thrust == 1);
+    c = (Controls){0}; c.axis_roll = 64;
+    roll = g.roll; yaw = g.yaw;
     for (i = 0; i < 4; i++) game_tick(&g, c);
-    assert(g.yaw == ((yaw + 3) & 1023));
-    c = (Controls){0}; c.yaw = -1; c.axis_yaw = 256;
+    assert(g.roll == ((roll + 3) & 1023) && g.yaw == yaw);
+    c = (Controls){0}; c.roll = -1; c.axis_roll = 256;
     game_tick(&g, c);
-    assert(g.yaw == yaw); /* digital wins */
+    assert(g.roll == roll && g.yaw == yaw); /* digital wins */
     controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0); assert(g.paused);
     controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0); assert(g.paused);
     controller_apply(&p, &g, &c, 0, 0, 0, 0);
@@ -68,7 +68,7 @@ static void controller_tests(void) {
     controller_apply(&p, &g, &c, PAD_BRAKE, 0, 0, 0); assert(!g.throttle);
     g.page = MARKET; c = (Controls){0};
     controller_apply(&p, &g, &c, PAD_FIRE | PAD_THRUST, 255, 0, 1);
-    assert(!c.fire && !c.thrust && !c.axis_yaw);
+    assert(!c.fire && !c.thrust && !c.axis_roll);
     puts("PASS analogue calibration/rates, digital precedence, button edges and menu isolation");
 }
 int main(void) { sound_tests(); controller_tests(); return 0; }

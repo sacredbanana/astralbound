@@ -83,6 +83,53 @@ void view_angles(const Game *g, int *yaw, int *pitch) {
         *pitch = g->turret_pitch;
     }
 }
+/* Positive roll banks the right wing down. Pitch rotates about the banked
+   right axis, so pulling up after a quarter roll turns across the horizon. */
+static Vec level_up(int yaw, int pitch) {
+    return vec(-(int64_t)sini(pitch) * sini(yaw) / 16384, cosi(pitch),
+               -(int64_t)sini(pitch) * cosi(yaw) / 16384);
+}
+/* Integer atan2 in table angles. Search the cross-product sign instead of
+   maximizing a dot product: rounded trig lengths otherwise bias tiny turns. */
+static int attitude_angle(int64_t x, int64_t z) {
+    int lo = 0, hi = 256, a;
+    int64_t ax = llabs(x), az = llabs(z);
+    if (!ax && !az) return 0;
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (ax * cosi(mid) > az * sini(mid)) lo = mid + 1;
+        else hi = mid;
+    }
+    a = lo;
+    if (a && llabs(ax * cosi(a - 1) - az * sini(a - 1)) <
+             llabs(ax * cosi(a) - az * sini(a))) a--;
+    if (z < 0) a = 512 - a;
+    return (x < 0 ? -a : a) & 1023;
+}
+static void pitch_ship(Game *g, int angle) {
+    Vec f, right, up, next, unbanked_right, unbanked_up;
+    int64_t horizontal;
+    if (!angle) return;
+    if ((!g->roll || g->roll == 512) &&
+        abs(g->pitch + (g->roll ? -angle : angle)) < 256) {
+        g->pitch += g->roll ? -angle : angle;
+        return;
+    }
+    f = forward(g->yaw, g->pitch);
+    right = vec(cosi(g->yaw), 0, -sini(g->yaw));
+    up = level_up(g->yaw, g->pitch);
+    up = add(scale(right, sini(g->roll), 16384), scale(up, cosi(g->roll), 16384));
+    next = add(scale(f, cosi(angle), 16384), scale(up, sini(angle), 16384));
+    up = sub(scale(up, cosi(angle), 16384), scale(f, sini(angle), 16384));
+    horizontal = isqrt64((uint64_t)(next.x * next.x + next.z * next.z));
+    if (horizontal > 32) g->yaw = attitude_angle(next.x, next.z);
+    g->pitch = attitude_angle(next.y, horizontal);
+    if (g->pitch > 512) g->pitch -= 1024;
+    unbanked_right = vec(cosi(g->yaw), 0, -sini(g->yaw));
+    unbanked_up = level_up(g->yaw, g->pitch);
+    g->roll = attitude_angle(up.x * unbanked_right.x + up.y * unbanked_right.y + up.z * unbanked_right.z,
+                             up.x * unbanked_up.x + up.y * unbanked_up.y + up.z * unbanked_up.z);
+}
 int combat_target(const Game *g) {
     int i = g->combat_target;
     return i >= 0 && i < MAX_NPC && g->npc[i].active &&
@@ -263,21 +310,21 @@ void game_tick(Game *g, Controls c) {
         g->shield++;
     /* Preserve sub-angle stick rates over fixed physics ticks. Digital keys win. */
     {
-        int ay = clamp(c.axis_yaw, -256, 256), ap = clamp(c.axis_pitch, -256, 256);
+        int ay = clamp(c.axis_roll, -256, 256), ap = clamp(c.axis_pitch, -256, 256);
         int dy, dp;
-        if (!ay || c.yaw) g->yaw_fraction = 0;
+        if (!ay || c.roll) g->roll_fraction = 0;
         if (!ap || c.pitch) g->pitch_fraction = 0;
-        g->yaw_fraction += c.yaw ? 0 : ay * 3;
+        g->roll_fraction += c.roll ? 0 : ay * 3;
         g->pitch_fraction += c.pitch ? 0 : ap * 3;
-        dy = c.yaw ? c.yaw * 3 : g->yaw_fraction / 256;
+        dy = c.roll ? c.roll * 3 : g->roll_fraction / 256;
         dp = c.pitch ? c.pitch * 3 : g->pitch_fraction / 256;
-        g->yaw_fraction %= 256; g->pitch_fraction %= 256;
-        c.axis_yaw = dy; c.axis_pitch = dp;
+        g->roll_fraction %= 256; g->pitch_fraction %= 256;
+        c.axis_roll = dy; c.axis_pitch = dp;
     }
     if (g->camera_mode >= 3 && g->page == FLIGHT) {
-        g->turret_yaw = (g->turret_yaw + c.axis_yaw) & 1023;
+        g->turret_yaw = (g->turret_yaw + c.axis_roll) & 1023;
         g->turret_pitch = clamp(g->turret_pitch + c.axis_pitch, -250, 250);
-        c.yaw = c.pitch = c.axis_yaw = c.axis_pitch = 0;
+        c.roll = c.pitch = c.axis_roll = c.axis_pitch = 0;
     }
     if (g->docked != -1) {
         g->drive_manual = g->drive_active = 0;
@@ -346,6 +393,7 @@ void game_tick(Game *g, Controls c) {
     thrust = drive_thrust(g);
     g->drive_active = thrust == SYSTEM_DRIVE_ACCEL * FP;
     if (g->autopilot) {
+        g->roll = 0;
         Vec target;
         if (g->target >= 0 && g->clearance == g->target) {
             Vec gate = sub(
@@ -437,8 +485,8 @@ void game_tick(Game *g, Controls c) {
         if (g->target >= 0 && length(sub(g->ports[g->target].pos, g->pos)) < 500 * FP)
             g->gear = 1;
     } else {
-        g->yaw = (g->yaw + c.axis_yaw) & 1023;
-        g->pitch = clamp(g->pitch + c.axis_pitch, -250, 250);
+        g->roll = (g->roll + c.axis_roll) & 1023;
+        pitch_ship(g, c.axis_pitch);
         if (c.thrust)
             g->throttle = clamp(g->throttle + c.thrust * 3, 0, 4000);
         if (g->assist || g->drive_active) {
@@ -628,7 +676,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     int64_t speed, route, closing;
     if (step < HZ || g->frame_body != -1 || g->paused || g->dead || !g->fuel ||
         !g->autopilot || g->docked != -1 || g->laser || c.fire || c.thrust ||
-        c.yaw || c.pitch || c.axis_yaw || c.axis_pitch ||
+        c.roll || c.pitch || c.axis_roll || c.axis_pitch ||
         (g->target < 0 && g->target_body < 0))
         return 1;
     for (i = 0; i < MAX_NPC; i++)
@@ -732,6 +780,7 @@ static void cruise_step(Game *g, int ticks) {
     {
         int yaw = g->yaw, pitch = g->pitch;
         int turns = (int)(g->tick / 4 - before / 4) * 12;
+        g->roll = 0;
         aim_angles(sub(navigation_position(g), g->pos), &yaw, &pitch);
         g->yaw = (g->yaw + clamp(((yaw - g->yaw + 1536) & 1023) - 512,
                                 -turns, turns)) & 1023;

@@ -48,7 +48,7 @@
 @next navigation
 
   L         Launch from a port or open ground.
-  Arrows    Pitch and yaw.
+  Arrows    Left/right roll; up/down pitch.
   RMouse    Hold and drag as a virtual stick; release to recenter.
   LMouse    Operate console; fire only in the flight viewport.
   Joystick  Port 2 directions steer; fire button shoots.
@@ -83,10 +83,11 @@
   Overlapping orbital markers can be selected through NAV's destination
   list and BODY/PORT/PAGE buttons. Keyboard shortcuts remain available.
 
-  Mouse: drag right/left for yaw, up/down for pitch, with a small dead zone.
+  Mouse: drag right/left for roll, up/down for pitch, with a small dead zone.
   Use the mouse port and a digital joystick in port 2. On the host preview,
   axes 0/1 or a direction pad steer, button 0 fires. W/S controls thrust.
-  Autopilot retains steering until you disengage it with P.
+  Pitch follows the ship's bank. Autopilot levels the bank and retains
+  steering until you disengage it with P.
 
   In turret views arrows, mouse and joystick aim independently of the hull. W/S still controls
   ship thrust; Ctrl fires along turret aim. Pitch stops short of the poles.
@@ -289,7 +290,7 @@
   Native modes restore the OS for file access, then resume takeover.
   The save includes its format/generator version and checksum, exploration
   journal, local frame, accumulated fuel impulse, docking approach and markets.
-  Save format 6 keeps world generator version 3. Version 3 commanders load
+  Save format 7 stores ship roll and keeps world generator version 3. Version 3 commanders load
   with saved supply assigned to the docked port; other ports use generated
   supply. Old version 2 prototype commanders remain incompatible.
   A rejected or corrupt load leaves the current game unchanged.
@@ -297,7 +298,7 @@
   New data is written and closed before replacing the old slot.
   On filesystems that cannot replace via Rename, the old slot is kept
   as space.sav.bak. A failed replacement attempts to restore it.
-  Version 4 and 5 commanders also load, with default faction records
+  Versions 3 through 6 load with zero bank. Version 4 and 5 commanders load, with default faction records
   and the crew needed by their hull. Careers/equipment/resources are saved. Old open-ground landings are attached to
   the rotating terrain; docked commanders follow their moving port.
   Prototype save formats can change between development revisions.

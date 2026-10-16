@@ -205,6 +205,7 @@ static void payload(Stream *s, Game *g, uint32_t version) {
             g->board[i].required_rep = g->contracts[i].required_rep = -100;
         }
     }
+    if (version >= 7) FIELD(g->roll);
 }
 #undef FIELD
 static uint32_t checksum(const unsigned char *p, size_t n) {
@@ -231,8 +232,9 @@ static int valid(const Game *g) {
          (g->target < 0 && (g->target_body < 0 || g->target_body >= g->system.count))) ||
         g->docked < -2 || g->docked >= port_count(g) || g->hull < 0 || g->hull > 100 ||
         g->shield < 0 || g->shield > 100 || g->fuel < 0 || g->fuel > 100 || g->heat < 0 ||
-        g->heat > 100 || g->credits < 0 || g->credits > 100000000 || g->pitch < -250 ||
-        g->pitch > 250 || g->yaw < 0 || g->yaw > 1023 || g->page < 0 || g->page > CAREER ||
+        g->heat > 100 || g->credits < 0 || g->credits > 100000000 || g->pitch < -256 ||
+        g->pitch > 256 || g->yaw < 0 || g->yaw > 1023 || g->roll < 0 || g->roll > 1023 ||
+        g->page < 0 || g->page > CAREER ||
         g->selection < 0 || g->selection >= MAX_MISSIONS || g->upgrade < 0 || g->upgrade > 3 ||
         g->throttle < 0 || g->throttle > 4000 || g->camera_mode < 0 || g->camera_mode > 4)
         return 0;
@@ -400,7 +402,7 @@ int load_game(Game *g, const char *path) {
     if (word(&s, 0) != 0x53504331)
         return 0;
     version = word(&s, 0);
-    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != SAVE_VERSION)
+    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != 6 && version != SAVE_VERSION)
         return 0;
     size = word(&s, 0);
     crc = word(&s, 0);
@@ -451,7 +453,7 @@ int load_game(Game *g, const char *path) {
     copy.turret_yaw = copy.yaw;
     copy.turret_pitch = copy.pitch;
     copy.combat_target = -1;
-    copy.yaw_fraction = copy.pitch_fraction = 0;
+    copy.roll_fraction = copy.pitch_fraction = 0;
     copy.drive_manual = copy.drive_active = 0;
     copy.effective_warp = 1;
     *g = copy;

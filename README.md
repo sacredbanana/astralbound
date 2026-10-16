@@ -141,7 +141,7 @@ LOAD and EXIT are available in the panels. Mouse UI state is not stored in a
 commander. All keyboard shortcuts remain available.
 
 For manual flight, hold the **right mouse button** and drag to steer. Drag right/left
-for yaw and up/down for pitch; the mouse acts as a virtual stick with a small dead
+for roll and up/down for pitch; the mouse acts as a virtual stick with a small dead
 zone. Release the right button to recenter. **Left mouse button** fires when pressed in the flight viewport. Console and panel
 clicks never fire weapons. On Amiga,
 use the mouse port and a standard digital joystick in **joystick port 2**; directions
@@ -150,6 +150,7 @@ or gamepad. Standard SDL controllers use proportional left-stick steering, A/B/X
 for fire/brake/contact/autopilot, shoulders for thrust/reverse and Start to pause.
 Unmapped joysticks retain axes 0/1 and button 0 fire. Keyboard arrows,
 Ctrl and W/S remain available; W/S controls speed/thrust with either device.
+Horizontal steering banks the ship; pitch follows the bank.
 Steering also aims the turret in turret views. Autopilot retains steering until P
 turns it off; time compression remains limited to autopilot flight.
 
@@ -190,7 +191,7 @@ stars, economy, government, radius, gravity, atmosphere, rings, parent, orbit,
 period, inclination, ports, survey status and navigation range. Y retains the
 destination list; V returns to flight.
 
-Flight controls: arrows steer, W/S change set speed, Ctrl fires, E switches flight
+Flight controls: left/right arrows roll, up/down pitch, W/S change set speed, Ctrl fires, E switches flight
 assist, K controls landing gear, Space pauses, H opens help, F5 saves, F9 loads,
 and Escape exits. At ports F refuels and repairs, O upgrades the laser, and N
 buys a larger hull. On the market, 1-8 selects a commodity and +/- buys/sells. Both buy and sell
@@ -270,10 +271,11 @@ fuel point per second in the upper two thirds of a hydrogen atmosphere at
 civilian economy and strategic faction wars are not simulated.
 
 Read [Space.guide](Space.guide) on the Amiga for the controls and prototype limits.
-Save format 6 preserves crew, cabins, mount upgrades, factions, legal status,
+Save format 7 preserves ship roll as well as crew, cabins, mount upgrades, factions, legal status,
 contract stages, cargo pods, missiles, mining rigs and finite asteroid deposits,
 alongside exploration, markets, frame, fuel-impulse and approach state. Formats
-3, 4 and 5 migrate with default faction records and enough crew for their hull. World generation stays at version 3. Version 3 commanders load
+3, 4 and 5 migrate with default faction records and enough crew for their hull.
+Formats 3 through 6 load with zero bank. World generation stays at version 3. Version 3 commanders load
 with their saved stock assigned to the docked port; other ports start with generated
 supply. Version 4 commanders also load; older open-ground landings are reattached
 to rotating terrain and docked ships follow their ports. Version 2 remains incompatible.

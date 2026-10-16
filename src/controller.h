@@ -24,7 +24,7 @@ static inline void controller_apply(Controller *p, Game *g, Controls *c, unsigne
     if (pressed & PAD_PAUSE) game_action(g, ' ');
     if (g->page != FLIGHT || g->paused) return;
     if (analogue && p->calibrated) {
-        c->axis_yaw = analogue_axis(x, p->x);
+        c->axis_roll = analogue_axis(x, p->x);
         c->axis_pitch = -analogue_axis(y, p->y);
     }
     c->fire |= !!(buttons & PAD_FIRE);
