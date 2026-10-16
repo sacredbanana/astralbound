@@ -633,6 +633,7 @@ static void test_missions(void) {
             assert(jump(&g, g.contracts[slot].destination));
             g.target = g.contracts[slot].port;
             g.autopilot = 1;
+            game_action(&g, 'a'); /* Star arrivals require an interplanetary leg. */
             g.warp = MAX_WARP;
             for (i = 0; i < 200000 && g.contracts[slot].state == ACTIVE && !g.dead; i++)
                 game_frame(&g, c, 1);
@@ -659,6 +660,69 @@ static void test_missions(void) {
         assert(g.credits == old);
     }
     puts("PASS all six contract types complete through flight/combat and pay once");
+}
+static void test_atmosphere_speed_limit(void) {
+    Game g;
+    Controls c = {0};
+    int assist, i;
+    for (assist = 0; assist <= 1; assist++) {
+        Planet *p;
+        game_init(&g, 1);
+        g.docked = -1; g.frame_body = g.body = 0;
+        g.assist = assist; g.fuel = 0; g.tick = HZ - 1;
+        memset(g.npc, 0, sizeof(g.npc));
+        p = &g.system.planets[0];
+        assert(p->atmosphere > 18000);
+        g.pos = add(scale(p->center, FP, 1), vec(0, (p->radius + 18000LL) * FP, 0));
+        g.vel = add(surface_velocity(p, sub(scale(g.pos, 1, FP), p->center)),
+                    vec(0, 0, 1000000LL * FP));
+        for (i = 0; i < HZ; i++) {
+            Vec air;
+            game_tick(&g, c);
+            air = surface_velocity(p, sub(scale(g.pos, 1, FP), p->center));
+            assert(length(sub(g.vel, air)) <= (ATMOSPHERE_SPEED + 1) * FP);
+            assert(g.hull == 100 && g.heat == 0 && !g.dead);
+        }
+        /* An incoming vacuum trajectory is limited before it crosses the
+           whole atmosphere or hits the surface in one tick. */
+        g.pos = add(scale(p->center, FP, 1),
+                    vec(0, ((int64_t)p->radius + p->atmosphere + 1000) * FP, 0));
+        g.vel = vec(0, -2000000LL * FP, 0);
+        game_tick(&g, c);
+        assert(altitude_at(&g, g.pos) > p->atmosphere);
+        assert(length(sub(g.vel, surface_velocity(p,
+            sub(scale(g.pos, 1, FP), p->center)))) < (ATMOSPHERE_SPEED + 1) * FP);
+        assert(g.hull == 100 && g.heat == 0 && !g.dead);
+    }
+    puts("PASS atmospheric speed cap, rotating air, vacuum entry and no overspeed damage");
+}
+static void test_thirty_c(void) {
+    Game g, h;
+    Controls c = {0};
+    int i;
+    assert(SYSTEM_DRIVE_SPEED == 30LL * LIGHT_SPEED);
+    assert(muldiv(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_ACCEL) > 20000000000000LL);
+    assert(isqrt_product(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED) <= (uint64_t)SYSTEM_DRIVE_SPEED);
+    assert(isqrt_product(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED) > (uint64_t)SYSTEM_DRIVE_SPEED - 16);
+    game_init(&g, 1);
+    g.docked = g.frame_body = -1;
+    g.pos = vec(0, AU_METRES * 1000 * FP, 0);
+    g.vel = vec(0, 0, (SYSTEM_DRIVE_SPEED - 1000000) * FP);
+    game_action(&g, 'a');
+    for (i = 0; i < 16 * HZ; i++) game_tick(&g, c);
+    assert(!g.dead && g.drive_manual && g.drive_active);
+    assert(llabs(length(g.vel) / FP - SYSTEM_DRIVE_SPEED) < 32);
+    assert(save_game(&g, TEST_SAVE) && load_game(&h, TEST_SAVE));
+    assert(!memcmp(&g.vel, &h.vel, sizeof(Vec)));
+    game_action(&g, 'a');
+    for (i = 0; i < HZ; i++) game_tick(&g, c);
+    assert(length(g.vel) / FP < SYSTEM_DRIVE_SPEED - 3000000);
+    /* At 30c, the AP's squared braking envelope exceeds signed 64 bits. */
+    assert(length(guidance(vec(0,0,0), vec(0,0,0),
+        vec(0,0,1000 * AU_METRES * FP), SYSTEM_DRIVE_ACCEL * FP,
+        SYSTEM_DRIVE_SPEED * FP)) > 0);
+    remove(TEST_SAVE); remove(TEST_SAVE ".bak");
+    puts("PASS 30c manual ceiling, braking, saved velocity and guidance envelope");
 }
 static void test_system_drive(void) {
     Game g, h;
@@ -792,6 +856,10 @@ static void test_hyperspace(void) {
     game_frame(&g, c, 1);
     assert(g.system.seed != seed && g.fuel < fuel && g.hyperspace == HYPER_CHARGE + 1);
     assert(!strncmp(g.message, "HYPERSPACE TRANSIT", 18));
+    assert(g.frame_body == -1 && g.body == nearest_body(&g, g.pos));
+    assert(llabs(length(sub(scale(g.pos, 1, FP), g.system.star[0].center)) -
+                 g.system.star[0].radius - 1100000000LL) < 16);
+    assert(drive_available(&g));
     tick = g.tick;
     for (i = 0; i < HYPER_TUNNEL - 1; i++) game_frame(&g, c, 1);
     assert(g.tick == tick);
@@ -1169,6 +1237,8 @@ int main(int argc, char **argv) {
     test_routes();
     if (!quick)
         test_missions();
+    test_atmosphere_speed_limit();
+    test_thirty_c();
     test_system_drive();
     test_independent_drive_autopilot();
     test_hyperspace();

@@ -103,7 +103,9 @@
   Start with L, then P, to fly from Haven to its orbital Relay.
   Space preserves momentum. Turning does not instantly change velocity.
   With assist disabled, W/S applies forward/reverse thrust directly.
-  Manual impacts and excessive atmospheric speed can destroy the ship.
+  Manual impacts can destroy the ship. Atmospheres cap air-relative speed
+  at 1,200 m/s without overspeed damage. Fast flight reads in c from 0.01c;
+  1c is the speed of light. Bodies and stars in view are labelled in space.
   Lower gear and approach below 8 m/s relative to the port to dock.
   Orbital stations move and rotate. Match their velocity, request D
   clearance, then enter the central opening through the marked corridor.
@@ -139,7 +141,9 @@
   A toggles the drive; P toggles autopilot. Neither changes the other.
   In manual flight A selects full cruise; W/S adjusts speed; A again brakes.
   With autopilot engaged, guidance controls speed with the selected drive.
-  Maximum acceleration is 4,000,000 m/s/s; cruise cap is 200,000,000 m/s.
+  Maximum acceleration is 4,000,000 m/s/s; cruise cap is 30c.
+  Hyperspace arrives 1.1 million km above the host star's surface, just
+  outside its drive exclusion shell.
   Bodies, atmosphere, stars, stations and traffic lower the speed limit.
   Inside an exclusion zone or with no fuel the drive cannot run: the
   DRIVE button is greyed and A is refused. An armed drive that can no

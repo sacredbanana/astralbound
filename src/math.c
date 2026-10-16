@@ -104,7 +104,7 @@ static int bits(uint64_t x) {
 }
 /* Multiply/divide without overflowing intermediate astronomical coordinates.
    Fast path covers ordinary local physics and all terrain work. */
-static int64_t muldiv(int64_t a, int64_t n, int64_t d) {
+int64_t muldiv(int64_t a, int64_t n, int64_t d) {
     uint64_t u = a < 0 ? (uint64_t)(-(a + 1)) + 1 : (uint64_t)a;
     uint64_t v = n < 0 ? (uint64_t)(-(n + 1)) + 1 : (uint64_t)n;
     uint64_t den = d < 0 ? (uint64_t)(-(d + 1)) + 1 : (uint64_t)d;
@@ -241,16 +241,25 @@ int swept_sphere(Vec start, Vec end, Vec center, int64_t radius) {
         t = l;
     return length(sub(r, scale(n, t, 16384))) <= radius;
 }
+/* Scale the larger factor by powers of four before multiplying. This
+   extends braking roots past 2^32 without overflowing the squared speed. */
+uint64_t isqrt_product(uint64_t a, uint64_t b) {
+    int shift = 0;
+    while (a && b > UINT64_MAX / a) {
+        if (a > b) a /= 4;
+        else b /= 4;
+        shift++;
+    }
+    return isqrt64(a * b) << shift;
+}
 Vec guidance_step(Vec p, Vec v, Vec target, int accel, int64_t maxspeed, int ticks) {
     Vec delta = sub(target, p), desired;
     int64_t d = length(delta), speed;
-    int64_t envelope = maxspeed <= INT32_MAX
-        ? maxspeed * maxspeed / (2 * (accel ? accel : 1))
-        : (maxspeed / FP) * (maxspeed / FP) / (2 * (accel / FP)) * FP;
+    int64_t envelope = muldiv(maxspeed, maxspeed, 2LL * (accel ? accel : 1));
     if (d > envelope + 4 * FP)
         speed = maxspeed;
     else if (maxspeed > INT32_MAX)
-        speed = (int64_t)isqrt64(2ULL * (accel / FP) *
+        speed = (int64_t)isqrt_product(2ULL * (accel / FP),
             (uint64_t)(d > 4 * FP ? (d - 4 * FP) / FP : 0)) * FP;
     else
         speed = isqrt64((uint64_t)(2LL * accel * (d > 4 * FP ? d - 4 * FP : 0)));
@@ -278,7 +287,9 @@ Vec avoidance(Vec r, Vec v, int accel, int radius) {
         t = 12 * HZ;
     closest = add(r, scale(v, t, HZ));
     closing = length(v);
-    if (length(closest) > radius + muldiv(closing, closing, 2 * (accel ? accel : 1)))
+    if (length(closest) > radius &&
+        (uint64_t)closing < isqrt_product(2ULL * (accel ? accel : 1),
+                                        (uint64_t)(length(closest) - radius)))
         return vec(0, 0, 0);
     if (dot >= 0 && length(r) > radius)
         return vec(0, 0, 0); /* Deterministic lateral break for a perfectly head-on approach. */

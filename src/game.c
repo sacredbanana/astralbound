@@ -142,7 +142,8 @@ int combat_target(const Game *g) {
    and a conservative braking envelope leave time for frame/route changes. */
 static int64_t drive_limit(const Game *g) {
     int i;
-    int64_t room = SYSTEM_DRIVE_SPEED * SYSTEM_DRIVE_SPEED / SYSTEM_DRIVE_ACCEL;
+    int64_t ceiling_room = muldiv(SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_SPEED, SYSTEM_DRIVE_ACCEL);
+    int64_t room = ceiling_room;
     for (i = 0; i < g->system.count; i++) {
         const Planet *p = &g->system.planets[i];
         int64_t r = length(sub(scale(g->pos, 1, FP), p->center)) -
@@ -169,9 +170,10 @@ static int64_t drive_limit(const Game *g) {
         if (r < room) room = r;
     }
     if (room <= 0) return 0;
+    if (room == ceiling_room) return SYSTEM_DRIVE_SPEED;
     {
         int64_t limit = 600 + room / 4;
-        int64_t brake = (int64_t)isqrt64((uint64_t)room * SYSTEM_DRIVE_ACCEL);
+        int64_t brake = (int64_t)isqrt_product((uint64_t)room, SYSTEM_DRIVE_ACCEL);
         if (limit > brake) limit = brake;
         return limit < SYSTEM_DRIVE_SPEED ? limit : SYSTEM_DRIVE_SPEED;
     }
@@ -649,16 +651,29 @@ void game_tick(Game *g, Controls c) {
     burn_fuel(g, acceleration, 1, g->drive_active);
     old = g->pos;
     g->vel = add(g->vel, scale(add(acceleration, gravity), 1, HZ));
+    /* Limit air-relative speed before displacement, including an entry from
+       vacuum in a single fast tick. Preserve heading and rotating air motion. */
+    for (i = 0; i < g->system.count; i++) {
+        const Planet *p = &g->system.planets[i];
+        Vec air, relative, next, entry;
+        int64_t shell = (int64_t)p->radius + p->atmosphere;
+        if (!p->atmosphere) continue;
+        next = add(g->pos, scale(g->vel, 1, HZ));
+        if (!swept_sphere(scale(g->pos, 1, FP), scale(next, 1, FP), p->center, shell))
+            continue;
+        entry = sub(scale(g->pos, 1, FP), p->center);
+        if (length(entry) > shell) entry = radial(entry, shell);
+        air = add(surface_velocity(p, entry),
+                  sub(body_velocity(&g->system, i, g->tick), frame_velocity(g)));
+        relative = sub(g->vel, air);
+        if (length(relative) > ATMOSPHERE_SPEED * FP)
+            g->vel = add(air, radial(relative, ATMOSPHERE_SPEED * FP));
+    }
     g->pos = add(g->pos, scale(g->vel, 1, HZ));
-    /* Atmospheric drag and heating depend on speed, never on render rate. */
+    /* Atmospheric drag remains density-dependent; overspeed causes no damage. */
     if (alt < planet->atmosphere && alt > 0) {
         int density = atmosphere_density(planet, alt);
         Vec air = surface_velocity(planet, scale(local, 1, FP));
-        int64_t speed = length(sub(g->vel, air));
-        if (speed > 1200 * FP && g->tick % HZ == 0) {
-            g->hull -= 2;
-            g->heat = clamp(g->heat + 5, 0, 100);
-        }
         g->vel = add(air, scale(sub(g->vel, air), 1048576 - density, 1048576));
     }
     /* A settling autopilot docks on touchdown, not by snapping down 35 m. */
@@ -871,7 +886,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
         int64_t travel = speed * seconds + (int64_t)accel * seconds * seconds;
         /* Return well before the 10,000 km approach-speed boundary. */
         int64_t future_closing = closing + (int64_t)accel * seconds;
-        if (route < 20000000LL + future_closing * future_closing / accel +
+        if (route < 20000000LL + muldiv(future_closing, future_closing, accel) +
                     closing * seconds + (int64_t)accel * seconds * seconds)
             safe = 0;
         for (i = 0; i < g->system.count && safe; i++) {
@@ -879,7 +894,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
             int64_t motion = length(p->cruise_velocity) / FP;
             int64_t relative = speed + motion + (int64_t)accel * seconds;
             int64_t shell = p->radius + p->atmosphere + 200000LL +
-                            relative * relative / accel;
+                            muldiv(relative, relative, accel);
             if (shell < p->influence + 200000LL)
                 shell = p->influence + 200000LL;
             if (length(sub(scale(g->pos, 1, FP), p->center)) <=
@@ -1033,9 +1048,13 @@ int jump(Game *g, Sector d) {
     g->tick += HZ * 300;
     career_time(g);
     setup_system(g, d);
-    g->pos = add(scale(g->system.planets[0].center, FP, 1),
-                 vec(0, (int64_t)(g->system.planets[0].radius + 200000) * FP, 0));
+    /* Arrive over the host star's pole, 100,000 km beyond its exclusion
+       shell. Polar placement avoids the planetary and binary orbital plane. */
+    g->pos = add(scale(g->system.star[0].center, FP, 1),
+                 vec(0, (g->system.star[0].radius + 1100000000LL) * FP, 0));
     g->vel = vec(0, 0, 0);
+    g->body = nearest_body(g, g->pos);
+    g->frame_body = -1;
     g->autopilot = 0;
     g->throttle = 0;
     g->target = g->nports ? (g->nports > 1 ? 1 : 0) : -1;

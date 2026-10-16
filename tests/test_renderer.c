@@ -3,6 +3,59 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+static void speed_readout(void) {
+    static const int64_t speeds[] = {600, 100000, LIGHT_SPEED / 100 - 1,
+        LIGHT_SPEED / 100, LIGHT_SPEED / 2, LIGHT_SPEED, SYSTEM_DRIVE_SPEED};
+    static const char *expected[] = {"V 600 M/S", "V 100 KM/S", "V 2997 KM/S",
+        "V 0.01 C", "V 0.50 C", "V 1.00 C", "V 30.00 C"};
+    char buf[32];
+    int i;
+    for (i = 0; i < (int)(sizeof(speeds) / sizeof(speeds[0])); i++) {
+        speed_text(speeds[i], buf, sizeof(buf));
+        assert(!strcmp(buf, expected[i]));
+    }
+    puts("PASS speed readout transitions from m/s and km/s through 0.01c to 30c");
+}
+static void body_labels(void) {
+    Game g;
+    Frame f = {320,200,0,0,{0}};
+    int layout, i, x, y, count;
+    f.pixels = malloc(640 * 480); assert(f.pixels);
+    for (layout = 0; layout < 3; layout++) {
+        f.w = layout == 2 ? 640 : 320; f.h = layout == 2 ? 480 : layout == 1 ? 256 : 200;
+        assert(render_init(&f));
+        game_init(&g, 1);
+        g.docked = g.frame_body = -1;
+        g.pos = vec(0,0,0); g.yaw = g.pitch = g.roll = 0;
+        g.system.count = 3; g.system.stars = 1;
+        g.system.star[0].center = vec(-1000000000,0,2000000000);
+        for (i = 0; i < 3; i++) {
+            g.system.planets[i].center = vec((i - 1LL) * 500000000,0,2000000000);
+            snprintf(g.system.planets[i].name,24,"BODY %d",i);
+        }
+        g.body = 0; g.target = -1; g.target_body = 0;
+        render_game(&g, &f);
+        /* Clear geometry, then inspect the overlay using the same camera. */
+        memset(f.pixels, 0, (size_t)f.w * f.h);
+        system_body_labels();
+        count = 0;
+        for (y = 20; y < view_h - 20; y++) for (x = 0; x < f.w; x++)
+            if (f.pixels[y * f.w + x] == 7) count++;
+        assert(count > 150); /* All three unselected/selected body names. */
+        count = 0;
+        for (y = 20; y < view_h - 20; y++) for (x = 0; x < f.w; x++)
+            if (f.pixels[y * f.w + x] == 12) count++;
+        assert(count > 30); /* Primary star name. */
+        /* A rearward body must not produce a mirrored forward label. */
+        for (i = 0; i < 3; i++) g.system.planets[i].center.z *= -1;
+        g.system.star[0].center.z *= -1;
+        memset(f.pixels, 0, (size_t)f.w * f.h);
+        system_body_labels();
+        for (i = 0; i < f.w * f.h; i++) assert(!f.pixels[i]);
+    }
+    free(f.pixels); render_shutdown();
+    puts("PASS space body and star labels in PAL/NTSC/RTG, without mirrored rear labels");
+}
 static void warp_readout(void) {
     Game g;
     Frame f = {320, 200, 0, 0, {0}};
@@ -706,6 +759,8 @@ int main(void) {
     orbital_and_radar();
     hetha_target_bearing();
     warp_readout();
+    speed_readout();
+    body_labels();
     rolled_camera();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");
     return 0;

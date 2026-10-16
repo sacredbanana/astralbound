@@ -42,7 +42,10 @@ static void remote_cruise(void) {
     /* Batched cruise uses mean velocity; fixed ticks use end velocity. Bound
        their accumulated integration difference by a*duration/(2*HZ). */
     assert(length(sub(g.pos, h.pos)) < SYSTEM_DRIVE_ACCEL * 128LL * FP / (2 * HZ));
-    assert(length(sub(g.vel, h.vel)) < 100 * FP);
+    /* With a 30c ceiling this route follows the changing gravity-well cap
+       rather than a constant ceiling. One-second cruise samples can differ
+       by up to half a second of drive acceleration at the end of the run. */
+    assert(length(sub(g.vel, h.vel)) < SYSTEM_DRIVE_ACCEL * FP / 2);
     printf("remote 4096x: %.3f ms cruise, %.3f ms fixed ticks, error %ld m\n",
            fast * 1000, reference * 1000, (long)(length(sub(g.pos, h.pos)) / FP));
     /* Input, NPCs and patrol events must retain exact fixed-tick behavior. */
@@ -87,6 +90,25 @@ static void remote_cruise(void) {
     game_frame(&g, c, 8);
     assert(g.tick == MAX_FRAME_STEPS && g.effective_warp == MAX_FRAME_STEPS / 8);
     puts("PASS bounded remote cruise, elapsed timers/deadlines and fixed-tick fallbacks");
+}
+static void superluminal_cruise(void) {
+    Game g;
+    Controls c = {0};
+    int64_t before;
+    game_init(&g, 1);
+    g.docked = g.frame_body = g.target = -1;
+    g.target_body = 1;
+    g.pos = vec(0, 1000 * AU_METRES * FP, 0);
+    g.vel = radial(sub(navigation_position(&g), g.pos), SYSTEM_DRIVE_SPEED * FP);
+    g.autopilot = 1;
+    game_action(&g, 'a');
+    g.warp = MAX_WARP;
+    before = length(sub(navigation_position(&g), g.pos));
+    game_frame(&g, c, 1);
+    assert(g.tick == MAX_WARP && g.drive_active && !g.dead && g.fuel > 0);
+    assert(length(sub(navigation_position(&g), g.pos)) < before);
+    assert(length(g.vel) > 20 * LIGHT_SPEED * FP && length(g.vel) < SYSTEM_DRIVE_SPEED * FP);
+    puts("PASS superluminal cruise integration and braking at 30c with 4096x warp");
 }
 static void moving_target_approach(void) {
     Game g;
@@ -267,6 +289,7 @@ int main(void) {
     level_pad_touchdown("B HAVEN");
     level_pad_touchdown("D REACH");
     remote_cruise();
+    superluminal_cruise();
     moving_target_approach();
     hetha_d_route();
     surface_port_drive();

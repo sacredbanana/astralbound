@@ -7,7 +7,9 @@
 #define HZ 32
 #define MAX_WARP 4096
 #define SYSTEM_DRIVE_ACCEL 4000000
-#define SYSTEM_DRIVE_SPEED 200000000LL
+#define LIGHT_SPEED 299792458LL
+#define SYSTEM_DRIVE_SPEED (30LL * LIGHT_SPEED)
+#define ATMOSPHERE_SPEED 1200
 #define MAX_FRAME_STEPS 128
 #define TERRAIN_MAX_HEIGHT 8000
 #define TERRAIN_DETAIL_ALTITUDE (12000 + TERRAIN_MAX_HEIGHT)
@@ -322,6 +324,8 @@ void view_angles(const Game *g, int *yaw, int *pitch);
 int combat_target(const Game *g);
 int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int acceleration, int radius);
+uint64_t isqrt_product(uint64_t a, uint64_t b);
+int64_t muldiv(int64_t a, int64_t n, int64_t d);
 Vec guidance(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed);
 Vec guidance_step(Vec pos, Vec velocity, Vec target, int acceleration, int64_t maxspeed, int ticks);
 int swept_sphere(Vec start, Vec end, Vec center, int64_t radius);

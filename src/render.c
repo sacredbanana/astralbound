@@ -201,6 +201,16 @@ static void target_range_text(int64_t metres, char *s, size_t n) {
         snprintf(s, n, "%ld.%02ld AU", (long)(metres / AU_METRES),
                  (long)(metres % AU_METRES * 100 / AU_METRES));
 }
+/* Integer formatting keeps the 68k HUD independent of floating point. */
+static void speed_text(int64_t speed, char *s, size_t n) {
+    if (speed >= LIGHT_SPEED / 100) {
+        int64_t hundredths = (speed * 100 + LIGHT_SPEED / 2) / LIGHT_SPEED;
+        snprintf(s, n, "V %ld.%02ld C", (long)(hundredths / 100),
+                 (long)(hundredths % 100));
+    } else
+        snprintf(s, n, "V %ld %s", (long)(speed >= 100000 ? speed / 1000 : speed),
+                 speed >= 100000 ? "KM/S" : "M/S");
+}
 /* Keep locked targets inside the flight viewport. Rear targets use their
    camera-space bearing too, so perspective cannot mirror them across the HUD. */
 static void target_marker_position(Vec p, int top, int *x, int *y) {
@@ -2365,7 +2375,7 @@ static void gui(void) {
         cockpit_scan(top);
         rect(3,top+31,94,10,0);
         { int64_t speed=length(game->vel)/FP;
-          snprintf(buf,sizeof(buf),"V %ld %s",(long)(speed>=100000?speed/1000:speed),speed>=100000?"KM/S":"M/S"); text(5,top+33,13,buf); }
+          speed_text(speed,buf,sizeof(buf)); text(5,top+33,13,buf); }
         for(i=0;i<4;i++) {
             int value=i==0?game->hull:i==1?game->shield:i==2?game->fuel:game->heat, x=223+i*23;
             int c=i==0?14:i==1?13:i==2?12:game->heat>=80?14:11;
@@ -2628,6 +2638,43 @@ static void hyperspace_tunnel(const Game *g, int t) {
 static void hyperspace_exit(int t) {
     if (t < HYPER_EXIT / 2) hyper_flash(16 - t * 32 / HYPER_EXIT);
 }
+/* Label every body in the field of view, including those too small to
+   resolve as geometry. Leader lines keep crowded names tied to their body. */
+static void system_body_labels(void) {
+    int i, used = 0, boxes[MAX_PLANETS + 6][3];
+    const Planet *nearest = &game->system.planets[nearest_body(game, game->pos)];
+    if (altitude_at(game, game->pos) < nearest->atmosphere + 20000LL) return;
+    for (i = 0; i < game->system.count + game->system.stars; i++) {
+        int star = i >= game->system.count, index = i - game->system.count;
+        Vec p = camera(star ? game->system.star[index].center : game->system.planets[i].center);
+        char name[32];
+        int x, y, lx, ly, w, j = 0, attempt;
+        if (p.z <= 0) continue;
+        x = frame->w / 2 + screen_coord(p.x * (frame->w / 2) / p.z);
+        y = view_h / 2 - screen_coord(p.y * (frame->w / 2) / p.z);
+        if (x < 2 || x >= frame->w - 2 || y < 20 || y >= view_h - 27) continue;
+        if (star) snprintf(name, sizeof(name), "%.23s %c", game->system.name, 'A' + index);
+        else snprintf(name, sizeof(name), "%s", game->system.planets[i].name);
+        w = (int)strlen(name) * 6;
+        lx = x + 7;
+        if (lx + w >= frame->w - 2) lx = frame->w - w - 2;
+        if (lx < 2) lx = 2;
+        ly = y + 6;
+        for (attempt = 0; attempt < (view_h - 44) / 10; attempt++) {
+            ly = 22 + (y - 16 + attempt * 10) % (view_h - 48);
+            for (j = 0; j < used; j++)
+                if (lx < boxes[j][0] + boxes[j][2] + 3 && lx + w + 3 > boxes[j][0] &&
+                    abs(ly - boxes[j][1]) < 9) break;
+            if (j == used) break;
+        }
+        if (j < used) continue; /* The viewport has no free name row here. */
+        boxes[used][0] = lx; boxes[used][1] = ly; boxes[used++][2] = w;
+        line(x - 2, y, x + 2, y, 7); line(x, y - 2, x, y + 2, 7);
+        line(x + 3, y + 3, lx, ly + 3, 7);
+        rect(lx - 1, ly - 1, w + 1, 9, 0);
+        text(lx, ly, star ? 12 : 7, name);
+    }
+}
 void render_game(const Game *g, Frame *f) {
     int i;
     int64_t alt = altitude_at(g, g->pos);
@@ -2697,6 +2744,7 @@ void render_game(const Game *g, Frame *f) {
     if (g->page == FLIGHT) {
         world();
         weather_overlay();
+        system_body_labels();
     }
     if (g->page == FLIGHT) {
         Vec p = camera(scale(navigation_position(g), 1, FP));

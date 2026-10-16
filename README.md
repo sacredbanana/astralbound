@@ -113,7 +113,7 @@ to toggle the drive independently of **P** (autopilot): neither control changes
 the other. In manual flight, engaging the drive selects full cruise speed; W/S
 adjusts the setting, and **A** again brakes to a stop. With autopilot engaged,
 guidance controls speed using whichever drive setting you select. The drive
-provides up to 4,000,000 m/s² acceleration and braking, with a 200,000,000 m/s cruise ceiling. Gravity wells, atmospheres,
+provides up to 4,000,000 m/s² acceleration and braking, with a **30c** cruise ceiling (c is the speed of light). Gravity wells, atmospheres,
 stations and nearby ships reduce the permitted speed. Inside an exclusion zone,
 or with an empty tank, the drive cannot run: the **DRIVE** button is greyed out
 and **A** is refused. An armed drive that loses the ability to run disengages
@@ -124,6 +124,13 @@ Autopilot uses System Drive only when you arm it with **A**; otherwise it uses
 ordinary engines. It limits speed for terrain/star detours, atmospheric flight
 and docking, and brakes for arrival. Reaching a body waypoint zeros the manual
 speed setting.
+Atmospheric flight caps air-relative speed at 1,200 m/s instead of causing
+overspeed damage. Terrain and station impacts still cause damage. The speed
+readout uses m/s, then km/s, and switches to **c** at 0.01c.
+Hyperspace arrival places you close to the host star, 1.1 million km above its
+surface and just outside its drive exclusion shell. While in space, bodies and
+stars in the field of view have name labels, including distant unresolved bodies.
+
 Time warp also works with manual drive control; drive cruise batches are limited
 to one simulated second.
 Drive settings reset on loading, while saved velocity is preserved and fast
