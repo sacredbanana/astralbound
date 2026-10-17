@@ -6,7 +6,7 @@
 (welcome "Install the original Astralbound Amiga game.")
 (set destination (askdir
     (prompt "Choose the Astralbound destination drawer.")
-    (help "Copies the game and guide. Existing astralbound.sav is preserved.")
+    (help "Copies the game and guide. Existing astralbound.sav and astralbound.cfg are preserved.")
     (default @default-dest) (newpath)))
 (makedir destination)
 (copyfiles

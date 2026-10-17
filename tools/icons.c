@@ -46,7 +46,6 @@ static int write_icon(const char *name, int type, const char *tool, STRPTR *type
     return 1;
 }
 int main(void) {
-    static STRPTR ecs[] = {(STRPTR)"MODE=ECS", NULL};
     static STRPTR install[] = {(STRPTR)"MINUSER=AVERAGE", (STRPTR)"APPNAME=Astralbound", NULL};
     static const char *tools[] = {"Astralbound.000", "Astralbound.020", "Astralbound.030", "Astralbound.020fpu", "Astralbound.040", "Astralbound.060"};
     static const char *scripts[] = {"Play-AGA", "Play-RTG", "Play-RTG16", "Play-ECS-Lowres"};
@@ -63,7 +62,7 @@ int main(void) {
         }
     }
     dot(3, 3, 1); dot(27, 4, 1); dot(5, 10, 1); dot(26, 12, 1);
-    for (i = 0; i < 6; i++) ok &= write_icon(tools[i], WBTOOL, NULL, ecs);
+    for (i = 0; i < 6; i++) ok &= write_icon(tools[i], WBTOOL, NULL, NULL);
     for (i = 0; i < 4; i++) ok &= write_icon(scripts[i], WBPROJECT, "C:IconX", NULL);
     ok &= write_icon("Install", WBPROJECT, "SYS:Utilities/Installer", install);
     ok &= write_icon("Astralbound.guide", WBPROJECT, "SYS:Utilities/MultiView", NULL);

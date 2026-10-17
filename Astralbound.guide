@@ -12,6 +12,7 @@
   This is a playable foundation. Full-game development is still ongoing.
 
   @{"Installation " link install}
+  @{"Startup / GFX" link graphics}
   @{"Title        " link intro}
   @{"Flight       " link flight}
   @{"Navigation   " link navigation}
@@ -27,7 +28,7 @@
 
 @node install "Installation"
 @toc main
-@next intro
+@next graphics
 
   Copy Astralbound.000 and Astralbound.020 to an Amiga drawer. Run from Shell:
 
@@ -40,16 +41,73 @@
   AGA requires an AGA chipset. RTG needs CyberGraphX V41 or a
   Picasso96 setup with the compatible CyberGraphX API.
   Expansion RAM is needed; stock A500 performance is not established.
-  A title sequence plays first: see @{"Title Sequence" link intro}.
+  Setup opens first: see @{"Startup and Graphics" link graphics}.
+
+@endnode
+
+@node graphics "Startup, Graphics and Performance"
+@toc main
+@prev install
+@next intro
+
+  Setup opens before the optional title sequence on every launch. It is
+  an OS-managed ECS screen with a flat menu, so expensive flight graphics
+  are not needed to choose settings. Arrows move/change, Return selects,
+  Escape goes back; mouse, joystick and CD32 controls also work.
+
+  VIDEO OUTPUT: ECS, AGA, RTG 8 bit or RTG 16 bit. Unavailable backends
+  are skipped. DISPLAY SIZE selects native PAL/NTSC or 320 x 200; RTG
+  offers 320 x 240, 640 x 480, 800 x 600 and 1024 x 768 when supported.
+  A failed display/memory allocation returns to setup to lower options.
+
+  GRAPHICS PRESET:
+  Low is the first-launch Amiga default, using 320 x 200, 2x 3D pixels,
+  coarse flat terrain, simple ports/hulls and fewer effects. Clouds,
+  forests, twilight and visual weather are off. Medium restores some
+  detail. High uses the full textured renderer. Ultra increases terrain,
+  cloud, forest, star, ring and geometry work for fast machines/emulators.
+
+  Choose Custom, then CUSTOM OPTIONS to open three pages of controls:
+  3D pixel size (1x-4x), terrain mesh, surface shading, planet facets,
+  cloud mesh/distance, forests, port detail/distance, smoke/debris,
+  stars, rings, twilight, rain/fog, port lights, body labels, triangle
+  budget (512-16384) and ship detail. Custom begins at the current preset.
+  The console stays sharp. Minimum options can look deliberately ugly.
+  Visual detail does not change collision, autopilot or flight physics.
+  Lower 3D resolution still needs C2P at the selected native output size.
+
+  TEST SCENE chooses all 14 scenes or one scene. RUN PERFORMANCE TEST
+  measures orbit/rings, low/desert/ice terrain, a city, an orbital port,
+  rain/forests, inside-cloud fog, snow, combat/debris, hyperspace, system
+  and galaxy maps, and service portraits using the real display backend.
+  FPS includes rendering, output and synchronization. Render and output
+  milliseconds are also shown. Warmup and scene setup are excluded.
+  Each scene targets two seconds and four frames, up to 180 frames.
+  Native render/output splits have 20 ms PAL or 16.7 ms NTSC precision;
+  zero may mean less than one tick. Total FPS uses the whole sample. Escape, click or fire stops it; results return to setup.
+  PREV compares the previous test in this session; untested scenes show
+  no score. No commander is saved by a performance test. Emulator figures
+  describe that emulator configuration, not physical Amiga performance.
+
+  SAVE SETTINGS, START, TEST and QUIT write astralbound.cfg beside the
+  executable. It stores video, size, preset, every Custom option, intro
+  and sound separately from astralbound.sav. A read-only disk cannot
+  persist settings. Deleting the file restores defaults; the installer
+  preserves it. Unsupported versions or invalid values use safe defaults.
+
+  --nomenu (or NOMENU tooltype) bypasses setup. Mode flags, --lowres,
+  --nointro and --nosound prefill it. --preset low/medium/high/ultra/custom
+  selects a preset; --benchmark runs the suite directly. --profile retains
+  the 120-frame flight timing mode and bypasses setup.
 
 @endnode
 
 @node intro "Title Sequence"
 @toc main
-@prev install
+@prev graphics
 @next flight
 
-  Each launch opens with a title sequence of about three minutes: a
+  After Start Game, the optional title sequence runs for three minutes: a
   courier lifts off from Haven at dawn, meets an escort in the rain and
   climbs with it through the clouds, survives a raider ambush in orbit,
   jumps with its escort to a ringed gas giant and docks under police
@@ -418,7 +476,8 @@
   Native output owns its Copper lists and double-buffered Chip RAM.
   OS scheduling and interrupts are disabled during native play.
 
-  RTG uses a 640 x 480 driver-managed display and safe buffer messages.
+  RTG uses 320 x 240 through 1024 x 768 driver-managed displays and
+  safe buffer messages.
   Its OS remains running because the graphics-card driver requires it.
   This is the portable RTG path; direct registers differ between cards.
 
@@ -526,8 +585,10 @@
   Astralbound-benchmark.<cpu> measures scene rendering and C2P into Chip RAM.
 
   Open Install with SYS:Utilities/Installer V42.12+ and choose a drawer.
-  Existing astralbound.sav is preserved. CPU icons accept MODE=ECS/AGA/RTG/RTG16
-  and LOWRES, NOSOUND, ANALOG, NOINTRO tooltypes. Play-AGA/Play-RTG/Play-RTG16 scripts
+  Existing astralbound.sav and astralbound.cfg are preserved.
+  CPU icons use saved preferences unless optional tooltypes override.
+  They accept MODE=ECS/AGA/RTG/RTG16
+  and LOWRES, NOSOUND, ANALOG, NOINTRO, NOMENU tooltypes. Play-AGA/Play-RTG/Play-RTG16 scripts
   use Astralbound.020; Play-ECS-Lowres uses Astralbound.000.
   The original boot ADF starts ECS 320 x 200 with a user-supplied OS3 ROM.
   Tested with 2 MiB Chip and 8 MiB Fast; unexpanded A500s are not validated.

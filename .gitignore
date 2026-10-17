@@ -4,3 +4,7 @@
 *.sav.tmp
 *.sav.bak
 .DS_Store
+
+astralbound.cfg
+astralbound.cfg.tmp
+astralbound.cfg.bak

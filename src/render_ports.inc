@@ -124,7 +124,7 @@ static void port_surface(const Port *port, PortFrame s, uint32_t seed, int detai
     Vec local=sub(s.p,body->center);
     PortFrame pad=s;
     int j;
-    for(j=0;j<36;j++) {
+    for(j=0;j<36;j+=(graphics.ports==0 ? 3 : graphics.ports==1 ? 2 : 1)) {
         uint32_t h=hash32(seed+(unsigned)j*173U);
         int x=(j%6-3)*180+70,z=(j/6-3)*180+70;
         int kind=(int)(h%6),height=60+(int)(h>>8)%90;
@@ -315,7 +315,8 @@ static void port_geometry(int i) {
     uint32_t seed=hash32(game->system.seed^(unsigned)i*7919U);
     s.p=scale(port->pos,1,FP); local=sub(s.p,body->center);
     distance=length(sub(s.p,scale(camera_position,1,FP)));
-    if(distance>80000) return;
+    static const int ranges[]={4000,10000,40000,80000,160000};
+    if(distance>ranges[graphics.port_range] && i!=game->docked) return;
     s.up=unit(local,16384);
     /* Surface streets rotate with their planet rather than sliding round a
        moving port as its latitude changes in system coordinates. */
@@ -323,6 +324,6 @@ static void port_geometry(int i) {
     s.right=unit(cross(s.up,ref),16384);
     if(!length(s.right)) s.right=unit(cross(s.up,vec(0,16384,0)),16384);
     s.front=cross(s.right,s.up);
-    if(port->surface) port_surface(port,s,seed,distance<6000);
-    else port_orbital(port,s,seed,distance<9000,i==game->target);
+    if(port->surface) port_surface(port,s,seed,graphics.ports==2 && distance<6000);
+    else port_orbital(port,s,seed,graphics.ports>0 && distance<(graphics.ports==2 ? 9000 : 3000),i==game->target);
 }

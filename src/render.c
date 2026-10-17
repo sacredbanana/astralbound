@@ -9,7 +9,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#define TRI_MAX 4096
+#include "settings.h"
+#include "launcher.h"
+#include "performance.h"
 typedef struct {
     int x[3], y[3];
     uint32_t inverse_z[3];
@@ -20,10 +22,16 @@ typedef struct {
     int surface_x[3], surface_y[3]; /* Q8 projected vertices for colour mapping */
     int8_t slope; /* Geometric illumination for distant resolved landforms. */
 } Tri;
-static Tri triangles[TRI_MAX];
+static Tri *triangles;
+static int triangle_capacity, triangle_limit;
+static Graphics graphics = {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1};
+static int graphics_configured, scene_only, scaled_view_h;
+static uint8_t *scaled_pixels;
+static size_t scaled_capacity;
 static int nt;
 static int scenery_reserve = 1000;
 static const Planet *terrain_surface;
+static int material_color(const Planet *p, Vec local, int material);
 static int surface_detail(const Planet *p, int face, int u, int v, uint32_t depth, int footprint, int slope);
 static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v);
 /* Reciprocal depth is linear in screen space. Keep the buffer in ordinary
@@ -265,10 +273,10 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     Tri *t;
     Vec v[3] = {a, b, c};
     int i;
-    if (nt >= TRI_MAX)
+    if (nt >= triangle_limit)
         return;
     t = &triangles[nt];
-    t->surface = terrain_surface;
+    t->surface = graphics.texture ? terrain_surface : NULL;
     t->slope = (int8_t)slope;
 #ifdef ASTRALBOUND_FPU
     /* One reciprocal replaces six 64-bit divisions per vertex. Clipping
@@ -368,6 +376,7 @@ static int terrain_face_slope(const Planet *p, Vec a, Vec b, Vec c) {
 #endif
 static void triangle(Vec a, Vec b, Vec c, int color) {
     Vec vertices[2][10];
+    if (nt >= triangle_limit) return;
     int plane, i, count = 3, current = 0;
     vertices[0][0] = camera(a);
     vertices[0][1] = camera(b);
@@ -387,7 +396,11 @@ static void triangle(Vec a, Vec b, Vec c, int color) {
         current = 1 - current;
     }
     if (count >= 3) {
-        int slope=terrain_surface ? terrain_face_slope(terrain_surface,a,b,c) : 0;
+        int slope=terrain_surface && graphics.texture ? terrain_face_slope(terrain_surface,a,b,c) : 0;
+        if(terrain_surface && !graphics.texture) {
+            Vec local=sub(scale(add(a,add(b,c)),1,3),terrain_surface->center);
+            color=material_color(terrain_surface,local,terrain_material(terrain_surface,local));
+        }
         for (i = 1; i + 1 < count; i++)
             emit(vertices[current][0], vertices[current][i], vertices[current][i + 1], color, slope);
     }
@@ -807,7 +820,7 @@ static void ship_mesh(int ship, Vec origin, Vec right, Vec up, Vec front, int un
     v.origin = origin; v.right = right; v.up = up; v.front = front;
     v.eye = scale(camera_position, 1, FP); v.light = light;
     v.unit = unit; v.spec = &ship_specs[ship];
-    for (i = 0; i < SHIP_LOFTS; i++) {
+    for (i = 0; i < (graphics.ships ? SHIP_LOFTS : 1); i++) {
         const ShipLoft *l = &ship_lofts[ship][i];
         if (!l->count)
             continue;
@@ -997,7 +1010,7 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     static const int ecs[] = {25,8,8,16,28,21};
     static const int aga[] = {80,64,64,96,112,96};
     material = surface_cache[slot].material;
-    if (material == 5) return color;
+    if (material == 5 || graphics.texture == 1) return color;
     if (depth <= 1073741824U/2000 || footprint >= 64) {
         /* Facet normals retain mountain/valley shape beyond texture range.
            Ocean pixels stay level even next to steep coastal geometry. */
@@ -1026,13 +1039,13 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     /* Water adds filtered wave highlights to the generated current field.
        Solid bodies get their medium-scale structure from geology, avoiding
        the former repeated circular soil stamps on every material. */
-    if (material == 0 && footprint < 16) {
+    if (graphics.texture >= 3 && material == 0 && footprint < 16) {
         uint32_t h = hash32(grain ^ (unsigned)(u & 192)*173U ^ (unsigned)(v & 192)*7919U);
         int wave=(v+(u & 63)*(u & 63)/128+(int)(h & 15)) & 63;
         if (wave<8) variation += 3*(16-footprint)/16;
     }
     /* Fine 16 m inclusions supply optic flow in the last few hundred metres. */
-    if (material != 0 && depth > 1073741824U/500 && footprint < 4) {
+    if (graphics.texture >= 3 && material != 0 && depth > 1073741824U/500 && footprint < 4) {
         uint32_t h = hash32(grain ^ (unsigned)(u & 240)*31U ^ (unsigned)(v & 240)*8191U);
         int x=(u & 15)-8, y=(v & 15)-8;
         int fine=(int)((depth-1073741824U/500)/12000);
@@ -1043,9 +1056,9 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     shade = frame->enhanced ? color-aga[material] : (color-ecs[material])*6;
     /* Keep the existing eclipse/night illumination; slope detail cannot glow. */
     if (shade == 0 && frame->enhanced) variation /= 2;
-    surface_slope(p,slot,face,tu,tv);
+    if (graphics.texture >= 3) surface_slope(p,slot,face,tu,tv);
     {
-        int slope=surface_cache[slot].slope;
+        int slope=graphics.texture >= 3 ? surface_cache[slot].slope : 0;
         if (!frame->enhanced) { if (slope>3) slope=3; if (slope<-3) slope=-3; }
         variation += slope;
     }
@@ -1098,14 +1111,15 @@ static int cache_globe(int body) {
     Planet fixed=game->system.planets[body]; const Planet *p=&fixed;
     if(globe_valid[slot] && globe_keys[slot]==p->seed) return slot;
     set_rotation(&fixed,0);
-    for(y=0;y<=16;y++) {
+    int minimum=graphics_configured ? (4 >> graphics.planets) : 1;
+    for(y=0;y<=16;y+=minimum) {
         if(platform_pump) platform_pump();
-        for(x=0;x<=32;x++) {
+        for(x=0;x<=32;x+=minimum) {
             Vec dir=forward(x*32,y*32-256);
             globe_vertices[slot][y][x]=radial(dir,p->radius+terrain_height(p,dir));
         }
     }
-    for(step=1;step<=4;step*=2)
+    for(step=minimum;step<=4;step*=2)
         for(y=0;y<16;y+=step) {
             if(platform_pump) platform_pump();
             for(x=0;x<32;x+=step) {
@@ -1239,6 +1253,7 @@ static int patch_visible(const Planet *p, Vec local, Vec a, Vec b, Vec c, Vec d)
     return 0;
 }
 static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
+    int grid = graphics.terrain <= 1 ? 4 : TERRAIN_GRID;
     Vec fixed = body_rotate(p, local, 1);
     int64_t direction[3] = {fixed.x, fixed.y, fixed.z};
     int face, camera_u, camera_v, x, y, first = step, flat = !terrain_surface;
@@ -1257,20 +1272,21 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
         else span = (int)(span * ((r2 + rho * rho) / (slack >> 16)) >> 16);
     }
     for (;; step *= 2) {
-        int u0 = terrain_floor(camera_u, step * 2) * step * 2 - TERRAIN_GRID * step;
-        int v0 = terrain_floor(camera_v, step * 2) * step * 2 - TERRAIN_GRID * step;
-        int u1 = u0 + TERRAIN_GRID * 2 * step;
-        int v1 = v0 + TERRAIN_GRID * 2 * step;
-        for (y = 0; y <= TERRAIN_GRID * 2; y++) {
+        if(nt >= triangle_limit) break;
+        int u0 = terrain_floor(camera_u, step * 2) * step * 2 - grid * step;
+        int v0 = terrain_floor(camera_v, step * 2) * step * 2 - grid * step;
+        int u1 = u0 + grid * 2 * step;
+        int v1 = v0 + grid * 2 * step;
+        for (y = 0; y <= grid * 2; y++) {
             int v = v0 + y * step;
             if (platform_pump) platform_pump();
-            for (x = 0; x <= TERRAIN_GRID * 2; x++) {
+            for (x = 0; x <= grid * 2; x++) {
                 int u = u0 + x * step;
                 if (step != first && u > inner_u0 && u < inner_u1 &&
                     v > inner_v0 && v < inner_v1) continue;
                 rows[y % 2][x] = terrain_grid_vertex(p,face,u,v,step,camera_u,camera_v);
             }
-            if (y) for (x = 0; x < TERRAIN_GRID * 2; x++) {
+            if (y) for (x = 0; x < grid * 2; x++) {
                 int u = u0 + x * step;
                 if (step != first && u >= inner_u0 && u + step <= inner_u1 &&
                     v - step >= inner_v0 && v <= inner_v1) continue;
@@ -1292,11 +1308,11 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
             }
         }
         /* Recentering can leave a level two steps short on one side. */
-        if (flat && step * (TERRAIN_GRID - 2) >= span) break;
-        if (step * TERRAIN_GRID >= span) {
+        if (flat && step * (grid - 2) >= span) break;
+        if (step * grid >= span) {
             /* Only the distant outer perimeter descends into the fallback
                globe. Adjacent clipmap levels share their morphed edges. */
-            for (y = 0; y < 4; y++) for (x = 0; x < TERRAIN_GRID * 2; x++) {
+            for (y = 0; y < 4; y++) for (x = 0; x < grid * 2; x++) {
                 int u = y < 2 ? (y ? u1 : u0) : u0 + x * step;
                 int v = y >= 2 ? (y == 3 ? v1 : v0) : v0 + x * step;
                 int nu = y < 2 ? u : u + step, nv = y >= 2 ? v : v + step;
@@ -1314,7 +1330,9 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
 static void planet_mesh(int body) {
     const Planet *p = &game->system.planets[body];
     Vec cam_local = sub(scale(viewer(), 1, FP), p->center);
-    int slot, radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
+    int slot, radius = p->radius, x, y, lons = graphics_configured ? 8 << graphics.planets : frame->enhanced ? 32 : 16, lats = lons / 2;
+    static const int steps[] = {16384,4096,1024,256,128};
+    int fine_step=steps[graphics.terrain];
     int64_t distance = length(cam_local), altitude = distance - radius;
     /* Within a radius of the surface, globe facets span far more of the view
        than the coasts they summarise; a coarse clipmap carries the ground. */
@@ -1376,12 +1394,12 @@ static void planet_mesh(int body) {
         }
     }
     if (body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE)
-        terrain_clipmap(p, cam_local, TERRAIN_FINE_STEP,
+        terrain_clipmap(p, cam_local, fine_step,
             (int)isqrt64((uint64_t)(2LL * p->radius * (TERRAIN_DETAIL_ALTITUDE + TERRAIN_MAX_HEIGHT))) * 2);
     else if (patch) {
         /* Facets of about an eighth of the altitude beneath the ship, out
            to the horizon. */
-        int step = TERRAIN_FINE_STEP;
+        int step = fine_step;
         while (step < altitude / 8) step *= 2;
         terrain_clipmap(p, cam_local, step,
             (int)isqrt64((uint64_t)(2LL * radius * altitude + altitude * altitude)));
@@ -1394,7 +1412,8 @@ static void forests(void) {
     const Planet *p = &game->system.planets[game->body];
     Vec local = sub(scale(viewer(), 1, FP), p->center), up = unit(local, 16384);
     Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), front;
-    int x, y;
+    int x, y, span=graphics.trees == 1 ? 2 : graphics.trees == 3 ? 8 : 4;
+    if(!graphics.trees) return;
     if (altitude_at(game, viewer()) > 3000 || p->type != OCEAN)
         return;
     if (!length(right))
@@ -1418,8 +1437,8 @@ static void forests(void) {
             return;
         u = (axis == 0 ? fixed.y : fixed.x) * size / dominant;
         v = (axis == 2 ? fixed.y : fixed.z) * size / dominant;
-        for (y = -4; y <= 4; y++)
-            for (x = -4; x <= 4; x++) {
+        for (y = -span; y <= span; y++)
+            for (x = -span; x <= span; x++) {
                 int64_t a = (u / 400 + x) * 400, b = (v / 400 + y) * 400;
                 int64_t sign = (axis == 0   ? fixed.x
                                 : axis == 1 ? fixed.y
@@ -1443,13 +1462,13 @@ static void forests(void) {
     }
 }
 static void ring_mesh(const Planet *p) {
-    int i, band;
+    int i, band, segments=graphics.rings ? 4 << graphics.rings : 0;
     for (band = 0; band < 3; band++) {
         int64_t inner = (int64_t)p->radius * (130 + band * 25) / 100;
         int64_t outer = (int64_t)p->radius * (150 + band * 25) / 100;
-        for (i = 0; i < 32; i++) {
-            Vec a = vec(sini(i * 32), cosi(i * 32), 0);
-            Vec b = vec(sini((i + 1) * 32), cosi((i + 1) * 32), 0);
+        for (i = 0; i < segments; i++) {
+            Vec a = vec(sini(i * 1024 / segments), cosi(i * 1024 / segments), 0);
+            Vec b = vec(sini((i + 1) * 1024 / segments), cosi((i + 1) * 1024 / segments), 0);
             Vec c = add(p->center, scale(b, outer, 16384));
             Vec d = add(p->center, scale(a, outer, 16384));
             a = add(p->center, scale(a, inner, 16384));
@@ -1577,9 +1596,10 @@ static void cloud_puff(const CloudView *view, const CloudPuff *puff, int size, i
 static void cloud_deck(void) {
     const Planet *p = &game->system.planets[game->body];
     Vec local = sub(scale(camera_position, 1, FP), p->center), fixed;
-    int cell = cloud_spacing(p), rings = 5, face, ring, du, dv, k;
+    static const int ranges[]={1,2,3,5,8};
+    int cell = cloud_spacing(p), rings = ranges[graphics.cloud_range], face, ring, du, dv, k;
     int64_t alt = length(local) - p->radius, range = (int64_t)cell * rings;
-    if (!p->atmosphere || alt > (int64_t)cell * 10) return;
+    if (!graphics.clouds || !p->atmosphere || alt > (int64_t)cell * 10) return;
     fixed = body_rotate(p, local, 1);
     for (face = 0; face < 6; face++) {
         int u, v;
@@ -1593,7 +1613,7 @@ static void cloud_deck(void) {
                     int64_t dist;
                     int fade, lod, light, i;
                     if (du != -ring && du != ring && dv != -ring && dv != ring) continue;
-                    if (nt > TRI_MAX - scenery_reserve) return; /* leave room for nearby ports and ships */
+                    if (nt > triangle_limit - scenery_reserve) return; /* leave room for nearby ports and ships */
                     c = cloud_at(p, face, u + du, v + dv, game->tick);
                     if (!c) continue;
                     base = body_rotate(p, c->base, 0);
@@ -1603,6 +1623,7 @@ static void cloud_deck(void) {
                     if (fade <= 16) continue;
                     if (fade > 256) fade = 256;
                     lod = dist < cell * 2 ? 0 : dist < cell * 7 / 2 ? 1 : 2;
+                    if(graphics.clouds == 1) lod=2;
                     view.origin = add(p->center, base);
                     view.axis[0] = body_rotate(p, c->east, 0);
                     view.axis[1] = body_rotate(p, c->north, 0);
@@ -1622,7 +1643,7 @@ static void cloud_deck(void) {
                     view.haze = (int)(dist * 120 / (range + 1));
                     view.height = c->height * fade / 256;
                     if (view.height < 1) view.height = 1;
-                    for (k = 0; k < c->puffs && k < 6 - lod * 2; k++)
+                    for (k = 0; k < c->puffs && k < (graphics.clouds == 3 ? 8 : 6 - lod * 2); k++)
                         cloud_puff(&view, &c->puff[k], fade, lod,
                                    hash32((uint32_t)(u + du) * 0x45d9f3bU ^ (uint32_t)(v + dv) * 0x119de1f3U ^
                                           (uint32_t)face ^ (uint32_t)k << 24));
@@ -1889,7 +1910,7 @@ static void destruction_geometry(void) {
     for (i = 0; i < MAX_BLASTS; i++) {
         const Blast *b = &game->blasts[i];
         if (!b->active || b->age > 4 * HZ) continue;
-        for (j = 0; j < 24; j++) {
+        for (j = 0; j < (graphics.particles+1)*6; j++) {
             Vec p = scale(blast_fragment(b, j, b->age), 1, FP);
             Vec d = forward((int)(b->seed + j * 131U + b->age * 11U) & 1023, j * 37 % 320 - 160);
             Vec r = unit(cross(d, vec(0, 16384, 0)), 6 + j % 9);
@@ -1901,7 +1922,7 @@ static void destruction_geometry(void) {
 static void destruction_effects(void) {
     int i, j;
     sprite_count = 0;
-    for (i = 0; i < MAX_SMOKE; i++) {
+    for (i = 0; i < MAX_SMOKE; i += 4-graphics.particles) {
         const Smoke *s = &game->smoke[i];
         if (s->active) destruction_sprite(s->pos, s->body, s->size + s->age / 2,
                                          s->age, s->age < 5, s->seed);
@@ -1923,7 +1944,7 @@ static void destruction_effects(void) {
         if (!b->active) continue;
         center = destruction_position(game, b->pos, b->body);
         if (t < HZ * 5 / 2) {
-            for (j = 0; j < 14; j++) {
+            for (j = 0; j < (graphics.particles+1)*14/4; j++) {
                 uint32_t h = hash32(b->seed + (unsigned)j * 137U);
                 Vec dir = forward(h & 1023, (int)(h >> 16 & 511) - 256);
                 int delay = j % 4 * 3, age = t - delay, radius;
@@ -1954,7 +1975,7 @@ static void destruction_effects(void) {
                 previous = p;
             }
         }
-        if (t < 3 * HZ) for (j = 0; j < 24; j++) {
+        if (t < 3 * HZ) for (j = 0; j < (graphics.particles+1)*6; j++) {
             Vec head = blast_fragment(b, j, t), tail = blast_fragment(b, j, t > 3 ? t - 3 : 0);
             destruction_streak(tail, head, t < HZ / 2 ? 31 : t < HZ ? 12 : 14);
         }
@@ -2002,20 +2023,11 @@ static void world(void) {
                       unit(sub(game->system.star[0].center, p), 16384));
         }
     }
-    scenery_reserve = 1000;
+    scenery_reserve = triangle_capacity / 4;
     for (i = 0; i < port_count(game); i++)
         if (game->ports[i].surface &&
             length(sub(game->ports[i].pos, camera_position)) < 6000LL * FP)
-            scenery_reserve = 2200;
-    cache_globes();
-    stellar_discs();
-    for (b = 0; b < game->system.count; b++) {
-        planet_mesh(b);
-        if (game->system.planets[b].rings)
-            ring_mesh(&game->system.planets[b]);
-    }
-    forests();
-    cloud_deck();
+            scenery_reserve = triangle_capacity / 2;
     port_light_count = 0;
     for (i = 0; i < port_count(game); i++) port_geometry(i);
     if (!cinema) npc_hulls();
@@ -2042,8 +2054,19 @@ static void world(void) {
         box(scale(game->projectiles[i].pos, 1, FP), vec(0, 16384, 0), 4, 8, 11);
     if (!cinema && game->camera_mode == 2 && !game->dead) commander_hull();
     destruction_geometry();
+    /* Fill the remaining geometry capacity with scenery. Ports, contacts,
+       weapons and wrecks must survive an aggressively reduced triangle cap. */
+    cache_globes();
+    stellar_discs();
+    for (b = 0; b < game->system.count; b++) {
+        planet_mesh(b);
+        if (game->system.planets[b].rings)
+            ring_mesh(&game->system.planets[b]);
+    }
+    forests();
+    cloud_deck();
     draw_triangles();
-    port_draw_lights();
+    if(graphics.lights) port_draw_lights();
 }
 static void panel(const char *title) {
     rect(4, 4, frame->w - 8, view_h - 19, 1);
@@ -2732,6 +2755,8 @@ static void gui(void) {
     draw_scale=1;
 }
 void render_shutdown(void) {
+    free(triangles); triangles=NULL; triangle_capacity=triangle_limit=0;
+    free(scaled_pixels); scaled_pixels=NULL; scaled_capacity=0;
     free(depth_buffer);
     depth_buffer = 0;
     depth_capacity = 0;
@@ -2739,20 +2764,8 @@ void render_shutdown(void) {
     memset(globe_valid,0,sizeof(globe_valid));
     memset(surface_cache, 0, sizeof(surface_cache));
 }
-int render_init(Frame *f) {
+void render_palette(Frame *f) {
     int i;
-    size_t count;
-    uint32_t *buffer;
-    if (f->w <= 0 || f->h <= 56)
-        return 0;
-    count = (size_t)f->w * f->h;
-    buffer = realloc(depth_buffer, count * sizeof(*buffer));
-    if (!buffer)
-        return 0;
-    depth_buffer = buffer;
-    depth_capacity = count;
-    if (!tables_ready)
-        plane_tables();
     static const uint32_t base[32] = {
         0x040711, 0x0b1729, 0x12273e, 0x20394b, 0x294758, 0x335b71, 0x4b7890, 0x81a7b1,
         0x254b40, 0x35684d, 0x658958, 0x70cd93, 0xf0bb65, 0x65d3d5, 0xd77d65, 0xe9e8d5,
@@ -2792,6 +2805,30 @@ int render_init(Frame *f) {
             (uint32_t)(key[k][2] + (key[k + 1][2] - key[k][2]) * t / span) << 8 |
             (uint32_t)(key[k][3] + (key[k + 1][3] - key[k][3]) * t / span);
     }
+}
+int render_init(Frame *f) {
+    size_t count;
+    uint32_t *buffer;
+    if (f->w <= 0 || f->h <= 56)
+        return 0;
+    count = (size_t)f->w * f->h;
+    buffer = realloc(depth_buffer, count * sizeof(*buffer));
+    if (!buffer)
+        return 0;
+    depth_buffer = buffer;
+    depth_capacity = count;
+    {
+        Tri *list=realloc(triangles,(size_t)(512 << graphics.triangles)*sizeof(Tri));
+        uint8_t *pixels;
+        if(!list) return 0;
+        triangles=list; triangle_limit=triangle_capacity=512 << graphics.triangles;
+        pixels=realloc(scaled_pixels,count);
+        if(!pixels) return 0;
+        scaled_pixels=pixels; scaled_capacity=count;
+    }
+    if (!tables_ready)
+        plane_tables();
+    render_palette(f);
     fog_tables(f);
     return 1;
 }
@@ -3041,7 +3078,7 @@ static void sky(void) {
     sky_state.glow = twilight(&game->system, p, local, &sky_state.sun);
     sky_state.band = sky_tint[tint].band;
     sky_state.daylight = sky_daylight(p, local);
-    if (bw < 4 || bh > 16 || columns > SKY_COLUMNS || rows > SKY_ROWS) sky_state.glow = 0;
+    if (!graphics.sky || bw < 4 || bh > 16 || columns > SKY_COLUMNS || rows > SKY_ROWS) sky_state.glow = 0;
     if (!sky_state.glow) {
         for (y = 0; y < view_h; y++) memset(frame->pixels + y * w, sky_row(tint, y), (size_t)w);
         return;
@@ -3100,7 +3137,7 @@ static int star_visible(Vec d, int y, int bright) {
     glare += sky_glow(elevation, (int)(dot(d, sky_state.sun) / 16384)) / 16;
     return glare < (bright ? 6 : 2);
 }
-void render_game(const Game *g, Frame *f) {
+static void render_game_full(const Game *g, Frame *f) {
     int i;
     frame = f;
     game = g;
@@ -3147,7 +3184,7 @@ void render_game(const Game *g, Frame *f) {
                               scale(up, 220 * FP, 16384));
         aim_angles(sub(g->pos, camera_position), &camera_yaw, &camera_pitch);
     }
-    view_h = cinema ? f->h : ui_view_height(g, f);
+    view_h = cinema ? f->h : scene_only ? scaled_view_h : ui_view_height(g, f);
     nt = 0;
     {
         size_t count = (size_t)f->w * view_h;
@@ -3158,13 +3195,13 @@ void render_game(const Game *g, Frame *f) {
     }
     if (g->hyperspace > HYPER_CHARGE && g->hyperspace <= HYPER_CHARGE + HYPER_TUNNEL) {
         hyperspace_tunnel(g, g->hyperspace - HYPER_CHARGE - 1);
-        if (!cinema) gui();
+        if (!cinema && !scene_only) gui();
         return;
     }
     sky();
     {
         int stretch = hyper_stretch(g);
-        for (i = 0; i < 120; i++) {
+        for (i = 0; i < (graphics.stars == 4 ? 480 : graphics.stars == 3 ? 120 : graphics.stars == 2 ? 60 : graphics.stars ? 30 : 0); i++) {
             uint32_t h = hash32((unsigned)i + g->seed);
             Vec d = forward(h % 1024, (int)((h >> 16) % 512) - 256);
             Vec v = camera(add(scale(viewer(), 1, FP), scale(d, 1000000, 16384)));
@@ -3183,9 +3220,9 @@ void render_game(const Game *g, Frame *f) {
     }
     if (g->page == FLIGHT) {
         world();
-        weather_overlay();
+        if(graphics.weather) weather_overlay();
         destruction_effects();
-        if (!g->dead && !cinema) system_body_labels();
+        if (graphics.labels && !g->dead && !cinema) system_body_labels();
     }
     if (g->page == FLIGHT && !g->dead && !cinema) {
         Vec p = camera(scale(navigation_position(g), 1, FP));
@@ -3224,7 +3261,39 @@ void render_game(const Game *g, Frame *f) {
         hyperspace_charge(g->hyperspace - 1);
     else if (g->hyperspace > HYPER_CHARGE + HYPER_TUNNEL)
         hyperspace_exit(g->hyperspace - HYPER_CHARGE - HYPER_TUNNEL - 1);
-    if (!cinema) gui();
+    if (!cinema && !scene_only) gui();
+}
+/* Scale only the 3D view; the console and menus retain output resolution. */
+static void enlarge(const Frame *source, Frame *destination, int height) {
+    int x,y,k,factor=graphics.scale+1;
+    for(y=0;y<height;y+=factor) {
+        uint8_t *out=destination->pixels+(size_t)y*destination->w;
+        const uint8_t *in=source->pixels+(size_t)(y/factor)*source->w;
+        for(x=0;x<destination->w;x+=factor) {
+            uint8_t c=*in++;
+            for(k=0;k<factor && x+k<destination->w;k++) out[x+k]=c;
+        }
+        for(k=1;k<factor && y+k<height;k++) memcpy(out+(size_t)k*destination->w,out,(size_t)destination->w);
+        if(platform_pump) platform_pump();
+    }
+}
+void render_graphics(const Graphics *g) {
+    graphics=*g; graphics_configured=1;
+    memset(globe_valid,0,sizeof(globe_valid));
+    memset(surface_cache,0,sizeof(surface_cache)); lod_altitude=-1;
+}
+void render_game(const Game *g, Frame *f) {
+    int factor=graphics.scale+1, height=ui_view_height(g,f);
+    if(factor>1 && g->page==FLIGHT && !cinema && scaled_capacity>=(size_t)f->w*f->h) {
+        Frame low=*f;
+        low.w=(f->w+factor-1)/factor; low.h=(height+factor-1)/factor;
+        low.pixels=scaled_pixels;
+        scene_only=1; scaled_view_h=low.h;
+        render_game_full(g,&low);
+        scene_only=0;
+        enlarge(&low,f,height);
+        frame=f; game=g; view_h=height; draw_scale=1; gui();
+    } else render_game_full(g,f);
 }
 /* Planes are contiguous and MSB-first, independent of host byte order. */
 void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
@@ -3276,3 +3345,57 @@ void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
 }
 
 #include "render_intro.inc"
+
+/* Launch UI is deliberately a flat 320x200 page, with no animated backdrop. */
+void render_launcher(const Launcher *m, Frame *f) {
+    int i, rows=launcher_rows(m); char name[64],value[48],buf[96];
+    frame=f; draw_scale=ui_scale(f); view_h=f->h;
+    memset(f->pixels,0,(size_t)f->w*f->h);
+    text(8,7,15,"ASTRALBOUND");
+    text(8,21,13,m->page==1 ? "CUSTOM GRAPHICS" : m->page==2 ? "PERFORMANCE RESULTS" : "LAUNCH OPTIONS");
+    if(m->page==1) snprintf(buf,sizeof(buf),"PAGE %d OF 3 - ALL CHANGES ARE CUSTOM",m->group+1);
+    else if(m->page==2) snprintf(buf,sizeof(buf),"%.14s %s %dX%d %s",video_names[m->latest.settings.mode],quality_names[m->latest.settings.preset],m->latest.width,m->latest.height,m->latest.complete ? "DONE" : "PARTIAL");
+    else snprintf(buf,sizeof(buf),"CONFIGURE - TEST - START");
+    text(8,34,7,buf);
+    for(i=0;i<rows;i++) {
+        launcher_row(m,i,name,sizeof(name),value,sizeof(value));
+        if(i==m->selected) rect(6,47+i*11,308,11,3);
+        text(9,49+i*11,i==m->selected ? 15 : 7,name);
+        if(value[0]) text(310-(int)strlen(value)*6,49+i*11,13,value);
+    }
+    if(m->page==1 && m->selected<6) {
+        const char *hint=graphics_options[m->group*6+m->selected].help;
+        /* Wrap once at a word boundary for the compact native menu. */
+        int n=(int)strlen(hint),cut=n>49 ? 49 : n;
+        while(cut>0 && cut<n && hint[cut]!=' ') cut--;
+        snprintf(buf,sizeof(buf),"%.*s",cut,hint); text(8,158,12,buf);
+        if(cut<n) text(8,168,12,hint+cut+1);
+    }
+    if(m->page==2) {
+        text(8,86,13,"SCENE                FPS    PREV    MAX MS");
+        for(i=m->group*6;i<PERFORMANCE_SCENES && i<m->group*6+6;i++) {
+            const PerformanceResult *r=&m->latest.result[i],*old=&m->previous.result[i];
+            unsigned fps=r->total_us ? (unsigned)((uint64_t)r->frames*10000000/r->total_us) : 0;
+            unsigned prev=old->total_us ? (unsigned)((uint64_t)old->frames*10000000/old->total_us) : 0;
+            if(!r->frames) snprintf(buf,sizeof(buf),"%-20.20s --",performance_names[i]);
+            else snprintf(buf,sizeof(buf),"%-20.20s %3u.%u %3u.%u %5lu",performance_names[i],fps/10,fps%10,prev/10,prev%10,(unsigned long)(r->slowest_us/1000));
+            text(8,99+(i%6)*11,7,buf);
+        }
+        text(8,170,12,"FPS INCLUDES OUTPUT. PREV IS LAST RUN.");
+        if(m->previous.width) { snprintf(buf,sizeof(buf),"PREV %.14s %s %dX%d",video_names[m->previous.settings.mode],quality_names[m->previous.settings.preset],m->previous.width,m->previous.height); text(8,180,7,buf); }
+    }
+    if(m->message[0]) { rect(6,175,308,10,0); text(8,176,12,m->message); }
+    text(8,188,7,m->page ? "ARROWS CHANGE - RETURN SELECT - ESC BACK" : "ARROWS CHANGE - RETURN SELECT - ESC QUIT");
+    draw_scale=1;
+}
+void render_performance(const Performance *p, Frame *f) {
+    char buf[96]; const PerformanceResult *r=&p->report.result[p->scene];
+    unsigned fps=r->total_us ? (unsigned)((uint64_t)r->frames*10000000/r->total_us) : 0;
+    frame=f; draw_scale=ui_scale(f);
+    rect(0,0,f->w/draw_scale,23,0);
+    snprintf(buf,sizeof(buf),"TEST %d/%d %.27s",p->scene+1,PERFORMANCE_SCENES,performance_names[p->scene]); text(4,3,13,buf);
+    snprintf(buf,sizeof(buf),"%u.%u FPS  R %lu MS  OUT %lu MS  ESC STOP",fps/10,fps%10,
+             (unsigned long)(r->frames ? r->render_us/r->frames/1000 : 0),
+             (unsigned long)(r->frames ? r->output_us/r->frames/1000 : 0)); text(4,13,15,buf);
+    draw_scale=1;
+}

@@ -186,7 +186,7 @@ static void intro_logo(const Intro *in) {
     }
     draw_scale = 1;
 }
-void render_intro(const Intro *in, const Game *g, Frame *f) {
+static void render_intro_full(const Intro *in, const Game *g, Frame *f) {
     Frame view = *f;
     int bar = 0, i, s = ui_scale(f);
     frame = f; game = g; view_h = f->h;
@@ -224,4 +224,16 @@ void render_intro(const Intro *in, const Game *g, Frame *f) {
     intro_dither(in->flash, 31, 0, f->h);
     intro_dither(in->fade, 0, 0, f->h);
     intro_caption(in, bar, s);
+}
+
+void render_intro(const Intro *in, const Game *g, Frame *f) {
+    int factor=graphics.scale+1;
+    if(factor>1 && scaled_capacity>=(size_t)f->w*f->h) {
+        Frame low=*f;
+        low.w=(f->w+factor-1)/factor; low.h=(f->h+factor-1)/factor;
+        low.pixels=scaled_pixels;
+        render_intro_full(in,g,&low);
+        enlarge(&low,f,f->h);
+        frame=f; draw_scale=1;
+    } else render_intro_full(in,g,f);
 }

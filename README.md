@@ -44,7 +44,7 @@ Astralbound.020 --aga --lowres
   list. Requires Kickstart 3.0+ in this prototype, including on a 68000 machine.
 - **AGA:** PAL 320 x 256 or NTSC 320 x 200, 256 colours from the 24-bit palette, eight bitplanes,
   64-bit display fetches and double buffering. Use the 68020 executable.
-- **RTG:** 640 x 480, indexed 8-bit or `--rtg16` high-colour output, driver-managed double buffering. Requires
+- **RTG:** 320 x 240 through 1024 x 768, indexed 8-bit or `--rtg16` high-colour output, driver-managed double buffering. Requires
   CyberGraphX V41+ or Picasso96's compatible CGX API. RTG deliberately keeps the
   OS running because portable graphics-card access depends on its driver.
 
@@ -53,13 +53,72 @@ and interrupts, and poll the hardware keyboard. Saving and loading temporarily
 restore the OS. Escape restores the display, DMA, interrupts and task scheduling.
 The prototype needs expansion RAM: its C renderer and 64-bit coordinate maths
 are not yet tuned to stock A500 performance. The depth buffer uses an additional
-250 KiB at 320 x 256, 180 KiB at 320 x 200, or 1060 KiB in RTG, allocated
+320 KiB at 320 x 256, 250 KiB at 320 x 200, or 1200 KiB at 640 x 480, allocated
 before native takeover and freed on exit. Native output detects the OS video
 standard and keeps it: PAL timing is 50 Hz, NTSC is 60 Hz, with the same fixed
 physics ticks. `--lowres` selects a centred 320 x 200 display on PAL, reducing
 framebuffer/bitplane work by 22% and flight viewport pixels by 28%. It is native
 only; NTSC already uses 200 lines. Compact menus use the whole screen to keep
 all rows visible. Real-machine speed gains remain unmeasured.
+
+## Startup and graphics settings
+
+Every interactive launch opens a flat, OS-managed setup menu **before the intro**.
+Choose ECS, AGA, RTG 8-bit or RTG 16-bit; unavailable Amiga backends are skipped.
+Native output offers 320 x 200 or native PAL/NTSC height. RTG offers 320 x 240,
+640 x 480, 800 x 600 and 1024 x 768, subject to graphics-card modes and memory.
+Arrow keys move/change, Return selects, Escape backs out, and the mouse or a
+joystick/CD32 pad can operate the menu. Setup redraws only when needed on Amiga.
+If a selected display cannot open or allocate memory, setup lets you lower it.
+
+**Low** is the first-launch Amiga default: 320 x 200, a 2x pixel 3D view, coarse
+flat-shaded terrain, simple ports/hulls, reduced effects and no volumetric clouds,
+forests or twilight glow. **Medium** restores material sampling and some scenery.
+**High** uses full-resolution, fine textured terrain and the full visual effects.
+**Ultra** increases terrain tessellation, cloud/forest/scenery distances, stars,
+rings and geometry capacity for fast accelerators and emulators. Presets affect
+renderer work; selecting AGA or RTG by itself does not make the CPU renderer faster.
+
+Select **Custom**, then **Custom Options**, for three pages of 18 controls: 3D
+pixel size (1x to 4x), terrain mesh, surface shading, planet facets, cloud mesh and
+distance, forests, port detail and distance, smoke/debris, stars, rings, twilight,
+weather/fog, port lights, body labels, triangle budget (512 to 16384), and ship
+detail. Custom begins with the current preset's values. The console and menus stay
+at output resolution. Minimum settings deliberately sacrifice appearance; visual
+terrain detail never changes collision, autopilot, weather physics or save data.
+Native C2P still converts the selected output size, even with a smaller 3D view.
+
+**Run Performance Test** runs all 14 scenes or the scene chosen in **Test Scene**:
+orbit/rings, low/desert/ice terrain, a city, an orbital station, rain/forests,
+inside-cloud fog, snow, ships/blasts/debris, hyperspace, system and galaxy maps,
+and service portraits. The actual selected renderer, output conversion and display
+synchronization are used. Live FPS includes the whole displayed frame, with render
+and output milliseconds shown separately. One warmup frame per scene is excluded;
+each sample targets at least two seconds and four frames, capped at 180 frames.
+Native render/output splits have display-tick precision (20 ms PAL, about 16.7 ms
+NTSC); zero can mean below one timer tick. Total displayed FPS uses the whole sample.
+Escape, click or fire stops the test; completed and partial results return to setup.
+Results retain the previous run's FPS for comparison in this session. Fixtures and
+scene preparation are excluded, and tests never save a commander. These figures
+belong to the machine/emulator and settings used; they are not a hardware rating.
+`make benchmark` separately compares preset **host CPU render times**, excluding
+C2P, synchronization, sound and physics, and must not be read as Amiga FPS.
+
+Video mode, display size, preset, every Custom control, intro and sound are saved
+on Save Settings, Start, Test or Quit. The versioned `astralbound.cfg` lives beside
+the Amiga executable (`PROGDIR:`), or in the host working directory. It is separate
+from `astralbound.sav`. Invalid values are bounded and unsupported preference
+versions use defaults. A failed replacement preserves the previous file when
+possible; a read-only disk cannot persist changes. Deleting the config restores
+first-launch defaults. The installer preserves both preferences and commanders.
+
+`--nomenu` (Workbench `NOMENU`) bypasses setup using saved settings. Mode flags,
+`--lowres`, `--nosound` and `--nointro` prefill setup; `--preset low|medium|high|ultra|custom`
+selects a preset. `--benchmark` runs the suite directly and prints its results. `--profile` on Amiga retains
+its 120-frame flight timing mode and bypasses setup. Headless host frame previews
+bypass setup and use deterministic defaults unless flags select another preset;
+`--render-menu FILE.ppm [--custom]` previews the setup pages. Host `--config PATH`
+uses a separate preferences file for interactive testing.
 
 ## Host development preview
 
@@ -74,7 +133,7 @@ make navigation-test  # longer, full interplanetary transfer
 make preview
 ```
 
-Every launch opens with a 3 minute 18 second title sequence: a Kestrel courier lifts
+After Start Game, the optional 3 minute 18 second title sequence plays: a Kestrel courier lifts
 off from Haven at dawn, meets a Wayfarer escort in daylight rain under the clouds and
 climbs through them wing to wing, is ambushed by raiders in orbit, jumps with its escort
 to a ringed gas giant and docks under police protection. It is staged with the real
@@ -459,12 +518,12 @@ Run `./package.sh` for ZIP/LHA drawer packages and `dist/Astralbound-0.1-boot.ad
 ADF generation needs amitools' `xdftool` (`XDFTOOL=/path/to/xdftool`) and vasm;
 `build/release-venv/bin/xdftool` is also recognized. On Workbench, open Install
 using the system Installer (V42.12+), choose a destination, then use a CPU icon
-or Play-AGA/Play-RTG/Play-RTG16. The installer preserves `astralbound.sav`.
+or Play-AGA/Play-RTG/Play-RTG16. The installer preserves `astralbound.sav` and `astralbound.cfg`.
 Workbench icons request a 256 KiB stack. CLI launches allocate the required stack
 automatically using Exec StackSwap and restore the original shell stack before
 exit; no `Stack` command is needed. Native tests allocate their declared stack
-in the same way. CPU icon tooltypes accept `MODE=ECS`, `AGA`, `RTG` or `RTG16`, plus `LOWRES`,
-`NOSOUND`, `ANALOG` and `NOINTRO`. The original icons can be regenerated by running
+in the same way. CPU icons use saved preferences by default; optional tooltypes accept `MODE=ECS`, `AGA`, `RTG` or `RTG16`, plus `LOWRES`,
+`NOSOUND`, `ANALOG`, `NOINTRO` and `NOMENU`. The original icons can be regenerated by running
 `Astralbound-Icons` beside the executables and copying its `.info` files into `release/`.
 
 The OFS ADF boots directly into Astralbound.000 in ECS 320 x 200 and can store a commander

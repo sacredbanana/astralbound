@@ -380,6 +380,7 @@ int drive_available(const Game *g);
 void refresh_board(Game *g);
 int save_game(const Game *g, const char *path);
 int load_game(Game *g, const char *path);
+void render_palette(Frame *f);
 int render_init(Frame *f);
 void render_shutdown(void);
 void render_game(const Game *g, Frame *f);

@@ -6,6 +6,7 @@
 #include "native_video.h"
 #include "controller.h"
 #include "intro.h"
+#include "launcher.h"
 #include <proto/lowlevel.h>
 #include <libraries/lowlevel.h>
 #ifndef JP_TYPE_ANALOGUE
@@ -49,6 +50,10 @@ static ULONG pad_state;
 static uint64_t analog_last;
 static int profiling, show_intro = 1;
 static Intro intro;
+static Settings preferences;
+static Launcher launch_menu;
+static Performance performance;
+static int testing, testing_armed, no_menu;
 static BPTR wb_old_dir;
 static int wb_changed;
 static struct MsgPort *timer_port;
@@ -338,13 +343,13 @@ static int open_rtg(void) {
         return 0;
     }
     rtg_depth = highcolour ? 16 : 8;
-    id = BestCModeIDTags(CYBRBIDTG_NominalWidth, 640, CYBRBIDTG_NominalHeight, 480, CYBRBIDTG_Depth,
+    id = BestCModeIDTags(CYBRBIDTG_NominalWidth, f.w, CYBRBIDTG_NominalHeight, f.h, CYBRBIDTG_Depth,
                          rtg_depth, TAG_DONE);
     if (id == (ULONG)INVALID_ID || !IsCyberModeID(id)) {
         puts("No compatible RTG mode.");
         return 0;
     }
-    screen = OpenScreenTags(0, SA_DisplayID, id, SA_Width, 640, SA_Height, 480, SA_Depth, rtg_depth,
+    screen = OpenScreenTags(0, SA_DisplayID, id, SA_Width, f.w, SA_Height, f.h, SA_Depth, rtg_depth,
                             SA_Type, CUSTOMSCREEN, SA_Quiet, TRUE, SA_ShowTitle, FALSE, TAG_DONE);
     if (!screen)
         return 0;
@@ -432,12 +437,25 @@ static void close_all(void) {
         CloseLibrary((struct Library *)IntuitionBase);
     if (GfxBase)
         CloseLibrary((struct Library *)GfxBase);
+    GfxBase=NULL; IntuitionBase=NULL; CyberGfxBase=NULL; TimerBase=NULL;
+    LowLevelBase=NULL; IconBase=NULL; PotgoBase=NULL; pot_bits=0; wb_changed=0;
+    timer_port=NULL; timer_request=NULL; screen=NULL; window=NULL; safe_port=NULL;
+    buffers[0]=buffers[1]=NULL; planes[0]=planes[1]=NULL; copper[0]=copper[1]=NULL;
+    blank_pointer=NULL; mapped=NULL; f.pixels=NULL; displayed=0; input_active=1;
+    memset(held,0,sizeof(held)); memset(pressed,0,sizeof(pressed));
+    mouse_right=mouse_left=0; pad.held=0;
+
 }
+#include "amiga_launcher.inc"
+
 int main(int argc, char **argv) {
     int i, j, back = 1, quit = 0, lowres = 0;
     uint64_t accumulator = 0, last_time;
     uint64_t render_ticks = 0, output_ticks = 0, tick_start = 0;
     unsigned frames = 0;
+    const char *settings_path="PROGDIR:astralbound.cfg";
+    settings_defaults(&preferences,1);
+    settings_load(&preferences,settings_path);
     if (argc == 0) {
         struct WBStartup *wb = (struct WBStartup *)argv;
         struct DiskObject *icon;
@@ -449,34 +467,49 @@ int main(int argc, char **argv) {
             aga = mode && !strcmp((char *)mode, "AGA");
             rtg = mode && (!strcmp((char *)mode, "RTG") || !strcmp((char *)mode, "RTG16"));
             highcolour = mode && !strcmp((char *)mode, "RTG16");
+            if(mode) preferences.mode=rtg ? (highcolour ? VIDEO_RTG16 : VIDEO_RTG) : aga ? VIDEO_AGA : VIDEO_ECS;
             lowres = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"LOWRES") != NULL;
             audio_muted = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"NOSOUND") != NULL;
             analog = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"ANALOG") != NULL;
             show_intro = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"NOINTRO") == NULL;
+            if(lowres) preferences.compact=1;
+            if(audio_muted) preferences.sound=0;
+            if(!show_intro) preferences.intro=0;
+            no_menu=FindToolType((CONST_STRPTR *)icon->do_ToolTypes,(CONST_STRPTR)"NOMENU")!=NULL;
             FreeDiskObject(icon);
         }
     }
+    aga=preferences.mode==VIDEO_AGA; rtg=preferences.mode>=VIDEO_RTG; highcolour=preferences.mode==VIDEO_RTG16;
+    lowres=preferences.compact; audio_muted=!preferences.sound; show_intro=preferences.intro;
     for (i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--nosound")) audio_muted = 1;
+        if(!strcmp(argv[i],"--nomenu")) no_menu=1;
+        else if(!strcmp(argv[i],"--benchmark")) { testing=1; no_menu=1; }
+        else if(!strcmp(argv[i],"--preset") && i+1<argc) {
+            static const char *names[]={"low","medium","high","ultra","custom"}; int k; i++;
+            for(k=0;k<5;k++) if(!strcmp(argv[i],names[k])) settings_preset(&preferences,k);
+        }
+        else if (!strcmp(argv[i], "--nosound")) audio_muted = 1;
         else if (!strcmp(argv[i], "--analog")) analog = 1;
         else if (!strcmp(argv[i], "--profile")) profiling = 1;
         else if (!strcmp(argv[i], "--nointro")) show_intro = 0;
-        else if (!strcmp(argv[i], "--rtg16")) rtg = highcolour = 1;
-        else if (!strcmp(argv[i], "--aga"))
-            aga = 1;
-        else if (!strcmp(argv[i], "--rtg"))
-            rtg = 1;
+        else if (!strcmp(argv[i], "--rtg16")) { rtg=highcolour=1; aga=0; }
+        else if (!strcmp(argv[i], "--aga")) { aga=1; rtg=highcolour=0; }
+        else if (!strcmp(argv[i], "--rtg")) { rtg=1; highcolour=aga=0; }
         else if (!strcmp(argv[i], "--lowres"))
             lowres = 1;
-        else if (strcmp(argv[i], "--ecs")) {
-            puts("Astralbound --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--nointro] [--profile]");
+        else if(!strcmp(argv[i],"--ecs")) aga=rtg=highcolour=0;
+        else {
+            puts("Astralbound --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--nointro] [--profile] [--nomenu] [--preset low|medium|high|ultra|custom] [--benchmark]");
             return 1;
         }
     }
-    if (rtg && lowres) {
-        puts("--lowres is for native ECS/AGA output.");
-        return 1;
-    }
+    preferences.mode=rtg ? (highcolour ? VIDEO_RTG16 : VIDEO_RTG) : aga ? VIDEO_AGA : VIDEO_ECS;
+    preferences.compact=lowres; preferences.sound=!audio_muted; preferences.intro=show_intro;
+    launcher_init(&launch_menu,&preferences,1,1);
+launch_again:
+    accumulator=0; render_ticks=output_ticks=tick_start=0; frames=0; back=1; quit=0;
+    memset(&intro,0,sizeof(intro)); testing_armed=0;
+
     GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR) "graphics.library", 39);
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR) "intuition.library", 39);
     if (!GfxBase || !IntuitionBase) {
@@ -484,6 +517,24 @@ int main(int argc, char **argv) {
         close_all();
         return 1;
     }
+    if(!no_menu && !profiling) {
+        struct Library *cgx=OpenLibrary((CONST_STRPTR)"cybergraphics.library",41);
+        int action;
+        launch_menu.available_aga=(GfxBase->ChipRevBits0&GFXF_AA_LISA)!=0;
+        launch_menu.available_rtg=cgx!=NULL;
+        if(cgx) CloseLibrary(cgx);
+        if(launch_menu.settings.mode==VIDEO_AGA && !launch_menu.available_aga) launch_menu.settings.mode=VIDEO_ECS;
+        if(launch_menu.settings.mode>=VIDEO_RTG && !launch_menu.available_rtg) launch_menu.settings.mode=VIDEO_ECS;
+        action=amiga_launcher(&launch_menu,settings_path);
+        if(!settings_save(&launch_menu.settings,settings_path)) puts("Graphics settings could not be saved.");
+        if(action==LAUNCH_QUIT) { close_all(); return 0; }
+        testing=action==LAUNCH_TEST;
+        preferences=launch_menu.settings;
+    }
+    aga=preferences.mode==VIDEO_AGA; rtg=preferences.mode>=VIDEO_RTG;
+    highcolour=preferences.mode==VIDEO_RTG16; lowres=preferences.compact;
+    audio_muted=!preferences.sound; show_intro=preferences.intro;
+    render_graphics(&preferences.gfx);
     if (!rtg && aga && !(GfxBase->ChipRevBits0 & GFXF_AA_LISA)) {
         puts("--aga requires AGA hardware.");
         close_all();
@@ -494,29 +545,27 @@ int main(int argc, char **argv) {
     video = native_video((GfxBase->DisplayFlags & PAL) != 0, lowres);
     if (!rtg)
         clock_rate = video.rate;
-    f.w = rtg ? 640 : 320;
-    f.h = rtg ? 480 : video.height;
+    settings_dimensions(&preferences,(GfxBase->DisplayFlags&PAL)!=0,&f.w,&f.h);
     f.enhanced = aga || rtg;
     f.pixels = calloc((size_t)f.w * f.h, 1);
     if (!rtg && !aga)
         mapped = malloc((size_t)f.w * f.h);
     if (!f.pixels || (!rtg && !aga && !mapped)) {
-        close_all();
-        return 1;
+        goto session_failed;
     }
     if (!render_init(&f)) {
-        close_all();
-        return 1;
+        goto session_failed;
     }
     game_init(&g, 0x53504143);
     /* The title sequence chooses its light with DOS still running, so the
        search cannot stall a native display. Profiling measures flight. */
-    if (show_intro && !profiling) intro_start(&intro, &g, 0x53504143);
+    if(testing) { performance_begin(&performance,&g,&preferences,launch_menu.test_scene); performance.report.width=f.w; performance.report.height=f.h; }
+    else if (show_intro && !profiling) intro_start(&intro, &g, 0x53504143);
     if (analog) {
         PotgoBase = OpenResource((CONST_STRPTR)POTGONAME);
         if (PotgoBase) pot_bits = AllocPotBits(0x5001);
         if ((pot_bits & 0x5001) != 0x5001) {
-            puts("Analogue port unavailable: cannot own POT counters."); close_all(); return 1;
+            puts("Analogue port unavailable: cannot own POT counters."); goto session_failed;
         }
         WritePotgo(1, 0xf001);
         WaitTOF(); WaitTOF();
@@ -539,8 +588,7 @@ int main(int argc, char **argv) {
         if (!timer_request || OpenDevice((CONST_STRPTR)TIMERNAME, UNIT_ECLOCK,
                                          (struct IORequest *)timer_request, 0)) {
             puts("Unable to open timer.device.");
-            close_all();
-            return 1;
+            goto session_failed;
         }
         TimerBase = timer_request->tr_node.io_Device;
         {
@@ -551,16 +599,14 @@ int main(int argc, char **argv) {
     if (rtg) {
         if (!open_rtg()) {
             puts("Unable to open RTG screen.");
-            close_all();
-            return 1;
+            goto session_failed;
         }
     } else {
         for (i = 0; i < 2; i++) {
             planes[i] = AllocMem(40 * f.h * depth, MEMF_CHIP);
             copper[i] = AllocMem(4096, MEMF_CHIP | MEMF_CLEAR);
             if (!planes[i] || !copper[i]) {
-                close_all();
-                return 1;
+                goto session_failed;
             }
             build_copper(i);
         }
@@ -598,6 +644,7 @@ int main(int argc, char **argv) {
     ui_move(&g, &f, f.w / 2, f.h / 2);
     last_time = clock_now();
     while (!quit) {
+        uint64_t test_start=clock_now(),render_start=0,output_start=0;
         Controls c = {0};
         int request = 0;
         if (rtg) {
@@ -614,7 +661,7 @@ int main(int argc, char **argv) {
                     if (code == SELECTDOWN) mouse_left = 1;
                     if (code == SELECTUP) mouse_left = 0;
                     if (!mouse_right) mouse_stick(&mouse, 0, 0, 0);
-                    if (!intro.running) { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                    if (!testing && !intro.running) { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
                       if (u == UI_SAVE) request = 1;
                       if (u == UI_LOAD) request = 2;
                       if (u == UI_EXIT) quit = 1;
@@ -622,7 +669,7 @@ int main(int argc, char **argv) {
                 } else if (m->Class == IDCMP_MOUSEMOVE) {
                     if (!mouse_right) {
                         ui_move(&g, &f, g.ui_x + m->MouseX, g.ui_y + m->MouseY);
-                        if (!intro.running) ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                        if (!testing && !intro.running) ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
                     }
                     mouse_stick(&mouse, m->MouseX, m->MouseY,
                                 mouse_right && g.page == FLIGHT && !g.paused);
@@ -637,7 +684,7 @@ int main(int argc, char **argv) {
             }
         } else
             keyboard();
-        if (input_active && !intro.running) {
+        if (!testing && input_active && !intro.running) {
             int ui_request = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
             if (ui_request == UI_SAVE) request = 1;
             if (ui_request == UI_LOAD) request = 2;
@@ -645,6 +692,13 @@ int main(int argc, char **argv) {
             if (ui_request == UI_SAVE_EXIT) request = 3;
         }
         controller_poll();
+        if(testing) {
+            unsigned buttons=mouse_left || !(*(volatile UBYTE *)0xbfe001&0x80);
+            if(LowLevelBase) buttons|=controller_buttons(pad_state);
+            if(!buttons) testing_armed=1;
+            if(pressed[0x45] || (testing_armed && buttons)) quit=1;
+            memset(pressed,0,sizeof(pressed));
+        }
         if (intro.running) {
             /* Any key, click, fire button or pad button skips the sequence. */
             int skip = mouse_left || !(*(volatile UBYTE *)0xbfe001 & 0x80);
@@ -723,7 +777,7 @@ int main(int argc, char **argv) {
             if (g.ui_quit) mouse_right = 0;
             mouse_stick(&mouse, 0, 0, 0);
         }
-        if (g.page == FLIGHT && input_active && !g.ui_quit) {
+        if (!testing && g.page == FLIGHT && input_active && !g.ui_quit) {
             UWORD joy = hw->joy1dat;
             c.pitch = held[0x4d] - held[0x4c];
             c.roll = held[0x4e] - held[0x4f];
@@ -732,7 +786,7 @@ int main(int argc, char **argv) {
             flight_input(&c, &mouse, analog ? 0 : joystick_roll(joy), analog ? 0 : joystick_pitch(joy),
                          ui_fire(&g, &f) || !(*(volatile UBYTE *)0xbfe001 & 0x80));
         }
-        if (input_active && !g.ui_quit && !intro.running) {
+        if (!testing && input_active && !g.ui_quit && !intro.running) {
             ULONG type = pad_state & JP_TYPE_MASK;
             int usb_analog = type == JP_TYPE_ANALOGUE;
             unsigned buttons = !analog && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK || usb_analog)
@@ -757,16 +811,19 @@ int main(int argc, char **argv) {
             {
                 int due = (int)(accumulator / clock_rate);
                 accumulator -= (uint64_t)due * clock_rate;
-                if (intro.running) {
+                if(testing) performance_animate(&performance,&g);
+                else if (intro.running) {
                     if (!intro_frame(&intro, &g, due)) audio_init(&sound, &g);
                 } else game_frame(&g, c, due);
             }
         }
         sound_update();
         if (profiling) tick_start = clock_now();
+        if(testing) render_start=clock_now();
         g.ui_visible = input_active && !mouse_right && !intro.running;
         if (intro.running) render_intro(&intro, &g, &f);
         else render_game(&g, &f);
+        if(testing) { render_performance(&performance,&f); output_start=clock_now(); }
         if (profiling) { uint64_t now = clock_now(); render_ticks += rtg ? now - tick_start : (now - tick_start) & 0xffffffU; tick_start = now; }
         if (rtg) {
             struct RastPort rp = screen->RastPort;
@@ -793,6 +850,14 @@ int main(int argc, char **argv) {
             hw->copjmp1 = 0;
             back = 1 - back;
         }
+        if(testing && !quit) {
+            uint64_t end=clock_now();
+            uint64_t render_delta=rtg ? output_start-render_start : (output_start-render_start)&0xffffffU;
+            uint64_t output_delta=rtg ? end-output_start : (end-output_start)&0xffffffU;
+            uint64_t total_delta=rtg ? end-test_start : (end-test_start)&0xffffffU;
+            if(performance_record(&performance,&g,render_delta*1000000/clock_rate,
+                 output_delta*1000000/clock_rate,total_delta*1000000/clock_rate)==1) quit=1;
+        }
         if (profiling) {
             uint64_t now = clock_now();
             output_ticks += rtg ? now - tick_start : (now - tick_start) & 0xffffffU;
@@ -808,5 +873,13 @@ int main(int argc, char **argv) {
                rtg ? (highcolour ? "RTG16" : "RTG8") : (aga ? "AGA" : "ECS"));
     }
     close_all();
+    if(testing) performance_print(stdout,&performance.report);
+    if(testing && !no_menu) { launcher_results(&launch_menu,&performance.report); goto launch_again; }
     return 0;
+session_failed:
+    close_all();
+    if(no_menu || profiling) return 1;
+    snprintf(launch_menu.message,sizeof(launch_menu.message),"VIDEO/MEMORY FAILED - LOWER OPTIONS");
+    launch_menu.page=0; launch_menu.selected=1;
+    goto launch_again;
 }
