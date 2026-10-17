@@ -82,7 +82,11 @@
   and galaxy maps, and service portraits using the real display backend.
   FPS includes rendering, output and synchronization. Render and output
   milliseconds are also shown. Warmup and scene setup are excluded.
-  Each scene targets two seconds and four frames, up to 180 frames.
+  Each scene lasts at least five seconds and four frames, without a
+  frame-count cap. 3D tests fill the display with the cockpit HUD, target
+  markers and world labels hidden. Map/service tests retain their own UI.
+  Rain, clouds and snow use upright cameras flying along timed paths,
+  with animated precipitation. A large scene name stays above the effects.
   Native render/output splits have 20 ms PAL or 16.7 ms NTSC precision;
   zero may mean less than one tick. Total FPS uses the whole sample. Escape, click or fire stops it; results return to setup.
   PREV compares the previous test in this session; untested scenes show

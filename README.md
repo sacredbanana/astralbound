@@ -94,7 +94,12 @@ inside-cloud fog, snow, ships/blasts/debris, hyperspace, system and galaxy maps,
 and service portraits. The actual selected renderer, output conversion and display
 synchronization are used. Live FPS includes the whole displayed frame, with render
 and output milliseconds shown separately. One warmup frame per scene is excluded;
-each sample targets at least two seconds and four frames, capped at 180 frames.
+each scene runs for at least five seconds and four frames, with no frame-count
+cap that can shorten a fast run. The 3D fixtures use the full display without
+the cockpit HUD, target markers, or world labels; map and service tests retain
+the interface they exercise. Weather scenes use upright planetary horizons and
+wall-time flight paths through rain, a cloud core, and snow, with animated
+precipitation. A large scene name and timing strip stay visible above the effects.
 Native render/output splits have display-tick precision (20 ms PAL, about 16.7 ms
 NTSC); zero can mean below one timer tick. Total displayed FPS uses the whole sample.
 Escape, click or fire stops the test; completed and partial results return to setup.

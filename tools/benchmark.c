@@ -15,8 +15,8 @@ int main(void) {
         if(!render_init(&f)) return 1;
         for(scene=0;scene<PERFORMANCE_SCENES;scene++) {
             clock_t start; uint32_t hash=2166136261U;
-            performance_scene(&g,scene); render_game(&g,&f);
-            start=clock(); for(i=0;i<8;i++) render_game(&g,&f);
+            performance_scene(&g,scene); render_performance_scene(&g,&f);
+            start=clock(); for(i=0;i<8;i++) render_performance_scene(&g,&f);
             double elapsed=(double)(clock()-start)*1000.0/CLOCKS_PER_SEC/8;
             for(j=0;j<320*200;j++) hash=(hash^f.pixels[j])*16777619U;
             printf("%s / %s: %.3f ms %08lx\n",quality_names[preset],performance_names[scene],elapsed,(unsigned long)hash);

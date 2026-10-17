@@ -334,6 +334,7 @@ static int host_run(int argc, char **argv) {
         g.ui_visible = !intro.running && !mouse_right && !!(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
         render_start=SDL_GetPerformanceCounter();
         if (intro.running) render_intro(&intro, &g, &f);
+        else if(testing) render_performance_scene(&g,&f);
         else render_game(&g, &f);
         if(testing) render_performance(&performance,&f);
         output_start=SDL_GetPerformanceCounter();

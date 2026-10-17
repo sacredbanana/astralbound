@@ -25,7 +25,7 @@ typedef struct {
 static Tri *triangles;
 static int triangle_capacity, triangle_limit;
 static Graphics graphics = {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1};
-static int graphics_configured, scene_only, scaled_view_h;
+static int graphics_configured, scene_only, scaled_view_h, performance_camera;
 static uint8_t *scaled_pixels;
 static size_t scaled_capacity;
 static int nt;
@@ -2867,6 +2867,7 @@ static int hyper_stretch(const Game *g) {
     return 1024 * (HYPER_EXIT - t) * (HYPER_EXIT - t) / (HYPER_EXIT * HYPER_EXIT);
 }
 static void hyper_title(const char *title, const char *detail, int blink) {
+    if(performance_camera) return;
     int w = frame->w;
     if (blink) text(w / 2 - (int)strlen(title) * 3, 12, 15, title);
     if (detail) text(w / 2 - (int)strlen(detail) * 3, 22, 12, detail);
@@ -3391,11 +3392,32 @@ void render_launcher(const Launcher *m, Frame *f) {
 void render_performance(const Performance *p, Frame *f) {
     char buf[96]; const PerformanceResult *r=&p->report.result[p->scene];
     unsigned fps=r->total_us ? (unsigned)((uint64_t)r->frames*10000000/r->total_us) : 0;
-    frame=f; draw_scale=ui_scale(f);
-    rect(0,0,f->w/draw_scale,23,0);
-    snprintf(buf,sizeof(buf),"TEST %d/%d %.27s",p->scene+1,PERFORMANCE_SCENES,performance_names[p->scene]); text(4,3,13,buf);
-    snprintf(buf,sizeof(buf),"%u.%u FPS  R %lu MS  OUT %lu MS  ESC STOP",fps/10,fps%10,
+    int scale=ui_scale(f),width=f->w/scale;
+    const char *name=performance_names[p->scene];
+    frame=f; draw_scale=scale;
+    rect(0,0,width,32,1);
+    /* A double-size, high-contrast name stays clear of the flight horizon.
+       All statistics sit on a separate line, on every display backend. */
+    draw_scale=scale*2;
+    text((f->w/draw_scale-(int)strlen(name)*6)/2,2,15,name);
+    draw_scale=scale;
+    snprintf(buf,sizeof(buf),"%d/%d %u.%u FPS R%luMS OUT%luMS ESC",p->scene+1,PERFORMANCE_SCENES,fps/10,fps%10,
              (unsigned long)(r->frames ? r->render_us/r->frames/1000 : 0),
-             (unsigned long)(r->frames ? r->output_us/r->frames/1000 : 0)); text(4,13,15,buf);
+             (unsigned long)(r->frames ? r->output_us/r->frames/1000 : 0)); text(6,22,13,buf);
+    rect(0,30,width,2,3);
+    rect(0,30,(int)((r->total_us>PERFORMANCE_MIN_US ? PERFORMANCE_MIN_US : r->total_us)*width/PERFORMANCE_MIN_US),2,13);
     draw_scale=1;
+}
+
+void render_performance_scene(const Game *g, Frame *f) {
+    if(g->page==FLIGHT) {
+        /* Reuse the full-frame cinematic camera without scripted actors,
+           captions, letterboxing or a cockpit. It also suppresses world,
+           target and weather labels at every internal graphics resolution. */
+        Intro view={0};
+        view.eye=g->pos; view.yaw=g->yaw; view.pitch=g->pitch; view.roll=g->roll;
+        performance_camera=1;
+        render_intro(&view,g,f);
+        performance_camera=0;
+    } else render_game(g,f);
 }

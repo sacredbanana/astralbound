@@ -1,10 +1,43 @@
 /* SPDX-License-Identifier: Unlicense; fixtures use the actual game renderer. */
 #include "performance.h"
 #include <string.h>
+#include <stdlib.h>
 const char *performance_names[PERFORMANCE_SCENES] = {"ORBIT AND RINGS","LOW TERRAIN","DESERT TERRAIN","ICE TERRAIN",
     "SURFACE CITY","ORBITAL STATION","RAIN AND FORESTS","INSIDE CLOUDS","SNOW AND FOG","COMBAT AND DEBRIS",
     "HYPERSPACE","SYSTEM MAP","GALAXY MAP","SERVICE PORTRAITS"};
 static Vec cross14(Vec a, Vec b) { return vec((a.y*b.z-a.z*b.y)/16384,(a.z*b.x-a.x*b.z)/16384,(a.x*b.y-a.y*b.x)/16384); }
+static int64_t dot14(Vec a, Vec b) { return (a.x*b.x+a.y*b.y+a.z*b.z)/16384; }
+static Vec weather_forward(Vec local) {
+    Vec tangent=vec(-local.y,local.x,0);
+    if(length(tangent)<100) tangent=vec(0,-local.z,local.y);
+    return unit(tangent,16384);
+}
+/* Match the renderer's yaw/pitch/roll axes to a local planetary horizon.
+   A world-level roll of zero can put the ground above an arbitrary latitude. */
+static void weather_attitude(Game *g, Vec local, Vec direction) {
+    Vec up=unit(local,16384),front,right0,up0; int unused;
+    front=unit(sub(direction,scale(up,dot14(direction,up),16384)),16384);
+    front=unit(sub(front,scale(up,1400,16384)),16384); /* slight downward view */
+    aim_angles(front,&g->yaw,&g->pitch);
+    right0=vec(cosi(g->yaw),0,-sini(g->yaw));
+    up0=vec(-(int64_t)sini(g->pitch)*sini(g->yaw)/16384,cosi(g->pitch),
+            -(int64_t)sini(g->pitch)*cosi(g->yaw)/16384);
+    aim_angles(vec(dot14(up,right0),0,dot14(up,up0)),&g->roll,&unused);
+}
+static Vec weather_position(Vec center, Vec direction, int offset) {
+    return radial(add(center,scale(direction,offset,16384)),length(center));
+}
+static int weather_route(const Planet *p, Vec local, uint32_t tick, int rain) {
+    Vec direction=weather_forward(local); int i;
+    /* Keep the entire five-second route in the requested precipitation and
+       clear of terrain, rather than sampling a storm only at its midpoint. */
+    for(i=-2;i<=2;i++) {
+        Vec at=weather_position(local,direction,i*225);
+        if(precipitation(p,at,tick)!=rain ||
+           length(at)-p->radius-terrain_height(p,at)<150) return 0;
+    }
+    return 1;
+}
 void performance_scene(Game *g, int scene) {
     Planet *p; int i;
     game_init(g,scene>=6 && scene<=8 ? 37 : 0x53504143);
@@ -39,9 +72,15 @@ void performance_scene(Game *g, int scene) {
     if(scene>=6 && scene<=8) {
         int a,b,found=0; Vec local=vec(0,p->radius+200,0);
         for(b=-180;b<=180 && !found;b+=8) for(a=0;a<1024;a+=8) {
-            Vec candidate=radial(forward(a,b),p->radius+200);
+            Vec direction=forward(a,b);
+            int height=terrain_height(p,direction)+300;
+            if(height<350) height=350;
+            if(height>(scene==8 ? 1650 : 1300)) continue;
+            Vec candidate=radial(direction,p->radius+height);
             if(precipitation(p,candidate,g->tick)==(scene==8 ? 2 : 1) &&
-               (scene==8 || terrain_material(p,candidate)==2)) { local=candidate; found=1; break; }
+               (scene==8 || terrain_material(p,candidate)==2) &&
+               surface_light(&g->system,p,candidate)>6000 &&
+               weather_route(p,candidate,g->tick,scene==8 ? 2 : 1)) { local=candidate; found=1; break; }
         }
         if(scene==7) {
             Vec fixed=body_rotate(p,local,1),at=fixed;
@@ -59,7 +98,7 @@ void performance_scene(Game *g, int scene) {
             local=body_rotate(p,at,0);
         }
         g->pos=scale(add(p->center,local),FP,1);
-        aim_angles(sub(unit(vec(-local.y,local.x,0),16384),unit(local,3000)),&g->yaw,&g->pitch);
+        weather_attitude(g,local,weather_forward(local));
     }
     if(scene==9) {
         Vec front=forward(0,0);
@@ -77,15 +116,63 @@ void performance_scene(Game *g, int scene) {
     if(scene==12) g->page=MAP;
     if(scene==13) { g->docked=0; g->page=SERVICES; g->service_selection=0; }
 }
+static void performance_prepare(Performance *p, Game *g) {
+    performance_scene(g,p->scene);
+    p->flight_tick=g->tick;
+    if(p->scene>=6 && p->scene<=8) {
+        const Planet *body=&g->system.planets[g->body];
+        p->flight_center=sub(scale(g->pos,1,FP),body->center);
+        p->flight_forward=weather_forward(p->flight_center);
+        p->flight_span=450;
+        if(p->scene==7) {
+            static const int spans[]={1600,2400,3200,4800};
+            int angle,span,best=INT32_MAX;
+            Vec side=cross14(unit(p->flight_center,16384),p->flight_forward),best_direction=p->flight_forward;
+            /* Cross the core from thinner air to thinner air, preferring
+               short routes and keeping the camera above the terrain. */
+            for(span=0;span<4 && best;span++) for(angle=0;angle<1024;angle+=128) {
+                Vec direction=add(scale(p->flight_forward,cosi(angle),16384),scale(side,sini(angle),16384));
+                int i,clear=1,a,b,score;
+                for(i=-2;i<=2;i++) {
+                    Vec at=weather_position(p->flight_center,direction,spans[span]*i/2);
+                    if(length(at)-body->radius-terrain_height(body,at)<150) { clear=0; break; }
+                }
+                if(!clear) continue;
+                a=cloud_density(body,weather_position(p->flight_center,direction,-spans[span]),g->tick);
+                b=cloud_density(body,weather_position(p->flight_center,direction,spans[span]),g->tick);
+                score=(a>b ? a : b)*513+a+b;
+                if(score<best) { best=score; best_direction=direction; p->flight_span=spans[span]; }
+                if(!best) break;
+            }
+            p->flight_forward=best_direction;
+        }
+    }
+}
 void performance_begin(Performance *p, Game *g, const Settings *s, int selected) {
     memset(p,0,sizeof(*p)); p->report.settings=*s;
     p->selected=selected; p->scene=selected<0 ? 0 : selected; p->warmup=1;
-    performance_scene(g,p->scene);
+    performance_prepare(p,g);
 }
 void performance_animate(Performance *p, Game *g) {
-    /* A fixed number of camera steps per rendered frame keeps workloads
-       comparable when one preset is much faster than another. No flight ticks. */
+    /* Weather fly-throughs use measured wall time so their speed and length
+       stay the same across machines and presets. No flight physics is run. */
     p->step++; g->ui_clock=(unsigned)p->step*2;
+    if(p->scene>=6 && p->scene<=8) {
+        const Planet *body=&g->system.planets[g->body];
+        uint64_t elapsed=p->report.result[p->scene].total_us;
+        int offset;
+        Vec local,direction,up;
+        if(elapsed>PERFORMANCE_MIN_US) elapsed=PERFORMANCE_MIN_US;
+        offset=-p->flight_span+(int)(elapsed*(unsigned)p->flight_span*2/PERFORMANCE_MIN_US);
+        local=weather_position(p->flight_center,p->flight_forward,offset);
+        up=unit(local,16384);
+        direction=unit(sub(p->flight_forward,scale(up,dot14(p->flight_forward,up),16384)),16384);
+        g->pos=scale(add(body->center,local),FP,1);
+        g->tick=p->flight_tick+(uint32_t)(elapsed*HZ/1000000);
+        g->ui_clock=(uint32_t)(elapsed*HZ/1000000);
+        g->vel=add(surface_velocity(body,local),scale(direction,p->flight_span*2LL*FP/5,16384));
+        weather_attitude(g,local,direction);
+    }
     if(p->scene<=3) g->yaw=(p->step/4)&31;
     if(p->scene==10) g->hyperspace=HYPER_CHARGE+1+(p->step*2)%HYPER_TUNNEL;
     if(p->scene==9) {
@@ -98,9 +185,9 @@ int performance_record(Performance *p, Game *g, uint64_t render_us, uint64_t out
     if(p->warmup) { p->warmup=0; return 0; }
     r->frames++; r->render_us+=render_us; r->output_us+=output_us; r->total_us+=total_us;
     if(total_us>r->slowest_us) r->slowest_us=total_us>UINT32_MAX ? UINT32_MAX : (uint32_t)total_us;
-    if((r->total_us>=2000000 && r->frames>=4) || r->frames>=180) {
+    if(r->total_us>=PERFORMANCE_MIN_US && r->frames>=4) {
         if(p->selected>=0 || p->scene==PERFORMANCE_SCENES-1) { p->report.complete=1; return 1; }
-        p->scene++; p->warmup=1; p->step=0; performance_scene(g,p->scene); return -1;
+        p->scene++; p->warmup=1; p->step=0; performance_prepare(p,g); return -1;
     }
     return 0;
 }

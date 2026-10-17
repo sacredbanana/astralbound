@@ -822,6 +822,7 @@ launch_again:
         if(testing) render_start=clock_now();
         g.ui_visible = input_active && !mouse_right && !intro.running;
         if (intro.running) render_intro(&intro, &g, &f);
+        else if(testing) render_performance_scene(&g,&f);
         else render_game(&g, &f);
         if(testing) { render_performance(&performance,&f); output_start=clock_now(); }
         if (profiling) { uint64_t now = clock_now(); render_ticks += rtg ? now - tick_start : (now - tick_start) & 0xffffffU; tick_start = now; }
