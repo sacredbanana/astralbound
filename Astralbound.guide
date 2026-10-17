@@ -31,7 +31,13 @@
 @toc main
 @next graphics
 
-  Copy Astralbound.000 and Astralbound.020 to an Amiga drawer. Run from Shell:
+  Open Install with Installer V42.12+. Tick one or more CPU
+  builds, then choose a parent drawer, such as Work:Games. The installer
+  creates Work:Games/Astralbound with the selected builds and all music.
+  Selecting an existing Astralbound drawer updates it without nesting.
+  Commander saves and graphics preferences are preserved.
+  For manual installation, copy the complete Astralbound drawer.
+  Run from Shell:
 
   Astralbound.000 --ecs
   Astralbound.020 --aga
@@ -604,10 +610,11 @@
   @{"Contents      " link main}
 
   @{b}Sound and expanded controllers@{ub}
-  Put your own ProTracker MODs in the music drawer beside the executable:
+  Supplied ProTracker MODs live in the music drawer beside the executable.
+  You can add more tracks in these subdrawers:
   battle, planetary-flight, space-flight, docked, game-over and intro
   subdrawers.
-  Names can be tune.mod or MOD.tune (case insensitive). No music is supplied.
+  Names can be tune.mod or MOD.tune (case insensitive).
   Tracks change randomly at song end and on situation changes, excluding the
   previous selection when alternatives exist. Empty subdrawers stay silent;
   engine, laser, damage, explosion, docking and jump effects still play.
@@ -637,14 +644,18 @@
   --profile exits after 120 frames and reports render/output timings.
   Astralbound-benchmark.<cpu> measures scene rendering and C2P into Chip RAM.
 
-  Open Install with SYS:Utilities/Installer V42.12+ and choose a drawer.
+  Installer lets you select multiple builds and creates an Astralbound
+  drawer inside the chosen parent. All music and shared assets are copied.
   Existing astralbound.sav and astralbound.cfg are preserved.
+  Unselected builds from an earlier install remain in place.
   CPU icons use saved preferences unless optional tooltypes override.
   They accept MODE=ECS/AGA/RTG/RTG16
   and LOWRES, NOSOUND, ANALOG, NOINTRO, NOMENU tooltypes. Play-AGA/Play-RTG/Play-RTG16 scripts
-  use Astralbound.020; Play-ECS-Lowres uses Astralbound.000.
+  use a selected build (preferably 020); Play-ECS-Lowres prefers 000.
   The original boot ADF starts ECS 320 x 200 with a user-supplied OS3 ROM.
   Tested with 2 MiB Chip and 8 MiB Fast; unexpanded A500s are not validated.
   Escape returns to the boot CLI. A writable ADF can hold a commander save.
+  The single boot floppy omits music tracks due to disk space limits;
+  install from ZIP/LHA for the complete music tree.
 
 @endnode

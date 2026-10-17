@@ -61,8 +61,12 @@ Installation and first flight
 
 Extract the archive to a hard disk, preserving its drawer structure.
 Open Install with the system Installer V42.12 or later, or copy the whole
-Astralbound drawer to your chosen destination. Existing commander saves
-and graphics preferences are preserved by the installer.
+Astralbound drawer to your chosen destination. In Installer, tick one or
+more CPU builds and select a parent drawer, such as Work:Games. The game
+and all music are installed into Work:Games/Astralbound. Selecting an
+existing Astralbound drawer updates it without creating another inside.
+Existing commander saves and graphics preferences are preserved.
+Installed Play shortcuts use a selected build.
 
 Open the appropriate CPU icon or Play-AGA, Play-RTG or Play-RTG16.
 The setup menu lets you choose graphics, resolution and detail before
@@ -75,8 +79,9 @@ Workbench icons request 256 KiB. Escape exits and restores the display.
 At Haven, press L to launch and P for autopilot to the orbital Relay.
 Read Astralbound.guide for controls, station services and flight advice.
 
-Music is optional. Add your own supported ProTracker MOD files to the
-music subdrawers; see music/README.txt. No music tracks are included.
+The archive includes ProTracker MOD music in the music subdrawers.
+You can add more supported MOD files; see music/README.txt. The separate
+single-floppy boot ADF omits tracks due to disk space limits.
 
 License and sources
 -------------------

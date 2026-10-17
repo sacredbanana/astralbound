@@ -991,3 +991,36 @@ This supersedes the earlier unresolved bare-CLI stack-swap exit warning.
   enlarged-stack exit path.
 - The AmigaGuide checker reported zero errors/warnings. Physical hardware,
   RTG shutdown and every individual CPU's live runtime remain untested here.
+
+## 2026-10-18: complete music packages and selective installation
+
+- `./build-amiga.sh -j4 all variants` and `release-tools` passed. Amiga build
+  staging now copies non-hidden files throughout the music tree, including
+  tracks, and always creates the optional intro drawer.
+- `make package-test` passed. Its temporary fresh-checkout fixture checks staging,
+  ZIP and extracted LHA contents against the complete music tree, including
+  mixed-case MOD names, spaces, nested ancillary assets and an absent empty
+  intro drawer. Hidden metadata/placeholders are excluded.
+- Installer 43.3 ran in an isolated Amiberry 8.4.1 environment using the AROS
+  2025-08-16 ROM. Scripted answers exercised all 63 non-empty build selections.
+  Each result contained exactly the selected executable/icon pairs, all music,
+  data and docs byte for byte, and shortcuts naming a selected executable.
+  Choosing a parent named `Games Folder` created only Astralbound and its drawer
+  icon there. An upgrade selected the existing Astralbound drawer directly:
+  no nested drawer was created, and commander saves, graphics preferences,
+  custom music and a previously installed unselected build were preserved.
+- The input forms were replaced with fixed answers for the exhaustive native
+  copy tests. The unchanged six-checkbox form was separately rendered and
+  visually inspected. This is not a full Workbench click-through test.
+- The edited Install icon was opened with native `GetDiskObject`: project type,
+  262144-byte stack and default tool `Installer` were confirmed. The generator
+  now also specifies `Installer`, allowing command-path lookup such as C:.
+- Evidence: `build/installer-emulator/regression-results.json`,
+  `guest/icon-readback.txt` and `build-options.png`. Installer 44.10 could not
+  open its required libraries in the minimal AROS fixture; the exhaustive
+  runtime result applies to 43.3. No physical-hardware claim is made.
+- `./package.sh` rebuilt and byte-verified ZIP/LHA plus the boot ADF. The single
+  floppy still omits MOD tracks: the complete music tree plus the executable
+  exceeds its capacity. ZIP/LHA are the complete music distributions.
+- The AmigaGuide checker reported zero errors and warnings; `git diff --check`
+  passed. Changes and artifacts remain local.

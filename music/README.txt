@@ -1,4 +1,6 @@
-Add your own ProTracker MOD music to these folders:
+The ZIP/LHA packages include the repository ProTracker MOD tracks.
+The installer copies the complete music tree beside the selected builds.
+You can add more ProTracker MOD music to these folders:
 
   battle/             Living hostile ship within 12 km, while flying.
   planetary-flight/   Flying below 12 km above terrain (also moons).
@@ -16,7 +18,9 @@ scanned. Names may be tune.mod or MOD.tune (case insensitive). Use classic
 Tracks are chosen randomly on a situation change and at song end. The previous
 track in that folder is excluded when there is a choice; one track repeats.
 An empty/missing folder is silent; engine and effects still play. There is no
-placeholder music or fallback score. No music assets are supplied.
+placeholder music or fallback score. The intro uses space-flight music
+when its folder is empty. The single-floppy boot ADF omits MOD tracks
+because the complete music tree does not fit on it.
 
 Amiga: keep music beside the executable (PROGDIR:music). Host preview: music
 beside the executable, or the repository's music folder when launched there.

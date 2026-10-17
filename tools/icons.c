@@ -64,7 +64,7 @@ int main(void) {
     dot(3, 3, 1); dot(27, 4, 1); dot(5, 10, 1); dot(26, 12, 1);
     for (i = 0; i < 6; i++) ok &= write_icon(tools[i], WBTOOL, NULL, NULL);
     for (i = 0; i < 4; i++) ok &= write_icon(scripts[i], WBPROJECT, "C:IconX", NULL);
-    ok &= write_icon("Install", WBPROJECT, "SYS:Utilities/Installer", install);
+    ok &= write_icon("Install", WBPROJECT, "Installer", install);
     ok &= write_icon("Astralbound.guide", WBPROJECT, "SYS:Utilities/MultiView", NULL);
     ok &= write_icon("Astralbound", WBDRAWER, NULL, NULL);
     ok &= write_icon("Disk", WBDISK, NULL, NULL);

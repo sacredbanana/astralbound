@@ -1,41 +1,90 @@
 ; SPDX-License-Identifier: Unlicense
-; Standard Commodore Installer language; preserve any existing commander save.
+; Standard Commodore Installer language; preserve commander saves/preferences.
 (set @app-name "Astralbound")
 (set install-source (pathonly @icon))
-(set @default-dest "SYS:Games/Astralbound")
-(welcome "Install the original Astralbound Amiga game.")
-(set destination (askdir
-    (prompt "Choose the Astralbound destination drawer.")
-    (help "Copies the game and guide. Existing astralbound.sav and astralbound.cfg are preserved.")
+(set @default-dest "SYS:Games")
+(welcome "Install the original Astralbound Amiga game and its music.")
+
+; A safe default; users can select any combination for shared installations.
+(set cpu (database "cpu"))
+(set default-builds (if (or (= cpu "68000") (= cpu "68010")) 1 2))
+(set builds 0)
+(while (= builds 0)
+    (set builds (askoptions
+        (prompt "Choose the builds to install (select one or more).")
+        (help "000 runs on a 68000 or newer. 020 and 030 need no FPU; use 020 on LC/EC040 or LC/EC060. 020fpu requires a 68881/68882. 040 and 060 require the full CPU with FPU. All selected builds share the music, settings and commander saves.")
+        (choices "Astralbound.000 - 68000+, no FPU"
+                 "Astralbound.020 - 68020+, no FPU"
+                 "Astralbound.030 - 68030+, no FPU"
+                 "Astralbound.020fpu - 68020/030 + 68881/68882"
+                 "Astralbound.040 - full 68040 with FPU"
+                 "Astralbound.060 - full 68060 with FPU")
+        (default default-builds)))
+    (if (= builds 0) (message "Please select at least one build."))
+)
+(set parent (askdir
+    (prompt "Choose the parent drawer. Astralbound will be installed inside it.")
+    (help "For example, choose Work:Games to install into Work:Games/Astralbound. To update an existing installation, select its parent or the Astralbound drawer itself. Existing astralbound.sav and astralbound.cfg are preserved.")
     (default @default-dest) (newpath)))
+; Also accept the game drawer itself when updating, without nesting it again.
+(set destination (if (= (fileonly parent) "Astralbound")
+    parent (tackon parent "Astralbound")))
+(set @default-dest destination)
+(if (= (expandpath install-source) (expandpath destination))
+    (abort "This is the source Astralbound drawer. Choose another destination or run the game here."))
+
+; Validate selected files and required shared assets before making changes.
+(set i 0)
+(set launch-exe "")
+(while (< i 6)
+    (if (in builds i)
+        (
+            (set exe (select i "Astralbound.000" "Astralbound.020"
+                "Astralbound.030" "Astralbound.020fpu" "Astralbound.040" "Astralbound.060"))
+            (if (not (exists (tackon install-source exe) (noreq)))
+                (abort "A selected build is missing from the source drawer: " exe))
+            (if (= launch-exe "") (set launch-exe exe))
+        ))
+    (set i (+ i 1))
+)
+(if (<> (exists (tackon install-source "music") (noreq)) 2)
+    (abort "The music drawer is missing. Extract the complete archive and try again."))
+; Keep the traditional 020 launcher preference when that build is selected.
+(if (in builds 1) (set launch-exe "Astralbound.020"))
+(set ecs-exe (if (in builds 0) "Astralbound.000" launch-exe))
+
 (makedir destination)
+(set i 0)
+(while (< i 6)
+    (if (in builds i)
+        (
+            (set exe (select i "Astralbound.000" "Astralbound.020"
+                "Astralbound.030" "Astralbound.020fpu" "Astralbound.040" "Astralbound.060"))
+            (copyfiles (source (tackon install-source exe)) (dest destination) (infos))
+        ))
+    (set i (+ i 1))
+)
 (copyfiles
     (source install-source)
     (dest destination)
-    (choices "Astralbound.000" "Astralbound.020" "Astralbound.030" "Astralbound.020fpu" "Astralbound.040" "Astralbound.060"
-             "Astralbound.000.info" "Astralbound.020.info" "Astralbound.030.info" "Astralbound.020fpu.info"
-             "Astralbound.040.info" "Astralbound.060.info"
-             "Play-AGA" "Play-AGA.info" "Play-RTG" "Play-RTG.info"
-             "Play-RTG16" "Play-RTG16.info" "Play-ECS-Lowres" "Play-ECS-Lowres.info"
-             "Astralbound.guide" "Astralbound.guide.info" "Astralbound.readme" "README.md" "LICENSE" "THIRD_PARTY.txt")
-    (prompt "Install Astralbound game files?")
-    (help "Use Astralbound.000 on a 68000. Astralbound.020/.030 need no FPU. Astralbound.020fpu needs a 68020/030 with a 68881/68882; Astralbound.040 and Astralbound.060 need a full 68040/68060 with its FPU. Use Astralbound.020 on an LC/EC040 or LC/EC060.")
-    (confirm))
-(makedir (tackon destination "music"))
-(makedir (tackon destination "music/battle"))
-(makedir (tackon destination "music/planetary-flight"))
-(makedir (tackon destination "music/space-flight"))
-(makedir (tackon destination "music/docked"))
-(makedir (tackon destination "music/game-over"))
-(makedir (tackon destination "music/intro"))
-(copyfiles
-    (source (tackon install-source "music"))
-    (dest (tackon destination "music"))
-    (all)
-    (optional nofail))
-(copyfiles
-    (source (tackon (pathonly install-source) "Astralbound.info"))
-    (dest (pathonly destination))
-    (newname (cat (fileonly destination) ".info"))
-    (optional nofail))
-(message "Astralbound installed. Open the drawer, choose a CPU icon or Play-AGA/Play-RTG. Escape exits.")
+    (choices "Play-AGA.info" "Play-RTG.info" "Play-RTG16.info" "Play-ECS-Lowres.info"
+             "Astralbound.guide" "Astralbound.guide.info" "Astralbound.readme"
+             "README.md" "LICENSE" "THIRD_PARTY.txt" "music" "data" "docs"))
+; Generate shortcuts for a selected build so every shortcut has its executable.
+(textfile (dest (tackon destination "Play-AGA"))
+    (append (cat launch-exe " --aga\n")))
+(textfile (dest (tackon destination "Play-RTG"))
+    (append (cat launch-exe " --rtg\n")))
+(textfile (dest (tackon destination "Play-RTG16"))
+    (append (cat launch-exe " --rtg16\n")))
+(textfile (dest (tackon destination "Play-ECS-Lowres"))
+    (append (cat ecs-exe " --ecs --lowres\n")))
+(protect (tackon destination "Play-AGA") "+s +e")
+(protect (tackon destination "Play-RTG") "+s +e")
+(protect (tackon destination "Play-RTG16") "+s +e")
+(protect (tackon destination "Play-ECS-Lowres") "+s +e")
+(if (not (exists (cat destination ".info") (noreq)))
+    (copyfiles
+        (source (tackon (pathonly install-source) "Astralbound.info"))
+        (dest (pathonly destination))))
+(exit "Astralbound installed in " destination ". Open a selected CPU icon or Play shortcut. Escape exits." (quiet))

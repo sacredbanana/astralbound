@@ -500,12 +500,12 @@ work is tracked in [docs/roadmap.md](docs/roadmap.md), and current test evidence
 
 ## Sound, controllers and release files
 
-Music comes from user-supplied ProTracker MODs in the `music` drawer beside the
-executable. Add tracks directly to `battle`, `planetary-flight`, `space-flight`,
+The supplied ProTracker MODs are installed in the `music` drawer beside the
+executable. You can add more tracks directly to `battle`, `planetary-flight`, `space-flight`,
 `docked`, `game-over` and `intro` (the title sequence; without it, space-flight
 music plays). The host preview also checks the repository's `music`
 folder when launched there. Both `tune.mod` and `MOD.tune` names are recognized,
-case-insensitively. No placeholder music or music assets are bundled.
+case-insensitively. The ZIP/LHA packages include the repository music tracks.
 
 The game randomly chooses a track on situation changes and at song end, avoiding
 the previous track in that folder when alternatives exist. A single track repeats;
@@ -563,8 +563,9 @@ Run `./package.sh` to build all six CPU variants and create
 `dist/Astralbound-0.1-amiga.zip`, `dist/Astralbound.lha` and
 `dist/Astralbound-0.1-boot.adf`. An archive-capable `lha` command must be in
 PATH; a missing archiver is an error. Both archives include `Astralbound.readme`,
-the executables, installer, icons, manual and license notices. Locally added
-music tracks are excluded. ZIP and LHA contents are extracted and byte-checked.
+the executables, installer, icons, manual, license notices and all non-hidden
+files in the repository music tree. ZIP and LHA contents are extracted and byte-checked.
+`make package-test` checks music staging and both archive formats with asset fixtures.
 The packager also copies `dist/Astralbound.readme` beside the LHA, with the
 matching, version-free basename required for Aminet uploads. Submit that pair
 when uploading to Aminet; packaging does not upload anything. The readme follows
@@ -572,8 +573,13 @@ when uploading to Aminet; packaging does not upload anything. The readme follows
 for required metadata, ASCII text, LF endings and lines of at most 78 characters.
 ADF generation needs amitools' `xdftool` (`XDFTOOL=/path/to/xdftool`) and vasm;
 `build/release-venv/bin/xdftool` is also recognized. On Workbench, open Install
-using the system Installer (V42.12+), choose a destination, then use a CPU icon
-or Play-AGA/Play-RTG/Play-RTG16. The installer preserves `astralbound.sav` and `astralbound.cfg`.
+using the system Installer (V42.12+), tick one or more CPU builds and choose a
+parent drawer (for example `Work:Games`). The installer creates
+`Work:Games/Astralbound`, copies the selected builds and all shared assets, and
+preserves `astralbound.sav` and `astralbound.cfg`. For an upgrade, selecting the
+existing Astralbound drawer also works. Unselected builds from an earlier install
+are left in place. Installed Play shortcuts use a selected executable: preferably
+020 for AGA/RTG, and 000 for ECS low-resolution, when selected.
 Workbench icons request a 256 KiB stack. CLI launches allocate the required stack
 automatically using Exec StackSwap and restore the original shell stack before
 exit; no `Stack` command is needed. Native tests allocate their declared stack
@@ -585,7 +591,9 @@ The OFS ADF boots directly into Astralbound.000 in ECS 320 x 200 and can store a
 on a writable disk. It needs a user-supplied Kickstart 3.0+ and enough RAM for the
 expanded procedural world and depth buffer (2 MiB Chip plus 8 MiB Fast is the
 emulator-tested configuration). It is not an unexpanded A500 release. Escape returns
-to the boot CLI; no Workbench files or licensed ROMs are distributed. Installer and
+to the boot CLI. The single floppy omits MOD tracks because the complete music
+tree does not fit; use the ZIP/LHA installation for music. No Workbench files or
+licensed ROMs are distributed. Installer and
 boot evidence, timings and remaining physical QA are recorded in `docs/validation.md`.
 
 Planetary rotation now moves terrain, flora, surface ports and landed ships. Actual

@@ -61,13 +61,15 @@ build/intro-preview: $(CORE) $(HEADERS) tools/intro_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/intro_preview.c -o $@
 intro-preview: build/intro-preview
 	./build/intro-preview --sheet 3 build/intro-sheet.ppm
-.PHONY: benchmark package intro-preview
+.PHONY: benchmark package package-test intro-preview
 build/benchmark: $(CORE) $(HEADERS) tools/benchmark.c src/astralbound.h src/trig.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/benchmark.c -o $@
 benchmark: build/benchmark
 	./build/benchmark
 package:
 	./package.sh
+package-test:
+	python3 tests/test_package.py
 
 # Host run of the FPU code paths used by Astralbound.020fpu/.040/.060.
 .PHONY: fpu-test

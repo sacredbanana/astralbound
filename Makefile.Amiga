@@ -31,8 +31,10 @@ LINK_060 = -m68060 -msoft-float
 .PHONY: all clean tests variants release-tools benchmarks music-folders
 all: dist/amiga/Astralbound.020 dist/amiga/Astralbound.000 music-folders
 music-folders:
-	mkdir -p dist/amiga/music/battle dist/amiga/music/planetary-flight dist/amiga/music/space-flight dist/amiga/music/docked dist/amiga/music/game-over
+	mkdir -p dist/amiga/music/battle dist/amiga/music/planetary-flight dist/amiga/music/space-flight dist/amiga/music/docked dist/amiga/music/game-over dist/amiga/music/intro
 	cp music/README.txt dist/amiga/music/README.txt
+	find music -name '.*' -prune -o -type d -exec mkdir -p dist/amiga/{} \;
+	find music -name '.*' -prune -o -type f -exec cp {} dist/amiga/{} \;
 tests: dist/amiga/Astralbound-stack-tests.000 dist/amiga/Astralbound-galaxy-tests.020 dist/amiga/Astralbound-music-tests.020 dist/amiga/Astralbound-ui-tests.020 dist/amiga/Astralbound-career-tests.020 dist/amiga/Astralbound-tests.020 dist/amiga/Astralbound-pres-tests.020 dist/amiga/Astralbound-RunTests
 variants: dist/amiga/Astralbound.030 dist/amiga/Astralbound.020fpu dist/amiga/Astralbound.040 dist/amiga/Astralbound.060
 benchmarks: $(foreach v,$(VARIANTS),dist/amiga/Astralbound-benchmark.$(v))

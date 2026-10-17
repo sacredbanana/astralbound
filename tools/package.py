@@ -25,9 +25,16 @@ files += [
          root/'Astralbound.guide', readme, root/'LICENSE', root/'README.md', root/'THIRD_PARTY.txt']
 files += sorted((root/'docs').glob('*.md'))
 files += [root/'data/README.md', root/'data/LICENSE-HYG.txt']
-music_dirs = sorted(p for p in (root/'music').rglob('*') if p.is_dir())
-# Users add their own tracks locally; never redistribute them implicitly.
+# Keep the complete runtime music tree, without host metadata or placeholders.
+music_dirs = sorted(p for p in (root/'music').rglob('*')
+                    if p.is_dir() and not any(part.startswith('.')
+                        for part in p.relative_to(root/'music').parts))
+# intro may be empty (and absent from a fresh Git checkout).
+music_dirs = sorted(set(music_dirs) | {root/'music/intro'})
 files += [root/'music/README.txt']
+files += sorted(p for p in (root/'music').rglob('*')
+                if p != root/'music/README.txt' and p.is_file() and not any(part.startswith('.')
+                    for part in p.relative_to(root/'music').parts))
 files += sorted(p for p in (root/'release').iterdir() if p.name not in ('Disk.info','boot.s','startup-sequence'))
 def archive_name(path):
     if path == root/'release/Astralbound.info': return 'Astralbound.info'
