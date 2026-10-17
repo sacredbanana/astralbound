@@ -176,7 +176,8 @@ static int host_run(int argc, char **argv) {
             SDL_free(base);
         }
         if (loaded < 0) music_load("music", (uint32_t)SDL_GetPerformanceCounter());
-        audio_observe(&sound, &g);
+        if(testing) performance_audio(&performance,&sound,&g);
+        else audio_observe(&sound, &g);
         spec.freq = AUDIO_RATE; spec.format = AUDIO_S8; spec.channels = 1;
         spec.samples = 512; spec.callback = audio_callback; spec.userdata = &sound;
         audio_device = SDL_OpenAudioDevice(NULL, 0, &spec, NULL, 0);
@@ -329,7 +330,8 @@ static int host_run(int argc, char **argv) {
             }
         }
         if (audio_device) SDL_LockAudioDevice(audio_device);
-        audio_observe(&sound, &g);
+        if(testing) performance_audio(&performance,&sound,&g);
+        else audio_observe(&sound, &g);
         if (audio_device) SDL_UnlockAudioDevice(audio_device);
         g.ui_visible = !intro.running && !mouse_right && !!(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
         render_start=SDL_GetPerformanceCounter();

@@ -38,6 +38,22 @@ static int weather_route(const Planet *p, Vec local, uint32_t tick, int rain) {
     }
     return 1;
 }
+static void orbit_camera(Game *g, uint64_t elapsed) {
+    const Planet *p=&g->system.planets[g->body];
+    Vec sun=sub(g->system.star[0].center,p->center),offset;
+    int angle;
+    if(elapsed>PERFORMANCE_MIN_US) elapsed=PERFORMANCE_MIN_US;
+    angle=64+(int)(elapsed*48/PERFORMANCE_MIN_US);
+    /* The outer ring reaches two radii. Six radii of stand-off frames the
+       whole disc and rings against space, including below the test title.
+       Stay on the lit side and re-aim as the camera moves around the body. */
+    offset=vec((sun.x<0 ? -1LL : 1LL)*sini(angle)*p->radius*6/16384,
+               (sun.y<0 ? -1LL : 1LL)*p->radius,
+               (sun.z<0 ? -1LL : 1LL)*cosi(angle)*p->radius*6/16384);
+    g->pos=scale(add(p->center,offset),FP,1);
+    aim_angles(scale(offset,-1,1),&g->yaw,&g->pitch);
+    g->roll=0;
+}
 void performance_scene(Game *g, int scene) {
     Planet *p; int i;
     game_init(g,scene>=6 && scene<=8 ? 37 : 0x53504143);
@@ -48,9 +64,11 @@ void performance_scene(Game *g, int scene) {
     g->pos=add(scale(p->center,FP,1),vec(0,(p->radius+220LL)*FP,-900LL*FP));
     g->pitch=-35;
     if(scene==0) {
-        p->rings=1;
-        g->pos=add(scale(p->center,FP,1),vec(0,(p->radius+p->atmosphere+35000LL)*FP,-60000LL*FP));
-        aim_angles(sub(scale(p->center,FP,1),g->pos),&g->yaw,&g->pitch);
+        for(i=0;i<g->system.count;i++) if(g->system.planets[i].rings) break;
+        if(i==g->system.count) i=0;
+        g->body=g->target_body=g->frame_body=i;
+        g->system.planets[i].rings=1;
+        orbit_camera(g,0);
     }
     if(scene==2 || scene==3) { p->type=scene==2 ? DESERT : ICE; p->seed^=(unsigned)scene*7919U; }
     if(scene>=1 && scene<=3) {
@@ -150,7 +168,7 @@ static void performance_prepare(Performance *p, Game *g) {
 }
 void performance_begin(Performance *p, Game *g, const Settings *s, int selected) {
     memset(p,0,sizeof(*p)); p->report.settings=*s;
-    p->selected=selected; p->scene=selected<0 ? 0 : selected; p->warmup=1;
+    p->selected=selected; p->scene=selected<0 ? 0 : selected; p->warmup=1; p->audio_scene=-1;
     performance_prepare(p,g);
 }
 void performance_animate(Performance *p, Game *g) {
@@ -173,12 +191,33 @@ void performance_animate(Performance *p, Game *g) {
         g->vel=add(surface_velocity(body,local),scale(direction,p->flight_span*2LL*FP/5,16384));
         weather_attitude(g,local,direction);
     }
-    if(p->scene<=3) g->yaw=(p->step/4)&31;
-    if(p->scene==10) g->hyperspace=HYPER_CHARGE+1+(p->step*2)%HYPER_TUNNEL;
+    if(p->scene==0) orbit_camera(g,p->report.result[0].total_us);
+    else if(p->scene<=3) g->yaw=(p->step/4)&31;
+    if(p->scene==10) {
+        uint64_t ticks=p->report.result[10].total_us*HZ/1000000;
+        if(ticks>=HYPER_TUNNEL) ticks=HYPER_TUNNEL-1;
+        g->hyperspace=HYPER_CHARGE+1+(int)ticks;
+    }
     if(p->scene==9) {
         int i; for(i=0;i<MAX_SMOKE;i++) g->smoke[i].age=(i+p->step)%50;
         for(i=0;i<4;i++) g->blasts[i].age=4+(i*7+p->step)%36;
     }
+}
+int performance_audio(Performance *p, SpaceAudio *sound, const Game *g) {
+    if(p->audio_scene!=p->scene) {
+        /* A new fixture is not a journey between star systems. Discard the
+           previous scene's voices and synchronize its seed/docking history. */
+        audio_init(sound,g);
+        audio_observe(sound,g);
+        p->audio_scene=p->scene;
+        if(p->scene==10) {
+            sound->effect=SOUND_JUMP;
+            sound->effect_pos=0;
+            return SOUND_JUMP;
+        }
+        return SOUND_NONE;
+    }
+    return audio_observe(sound,g);
 }
 int performance_record(Performance *p, Game *g, uint64_t render_us, uint64_t output_us, uint64_t total_us) {
     PerformanceResult *r=&p->report.result[p->scene];

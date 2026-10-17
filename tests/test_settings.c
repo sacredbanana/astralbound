@@ -113,6 +113,68 @@ static void performance_views(void) {
     free(saved); free(f.pixels); render_shutdown();
     puts("PASS full-frame effects hide HUD/world labels, with large scene names in ECS/AGA/RTG and Low/High");
 }
+static void orbit_view(void) {
+    Settings s; Performance p; Frame f={320,200,0,NULL,{0}};
+    uint8_t *with_rings=malloc(640*480); int mode,quality,sample,i;
+    f.pixels=malloc(640*480); assert(f.pixels && with_rings);
+    for(mode=0;mode<3;mode++) for(quality=0;quality<2;quality++) {
+        f.w=mode==2 ? 640 : 320; f.h=mode==2 ? 480 : mode==1 ? 256 : 200; f.enhanced=mode!=0;
+        settings_defaults(&s,1); settings_preset(&s,quality ? QUALITY_HIGH : QUALITY_LOW);
+        render_graphics(&s.gfx); assert(render_init(&f)); performance_begin(&p,&g,&s,0);
+        for(sample=0;sample<=4;sample++) {
+            Planet *body=&g.system.planets[g.body]; Vec to_center,nose,at;
+            int black=0,difference=0;
+            p.report.result[0].total_us=(uint64_t)sample*1250000; performance_animate(&p,&g);
+            to_center=sub(scale(body->center,FP,1),g.pos); nose=forward(g.yaw,g.pitch);
+            assert(length(to_center)>body->radius*5LL*FP && length(to_center)<body->radius*7LL*FP);
+            to_center=unit(to_center,16384);
+            assert((nose.x*to_center.x+nose.y*to_center.y+nose.z*to_center.z)/16384>16300);
+            at=g.pos; performance_animate(&p,&g); assert(!memcmp(&at,&g.pos,sizeof(at)));
+            render_performance_scene(&g,&f); memcpy(with_rings,f.pixels,(size_t)f.w*f.h);
+            body->rings=0; render_performance_scene(&g,&f); body->rings=1;
+            for(i=0;i<f.w*f.h;i++) { black+=with_rings[i]==0; difference+=with_rings[i]!=f.pixels[i]; }
+            assert(black>f.w*f.h/3); assert(difference>32);
+        }
+    }
+    free(with_rings); free(f.pixels); render_shutdown();
+    puts("PASS animated orbit keeps a visible planet and rings framed against space in ECS/AGA/RTG Low/High");
+}
+static void benchmark_audio(void) {
+    Settings s; Performance suite,solo; SpaceAudio sound,reference;
+    int8_t mixed[1024],solo_pcm[1024]; int scene,frame,i,jumps=0,nonzero=0;
+    settings_defaults(&s,1);
+    /* Match SDL's standalone startup: the observer sees an already-staged
+       hyperspace Game. Its explicit entry cue must still produce PCM. */
+    performance_begin(&solo,&g,&s,10); audio_init(&reference,&g);
+    performance_animate(&solo,&g); assert(performance_audio(&solo,&reference,&g)==SOUND_JUMP);
+    audio_mix(&reference,solo_pcm,sizeof(solo_pcm));
+    for(i=0;i<(int)sizeof(solo_pcm);i++) nonzero+=solo_pcm[i]!=0;
+    assert(nonzero>100);
+    assert(performance_audio(&solo,&reference,&g)==SOUND_NONE && reference.effect_pos==(int)sizeof(solo_pcm));
+    performance_begin(&suite,&g,&s,-1); audio_init(&sound,&g);
+    for(scene=0;scene<PERFORMANCE_SCENES;scene++) {
+        int effect;
+        assert(suite.scene==scene); performance_animate(&suite,&g);
+        effect=performance_audio(&suite,&sound,&g);
+        assert(effect==(scene==10 ? SOUND_JUMP : SOUND_NONE)); jumps+=effect==SOUND_JUMP;
+        assert(sound.effect==(scene==10 ? SOUND_JUMP : SOUND_NONE));
+        audio_mix(&sound,mixed,sizeof(mixed));
+        if(scene==10) assert(!memcmp(mixed,solo_pcm,sizeof(mixed)));
+        else for(i=0;i<(int)sizeof(mixed);i++) assert(!mixed[i]);
+        assert(!performance_record(&suite,&g,1,1,1));
+        for(frame=0;frame<4;frame++) {
+            assert(performance_audio(&suite,&sound,&g)==SOUND_NONE);
+            if(scene==10) {
+                int expected=(int)(suite.report.result[10].total_us*HZ/1000000);
+                assert(g.hyperspace==HYPER_CHARGE+1+expected);
+            }
+            performance_record(&suite,&g,1,1,1300000);
+            if(frame<3) performance_animate(&suite,&g);
+        }
+    }
+    assert(jumps==1 && suite.report.complete);
+    puts("PASS suite fixture changes stay silent, standalone/suite hyperspace PCM match, cue fires once and stops on exit");
+}
 static void timing(void) {
     Settings s; Performance p; int i, scene, result=0;
     settings_defaults(&s,1); performance_begin(&p,&g,&s,10);
@@ -170,4 +232,4 @@ static void weather_flights(void) {
     }
     puts("PASS upright planetary horizons, timed flight through rain/snow, cloud entry/core/exit and terrain clearance");
 }
-int main(void) { persistence(); menus(); timing(); weather_flights(); rendering(); performance_views(); return 0; }
+int main(void) { persistence(); menus(); timing(); weather_flights(); orbit_view(); benchmark_audio(); rendering(); performance_views(); return 0; }

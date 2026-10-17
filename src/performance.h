@@ -3,6 +3,7 @@
 #define ASTRALBOUND_PERFORMANCE_H
 #include "astralbound.h"
 #include "settings.h"
+#include "audio.h"
 #include <stdio.h>
 #define PERFORMANCE_SCENES 14
 #define PERFORMANCE_MIN_US 5000000ULL
@@ -11,7 +12,7 @@ typedef struct { uint64_t render_us, output_us, total_us; unsigned frames; uint3
 typedef struct { Settings settings; PerformanceResult result[PERFORMANCE_SCENES]; int complete, width, height; } PerformanceReport;
 typedef struct {
     PerformanceReport report;
-    int scene, selected, warmup, step;
+    int scene, selected, warmup, step, audio_scene;
     Vec flight_center, flight_forward; /* body-relative metres, world Q14 */
     int flight_span; /* half the weather fly-through distance, metres */
     uint32_t flight_tick;
@@ -19,6 +20,8 @@ typedef struct {
 void performance_begin(Performance *p, Game *g, const Settings *s, int selected);
 void performance_scene(Game *g, int scene);
 void performance_animate(Performance *p, Game *g);
+/* Reset event history at fixture boundaries; deliberately cue the tunnel. */
+int performance_audio(Performance *p, SpaceAudio *sound, const Game *g);
 /* Call after presenting. Returns 1 when finished, -1 on scene change. */
 int performance_record(Performance *p, Game *g, uint64_t render_us, uint64_t output_us, uint64_t total_us);
 /* Full-frame, unlabeled 3D effects; interface fixtures retain their own UI. */

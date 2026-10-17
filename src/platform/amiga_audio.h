@@ -54,6 +54,7 @@ static void audio_submit(int buffer) {
         struct IOAudio *r = audio_requests[n];
         r->ioa_Request.io_Command = CMD_WRITE;
         r->ioa_Request.io_Flags = ADIOF_PERVOL;
+        r->ioa_Request.io_Error = 0;
         r->ioa_Request.io_Unit = (struct Unit *)(1UL << channel);
         r->ioa_Data = (UBYTE *)stream_pcm[buffer];
         r->ioa_Length = STREAM_SAMPLES;
@@ -155,8 +156,21 @@ static void sound_pump(void) {
     }
 }
 static void sound_update(void) {
-    int n, effect = audio_observe(&sound, &g);
+    int n, changed=testing && performance.audio_scene!=performance.scene;
+    int effect=testing ? performance_audio(&performance,&sound,&g) : audio_observe(&sound,&g);
     if (!audio_opened) return;
+    if(rtg && changed) {
+        /* Driver buffers can contain half a second of the preceding effect.
+           Flush them under the running OS before submitting the new scene. */
+        for(n=0;n<4;n++) if(audio_pending[n]) {
+            AbortIO((struct IORequest *)audio_requests[n]);
+            WaitIO((struct IORequest *)audio_requests[n]);
+            audio_pending[n]=0;
+        }
+        stream_oldest=0;
+        audio_submit(0); audio_submit(1);
+        return;
+    }
     if (rtg) {
         /* Service in submission order to preserve PCM time when both finish. */
         for (n = 0; n < 2; n++) {
