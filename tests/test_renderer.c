@@ -1052,7 +1052,101 @@ static void port_scenery(void) {
     free(f.pixels); render_shutdown();
     puts("PASS varied port structures, open docking bore, scenery budget, beacon timing and depth in ECS/AGA/RTG");
 }
+static void low_city_terrain(void) {
+    static Game g;
+    Frame f={320,200,0,NULL,{0}};
+    Settings s; Graphics saved=graphics;
+    uint32_t *flat=malloc(640*480*sizeof(*flat));
+    int mode,detail,x,y;
+    f.pixels=malloc(640*480); assert(f.pixels && flat);
+    for(mode=0;mode<3;mode++) for(detail=0;detail<2;detail++) {
+        const Planet *p; Vec front,right,up;
+        f.w=mode==2 ? 640 : 320; f.h=mode==2 ? 480 : mode==1 ? 256 : 200; f.enhanced=mode!=0;
+        settings_defaults(&s,1); s.gfx.scale=0; s.gfx.terrain=detail;
+        render_graphics(&s.gfx); assert(render_init(&f));
+        performance_scene(&g,4); render_performance_scene(&g,&f);
+        {
+            int holes=0;
+            for(y=f.h/2;y<f.h;y++) for(x=0;x<f.w;x++) holes+=depth_buffer[y*f.w+x]==0;
+            assert(holes<f.w/32); /* no black slivers through the ground */
+        }
+        memcpy(flat,depth_buffer,(size_t)f.w*f.h*sizeof(*flat));
+        p=&g.system.planets[g.body]; front=forward(camera_yaw,camera_pitch);
+        right=vec(cosi(camera_yaw),0,-sini(camera_yaw)); up=unit(cross(front,right),16384);
+        for(y=f.h*3/4;y<f.h*15/16;y+=f.h/16) for(x=f.w*3/8;x<=f.w*5/8;x+=f.w/8) {
+            uint32_t d=depth_buffer[y*f.w+x]; int64_t z; Vec at,local;
+            assert(d); z=1073741824LL/d;
+            at=add(scale(camera_position,1,FP),add(scale(front,z,16384),
+                add(scale(right,(x-f.w/2)*z/(f.w/2),16384),scale(up,(f.h/2-y)*z/(f.w/2),16384))));
+            local=sub(at,p->center);
+            assert(llabs(length(local)-p->radius-terrain_height(p,local))<32);
+        }
+        s.gfx.texture=1; render_graphics(&s.gfx); render_performance_scene(&g,&f);
+        assert(!memcmp(flat,depth_buffer,(size_t)f.w*f.h*sizeof(*flat)));
+        /* Check the small window's actual recentering edges, including the
+           negative side where floor snapping previously stretched the fade. */
+        for(x=-512;x<=512;x+=64) {
+            int step=256,edge,along;
+            for(edge=-1;edge<=1;edge+=2) for(along=-4;along<=4;along++) {
+                int u=terrain_floor(x+step,step*2)*step*2+edge*TERRAIN_LOW_GRID*step;
+                int v=along*step,pv=terrain_floor(v,step*2)*step*2;
+                Vec child=terrain_grid_vertex(p,2,u,v,step,x,0);
+                Vec a=terrain_grid_vertex(p,2,u,pv,step*2,x,0);
+                Vec b=terrain_grid_vertex(p,2,u,pv+step*2,step*2,x,0);
+                assert(length(sub(child,add(a,scale(sub(b,a),v-pv,step*2))))<4);
+            }
+        }
+    }
+    free(flat); free(f.pixels); render_shutdown(); render_graphics(&saved);
+    puts("PASS Low/Minimum city ground matches collision, flat/textured depth agrees and small terrain LOD edges join in ECS/AGA/RTG");
+}
+static void scaled_flight_labels(void) {
+    static Game g;
+    Frame f={320,200,0,NULL,{0}};
+    Settings s; Graphics saved=graphics;
+    uint8_t *baseline=malloc(640*480);
+    int mode,pixel_size,x,y;
+    f.pixels=malloc(640*480+16); assert(f.pixels && baseline);
+    for(mode=0;mode<3;mode++) {
+        int height;
+        f.w=mode==2 ? 640 : 320; f.h=mode==2 ? 480 : mode==1 ? 256 : 200; f.enhanced=mode!=0;
+        game_init(&g,0x53504143); g.docked=g.frame_body=-1; g.pos=vec(0,AU_METRES*FP,0);
+        g.yaw=g.pitch=g.roll=0; g.nports=0; g.target=-1; g.target_body=g.body=0;
+        memset(g.npc,0,sizeof(g.npc)); g.system.count=1;
+        g.system.planets[0].center=add(scale(g.pos,1,FP),vec(0,0,10000000));
+        g.system.planets[0].radius=1000; g.system.planets[0].atmosphere=0;
+        g.system.planets[0].climate=VACUUM; g.system.planets[0].parent=-1;
+        snprintf(g.system.planets[0].name,sizeof(g.system.planets[0].name),"TEXT SCALE");
+        settings_defaults(&s,1); s.gfx.labels=1; s.gfx.stars=0;
+        for(pixel_size=0;pixel_size<4;pixel_size++) {
+            s.gfx.scale=pixel_size; render_graphics(&s.gfx); assert(render_init(&f));
+            memset(f.pixels+f.w*f.h,0xa5,16); render_game(&g,&f); height=ui_view_height(&g,&f);
+            if(!pixel_size) memcpy(baseline,f.pixels,(size_t)f.w*f.h);
+            /* Target name, view/contact status and world body label use the
+               same glyph pixels and layout at 1x, 2x, 3x and 4x 3D pixels. */
+            for(y=8;y<40;y++) for(x=7;x<150;x++) assert(f.pixels[y*f.w+x]==baseline[y*f.w+x]);
+            for(y=height/2+6;y<height/2+14;y++)
+                for(x=f.w/2+7;x<f.w/2+67;x++) assert(f.pixels[y*f.w+x]==baseline[y*f.w+x]);
+            for(x=0;x<16;x++) assert(f.pixels[f.w*f.h+x]==0xa5);
+        }
+        for(y=0;y<2;y++) {
+            Frame expected=f;
+            int phase=y,i;
+            expected.pixels=baseline; frame=&expected; draw_scale=1;
+            memset(baseline,0,(size_t)f.w*f.h);
+            if(phase) hyperspace_tunnel_labels(&g,32); else hyperspace_charge_labels(32);
+            g.hyperspace=phase ? HYPER_CHARGE+33 : 33;
+            for(pixel_size=0;pixel_size<4;pixel_size++) {
+                s.gfx.scale=pixel_size; render_graphics(&s.gfx); render_game(&g,&f);
+                for(i=0;i<f.w*30;i++) if(baseline[i]) assert(f.pixels[i]==baseline[i]);
+            }
+        }
+    }
+    free(baseline); free(f.pixels); render_shutdown(); render_graphics(&saved);
+    puts("PASS native-size flight and body labels independent of 1x/2x/3x/4x 3D pixel size in ECS/AGA/RTG");
+}
 int main(int argc, char **argv) {
+    if(argc>1 && !strcmp(argv[1],"--low-graphics")) { low_city_terrain(); scaled_flight_labels(); return 0; }
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;
     intro_frames();
@@ -1118,6 +1212,8 @@ int main(int argc, char **argv) {
     weapon_visibility();
     body_labels();
     rolled_camera();
+    low_city_terrain();
+    scaled_flight_labels();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");
     return 0;
 }

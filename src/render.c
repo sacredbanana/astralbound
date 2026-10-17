@@ -25,7 +25,7 @@ typedef struct {
 static Tri *triangles;
 static int triangle_capacity, triangle_limit;
 static Graphics graphics = {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1};
-static int graphics_configured, scene_only, scaled_view_h, performance_camera;
+static int graphics_configured, scene_only, scaled_view_h, performance_camera, weather_status;
 static uint8_t *scaled_pixels;
 static size_t scaled_capacity;
 static int nt;
@@ -307,7 +307,9 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     if (nt >= triangle_limit)
         return;
     t = &triangles[nt];
-    t->surface = graphics.texture ? terrain_surface : NULL;
+    /* Terrain needs the precise depth plane even with flat colours. Pixel
+       shading is optional; stable terrain/structure occlusion is not. */
+    t->surface = terrain_surface;
     t->slope = (int8_t)slope;
 #ifdef ASTRALBOUND_FPU
     /* One reciprocal replaces six 64-bit divisions per vertex. Clipping
@@ -558,9 +560,9 @@ static void raster(const Tri *t) {
     int64_t zx = az * by - bz * ay, zy = ax * bz - bx * az;
     int64_t dz;
     int64_t depth_x = 0, depth_y = 0;
-    if (!area)
+    if (!area && !t->surface)
         return;
-    dz = zx * 256 / area;
+    dz = t->surface ? 0 : zx * 256 / area;
     if (t->surface) {
         int64_t ax = t->surface_x[1] - t->surface_x[0];
         int64_t ay = t->surface_y[1] - t->surface_y[0];
@@ -582,6 +584,15 @@ static void raster(const Tri *t) {
         if (t->y[i] > maxy)
             maxy = t->y[i];
     }
+    int terrain_y0=0,terrain_y1=0;
+    if(t->surface) {
+        terrain_y0=terrain_y1=t->surface_y[0];
+        for(i=1;i<3;i++) {
+            if(t->surface_y[i]<terrain_y0) terrain_y0=t->surface_y[i];
+            if(t->surface_y[i]>terrain_y1) terrain_y1=t->surface_y[i];
+        }
+        miny=(terrain_y0-128+255)>>8; maxy=(terrain_y1+128)>>8;
+    }
     if (miny < view_top)
         miny = view_top;
     if (maxy >= view_h)
@@ -590,7 +601,18 @@ static void raster(const Tri *t) {
         int xs[3], n = 0, j;
         for (i = 0; i < 3; i++) {
             j = (i + 1) % 3;
-            if ((t->y[i] <= y && t->y[j] > y) || (t->y[j] <= y && t->y[i] > y)) {
+            if(t->surface) {
+                int sy=y*256,yi=t->surface_y[i],yj=t->surface_y[j];
+                if(sy<terrain_y0) sy=terrain_y0;
+                if(sy>=terrain_y1) sy=terrain_y1-1;
+                if((yi<=sy && yj>sy) || (yj<=sy && yi>sy)) {
+                    int dx=t->surface_x[j]-t->surface_x[i],dy=sy-yi;
+                    /* Low-resolution facets normally fit exact 32-bit edge
+                       arithmetic; reserve wide division for long spans. */
+                    xs[n++]=t->surface_x[i]+(abs(dx)<32768 && abs(dy)<32768
+                        ? dy*dx/(yj-yi) : (int)((int64_t)dy*dx/(yj-yi)));
+                }
+            } else if ((t->y[i] <= y && t->y[j] > y) || (t->y[j] <= y && t->y[i] > y)) {
                 int dx = t->x[j] - t->x[i];
                 /* Clamped coordinates keep |y - y[i]| below 65536; a 32-bit
                    product is exact unless a clipped edge spans 32768 pixels. */
@@ -603,16 +625,22 @@ static void raster(const Tri *t) {
         if (n >= 2) {
             int l = xs[0] < xs[1] ? xs[0] : xs[1], r = xs[0] > xs[1] ? xs[0] : xs[1];
             int64_t z;
+            /* Coverage must use the same subpixel projection as depth.
+               Rounding a fine edge's midpoint independently of its parent
+               edge otherwise opens black slivers at terrain LOD junctions. */
+            /* Cover the pixel footprint, with a half-pixel guard for the
+               metre-rounded world vertices shared by two terrain levels. */
+            if(t->surface) { l=(l+127)>>8; r=(r+128)>>8; }
             if (l < view_left)
                 l = view_left;
             /* Evaluate the triangle's depth plane at the actual pixel, not
                at a rounded scanline edge. This keeps shared faces coherent. */
-            z = ((int64_t)t->inverse_z[0] +
-                (zx * (l - t->x[0]) + zy * (y - t->y[0])) / area) * 256;
             if (t->surface)
                 z = t->surface_depth[0] +
                     (depth_x * (l * 256 - t->surface_x[0]) +
                      depth_y * (y * 256 - t->surface_y[0])) / 256;
+            else z = ((int64_t)t->inverse_z[0] +
+                (zx * (l - t->x[0]) + zy * (y - t->y[0])) / area) * 256;
             if (r >= frame->w - view_right_inset)
                 r = frame->w - view_right_inset - 1;
             if (r >= l) {
@@ -622,7 +650,7 @@ static void raster(const Tri *t) {
                 int64_t end = z + dz * (r - l);
                 /* Most distant polygons fit Q8 depth in 32 bits. Keep an
                    exact wide fallback for nearby/clipped geometry. */
-                if (t->surface) {
+                if (t->surface && graphics.texture) {
                     int block, left = t->x[0], right = t->x[0], block_width;
                     for (i = 1; i < 3; i++) {
                         if (t->x[i] < left) left = t->x[i];
@@ -1169,6 +1197,9 @@ static int cache_globe(int body) {
    visible cells, but never relocates the terrain samples. Outer vertices
    continuously converge on the next level's triangles before cells retire. */
 #define TERRAIN_GRID 8
+/* The small window uses centred snapping and a later morph band, so its
+   child perimeter meets an unmorphed parent even as the camera recentres. */
+#define TERRAIN_LOW_GRID 6
 #define TERRAIN_FINE_STEP 256
 #define TERRAIN_VERTEX_CACHE 8192
 static struct {
@@ -1212,7 +1243,9 @@ static Vec terrain_grid_vertex(const Planet *p, int face, int u, int v, int step
     int distance = abs(u - camera_u), dv = abs(v - camera_v);
     int parent_step = step * 2, blend;
     if (dv > distance) distance = dv;
-    blend = (int)((int64_t)(distance - (TERRAIN_GRID - 3) * step) * 65536 / step);
+    int grid = graphics.terrain <= 1 ? TERRAIN_LOW_GRID : TERRAIN_GRID;
+    int band = grid == TERRAIN_LOW_GRID ? grid - 2 : grid - 3;
+    blend = (int)((int64_t)(distance - band * step) * 65536 / step);
     if (blend > 0) {
         int pu = terrain_floor(u, parent_step) * parent_step;
         int pv = terrain_floor(v, parent_step) * parent_step;
@@ -1285,7 +1318,7 @@ static int patch_visible(const Planet *p, Vec local, Vec a, Vec b, Vec c, Vec d)
     return 0;
 }
 static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
-    int grid = graphics.terrain <= 1 ? 4 : TERRAIN_GRID;
+    int grid = graphics.terrain <= 1 ? TERRAIN_LOW_GRID : TERRAIN_GRID;
     Vec fixed = body_rotate(p, local, 1);
     int64_t direction[3] = {fixed.x, fixed.y, fixed.z};
     int face, camera_u, camera_v, x, y, first = step, flat = !terrain_surface;
@@ -1305,8 +1338,9 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
     }
     for (;; step *= 2) {
         if(nt >= triangle_limit) break;
-        int u0 = terrain_floor(camera_u, step * 2) * step * 2 - grid * step;
-        int v0 = terrain_floor(camera_v, step * 2) * step * 2 - grid * step;
+        int snap = grid == TERRAIN_LOW_GRID ? step : 0;
+        int u0 = terrain_floor(camera_u + snap, step * 2) * step * 2 - grid * step;
+        int v0 = terrain_floor(camera_v + snap, step * 2) * step * 2 - grid * step;
         int u1 = u0 + grid * 2 * step;
         int v1 = v0 + grid * 2 * step;
         for (y = 0; y <= grid * 2; y++) {
@@ -1371,6 +1405,13 @@ static void planet_mesh(int body) {
     int patch = body == game->body && altitude >= TERRAIN_DETAIL_ALTITUDE &&
                 altitude < radius && p->type != GAS_GIANT;
     terrain_surface = body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE ? p : NULL;
+    if (terrain_surface && fine_step > TERRAIN_FINE_STEP) {
+        /* Keep the physical 256 m lattice around low flight and cities.
+           Low reduces the window and distant detail, rather than stretching
+           kilometre-wide facets across the camera and landing pads. */
+        fine_step = TERRAIN_FINE_STEP;
+        while (fine_step < altitude / 8 && fine_step < steps[graphics.terrain]) fine_step *= 2;
+    }
     if (terrain_surface) surface_lod_prepare(p, altitude);
     {
         Vec c = camera(p->center);
@@ -1790,7 +1831,7 @@ static void weather_overlay(void) {
     int x, y, i, lit = surface_light(&game->system, p, local) > 0;
     if (density) {
         cloud_fog(density, lit);
-        if (!cinema) text(8, 32, 15, "IN CLOUD");
+        weather_status |= 1;
     }
     if (rain) {
         for (i = 0; i < (frame->enhanced ? 48 : 24) * (cinema ? 2 : 1); i++) {
@@ -1800,7 +1841,7 @@ static void weather_overlay(void) {
             y = (int)(((h >> 16) + (cinema ? game->ui_clock : game->tick) * (rain == 1 ? 9U : 2U)) % (unsigned)view_h);
             rect(x, y, rain == 1 ? 1 : 2, rain == 1 ? 7 : 2, lit ? 7 : 8);
         }
-        if (!cinema) text(8, 44, 15, rain == 1 ? "RAIN" : "SNOW");
+        weather_status |= rain == 1 ? 2 : 4;
     }
 }
 /* NPC hulls point along their velocity through the local air when inside an
@@ -2954,6 +2995,17 @@ static void hyper_title(const char *title, const char *detail, int blink) {
     if (blink) text(w / 2 - (int)strlen(title) * 3, 12, 15, title);
     if (detail) text(w / 2 - (int)strlen(detail) * 3, 22, 12, detail);
 }
+static void hyperspace_charge_labels(int t) {
+    int cx=frame->w/2,p=t*256/HYPER_CHARGE;
+    hyper_title("HYPERSPACE CHARGING",NULL,1);
+    rect(cx-50,22,100,5,0);
+    rect(cx-49,23,p*98/256,3,p>208 ? 31 : 13);
+}
+static void hyperspace_tunnel_labels(const Game *g,int t) {
+    char buf[40];
+    snprintf(buf,sizeof(buf),"DESTINATION %.24s",g->system.name);
+    hyper_title("HYPERSPACE",buf,(t/6)%4!=3);
+}
 static void hyperspace_charge(int t) {
     int w = frame->w, cx = w / 2, cy = view_h / 2, i;
     int p = t * 256 / HYPER_CHARGE, r;
@@ -2980,9 +3032,7 @@ static void hyperspace_charge(int t) {
     r += sini(t * 96) * r / (16384 * 6);
     disc(cx, cy, r, 27); disc(cx, cy, r * 3 / 4, 13);
     disc(cx, cy, r / 2, 15); disc(cx, cy, r / 4, 31);
-    hyper_title("HYPERSPACE CHARGING", NULL, 1);
-    rect(cx - 50, 22, 100, 5, 0);
-    rect(cx - 49, 23, p * 98 / 256, 3, p > 208 ? 31 : 13);
+    if(!scene_only) hyperspace_charge_labels(t);
     if (p > 200) hyper_flash((p - 200) * 17 / 56);
 }
 /* The tunnel bends smoothly: offset grows with the square of depth, and the
@@ -2997,7 +3047,6 @@ static void hyperspace_tunnel(const Game *g, int t) {
     int w = frame->w, k, j, i, cx, cy, r;
     int vx[HYPER_RINGS][HYPER_SEGMENTS], vy[HYPER_RINGS][HYPER_SEGMENTS], colour[HYPER_RINGS];
     int travel = t < 16 ? t * t * 18 / 32 : (t - 8) * 18;
-    char buf[40];
     rect(0, 0, w, view_h, 0);
     for (k = 0; k < HYPER_RINGS; k++) {
         int z = k * 64 + 64 - travel % 64, rot = t * 4 + z / 6, id = k + travel / 64;
@@ -3035,8 +3084,7 @@ static void hyperspace_tunnel(const Game *g, int t) {
         line(x0 + cosi(a) * r0 / 16384, y0 + sini(a) * r0 / 16384,
              x1 + cosi(a) * r1 / 16384, y1 + sini(a) * r1 / 16384, z < 160 ? 31 : z < 400 ? 15 : 13);
     }
-    snprintf(buf, sizeof(buf), "DESTINATION %.24s", g->system.name);
-    hyper_title("HYPERSPACE", buf, (t / 6) % 4 != 3);
+    if(!scene_only) hyperspace_tunnel_labels(g,t);
     if (t < 8) hyper_flash(16 - t * 2);
     if (t >= HYPER_TUNNEL - 6) hyper_flash((t - (HYPER_TUNNEL - 6)) * 17 / 6);
 }
@@ -3251,10 +3299,50 @@ static void foot_hud(void) {
         text(7, 32, 12, s);
     }
 }
+/* Flight labels and instruments belong to output pixels, independent of the
+   3D render scale. Camera attitude/position survives the low-resolution pass. */
+static void flight_overlays(const Game *g, Frame *f) {
+    if (g->hyperspace > HYPER_CHARGE && g->hyperspace <= HYPER_CHARGE + HYPER_TUNNEL) return;
+    if (graphics.labels && !g->dead) system_body_labels();
+    if (weather_status & 1) text(8,32,15,"IN CLOUD");
+    if (weather_status & 6) text(8,44,15,weather_status & 2 ? "RAIN" : "SNOW");
+    if (g->page == FLIGHT && !g->dead && g->on_foot) {
+        foot_hud();
+    } else if (g->page == FLIGHT && !g->dead) {
+        Vec p = camera(scale(navigation_position(g), 1, FP));
+        const char *name = g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name;
+        char range[24];
+        int x, y, label_x, label_y, label_w;
+        target_range_text(length(sub(navigation_position(g), g->pos)) / FP, range, sizeof(range));
+        label_w = (int)(strlen(name) > strlen(range) ? strlen(name) : strlen(range)) * 6;
+        target_marker_position(p, 10, &x, &y);
+        line(x - 8, y - 8, x + 8, y - 8, 13);
+        line(x - 8, y + 8, x + 8, y + 8, 13);
+        line(x - 8, y - 8, x - 8, y + 8, 13);
+        line(x + 8, y - 8, x + 8, y + 8, 13);
+        label_x = x - 30;
+        if (label_x + label_w > f->w - 2) label_x = f->w - 2 - label_w;
+        if (label_x < 2) label_x = 2;
+        /* Name and range stack under the box, or above it near the console. */
+        label_y = y + 12;
+        if (label_y + 16 > view_h - 25) label_y = y - 28;
+        text(label_x, label_y, 13, name);
+        text(label_x, label_y + 9, 13, range);
+        text(7, 8, 13,
+             name);
+        if (!g->camera_mode || g->camera_mode >= 3) {
+            line(f->w / 2 - 9, view_h / 2, f->w / 2 - 3, view_h / 2, 15);
+            line(f->w / 2 + 3, view_h / 2, f->w / 2 + 9, view_h / 2, 15);
+            line(f->w / 2, view_h / 2 - 9, f->w / 2, view_h / 2 - 3, 15);
+        }
+        sensors();
+    }
+}
 static void render_game_full(const Game *g, Frame *f) {
     int i;
     frame = f;
     game = g;
+    weather_status = 0;
     if (g->page != FLIGHT) {
         view_h=f->h;
         gui();
@@ -3341,39 +3429,8 @@ static void render_game_full(const Game *g, Frame *f) {
         if(graphics.weather) weather_overlay();
         destruction_effects();
         if(!cinema || performance_camera) weapon_effects();
-        if (graphics.labels && !g->dead && !cinema) system_body_labels();
     }
-    if (g->page == FLIGHT && !g->dead && !cinema && g->on_foot) {
-        foot_hud();
-    } else if (g->page == FLIGHT && !g->dead && !cinema) {
-        Vec p = camera(scale(navigation_position(g), 1, FP));
-        const char *name = g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name;
-        char range[24];
-        int x, y, label_x, label_y, label_w;
-        target_range_text(length(sub(navigation_position(g), g->pos)) / FP, range, sizeof(range));
-        label_w = (int)(strlen(name) > strlen(range) ? strlen(name) : strlen(range)) * 6;
-        target_marker_position(p, 10, &x, &y);
-        line(x - 8, y - 8, x + 8, y - 8, 13);
-        line(x - 8, y + 8, x + 8, y + 8, 13);
-        line(x - 8, y - 8, x - 8, y + 8, 13);
-        line(x + 8, y - 8, x + 8, y + 8, 13);
-        label_x = x - 30;
-        if (label_x + label_w > f->w - 2) label_x = f->w - 2 - label_w;
-        if (label_x < 2) label_x = 2;
-        /* Name and range stack under the box, or above it near the console. */
-        label_y = y + 12;
-        if (label_y + 16 > view_h - 25) label_y = y - 28;
-        text(label_x, label_y, 13, name);
-        text(label_x, label_y + 9, 13, range);
-        text(7, 8, 13,
-             name);
-        if (!g->camera_mode || g->camera_mode >= 3) {
-            line(f->w / 2 - 9, view_h / 2, f->w / 2 - 3, view_h / 2, 15);
-            line(f->w / 2 + 3, view_h / 2, f->w / 2 + 9, view_h / 2, 15);
-            line(f->w / 2, view_h / 2 - 9, f->w / 2, view_h / 2 - 3, 15);
-        }
-        sensors();
-    }
+    if (!cinema && !scene_only) flight_overlays(g,f);
     if (g->hyperspace && g->hyperspace <= HYPER_CHARGE)
         hyperspace_charge(g->hyperspace - 1);
     else if (g->hyperspace > HYPER_CHARGE + HYPER_TUNNEL)
@@ -3409,7 +3466,12 @@ void render_game(const Game *g, Frame *f) {
         render_game_full(g,&low);
         scene_only=0;
         enlarge(&low,f,height);
-        frame=f; game=g; view_h=height; draw_scale=1; gui();
+        frame=f; game=g; view_h=height; draw_scale=1;
+        flight_overlays(g,f);
+        if(g->hyperspace && g->hyperspace<=HYPER_CHARGE) hyperspace_charge_labels(g->hyperspace-1);
+        else if(g->hyperspace>HYPER_CHARGE && g->hyperspace<=HYPER_CHARGE+HYPER_TUNNEL)
+            hyperspace_tunnel_labels(g,g->hyperspace-HYPER_CHARGE-1);
+        gui();
     } else render_game_full(g,f);
 }
 /* Planes are contiguous and MSB-first, independent of host byte order. */
