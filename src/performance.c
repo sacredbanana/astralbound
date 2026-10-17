@@ -54,6 +54,24 @@ static void orbit_camera(Game *g, uint64_t elapsed) {
     aim_angles(scale(offset,-1,1),&g->yaw,&g->pitch);
     g->roll=0;
 }
+static void combat_weapons(Game *g, uint64_t tick) {
+    int i;
+    weapons_reset(g);
+    weapon_player(g,forward(g->yaw,g->pitch),5000);
+    for(i=0;i<8;i++) {
+        weapon_npc(g,i);
+        if(i<4) weapon_bolt(g,g->npc[i].pos,g->npc[7-i].pos,g->npc[i].vel,11);
+    }
+    for(i=0;i<MAX_WEAPON_BOLTS;i++) if(g->bolts[i].ticks)
+        g->bolts[i].age=(int)((tick+i*3)%g->bolts[i].ticks);
+    for(i=0;i<2;i++) {
+        Vec start=add(g->pos,vec((i ? 320 : -350)*FP,80*FP,300*FP));
+        Vec direction=unit(sub(g->npc[7-i].pos,start),16384);
+        g->projectiles[i]=(Missile){add(start,scale(direction,(int64_t)(tick%64)*15*FP,16384)),
+            add(g->npc[7-i].vel,scale(direction,900*FP,16384)),1,7-i,HZ*20};
+    }
+    g->tick=(uint32_t)tick;
+}
 void performance_scene(Game *g, int scene) {
     Planet *p; int i;
     game_init(g,scene>=6 && scene<=8 ? 37 : 0x53504143);
@@ -127,7 +145,8 @@ void performance_scene(Game *g, int scene) {
         }
         for(i=0;i<MAX_SMOKE;i++) g->smoke[i]=(Smoke){add(g->pos,vec((i%12-6)*60LL*FP,(i/12-4)*40LL*FP,(500+i*12LL)*FP)),vec(0,0,0),1,i%40,-1,12+(i%15),hash32((unsigned)i)};
         for(i=0;i<4;i++) g->blasts[i]=(Blast){add(g->pos,vec((i-2)*300LL*FP,0,(1400+i*300LL)*FP)),vec(0,0,0),1,12+i*4,-1,100,hash32((unsigned)i)};
-        g->laser=1; g->combat_target=2;
+        g->combat_target=2;
+        combat_weapons(g,0);
     }
     if(scene==10) g->hyperspace=HYPER_CHARGE+HZ*2;
     if(scene==11) { g->page=SYSTEM_MAP; g->system_display=1; }
@@ -199,7 +218,9 @@ void performance_animate(Performance *p, Game *g) {
         g->hyperspace=HYPER_CHARGE+1+(int)ticks;
     }
     if(p->scene==9) {
-        int i; for(i=0;i<MAX_SMOKE;i++) g->smoke[i].age=(i+p->step)%50;
+        int i; uint64_t tick=p->report.result[9].total_us*HZ/1000000;
+        combat_weapons(g,tick);
+        for(i=0;i<MAX_SMOKE;i++) g->smoke[i].age=(i+p->step)%50;
         for(i=0;i<4;i++) g->blasts[i].age=4+(i*7+p->step)%36;
     }
 }

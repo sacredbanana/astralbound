@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Isrc
 HEADERS = $(wildcard src/*.h src/*.inc) src/third_party/micromod/micromod.h
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/render.c
 .PHONY: all test sanitize preview clean amiga
 all: build/astralbound
 build:
@@ -52,7 +52,7 @@ amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
 	rm -f build/settings-tests build/settings-tests-sanitize build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
-	rm -f build/port-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
+	rm -f build/port-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 build/intro-preview: $(CORE) $(HEADERS) tools/intro_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/intro_preview.c -o $@
@@ -110,6 +110,13 @@ build/career-preview: $(CORE) $(HEADERS) tools/career_preview.c | build
 career-preview: build/career-preview
 	mkdir -p build/evidence
 	./build/career-preview
+
+build/weapons-preview: $(CORE) $(HEADERS) tools/weapons_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/weapons_preview.c -o $@
+.PHONY: weapons-preview
+weapons-preview: build/weapons-preview
+	mkdir -p build/evidence
+	./build/weapons-preview
 
 .PHONY: npc-preview
 build/npc-preview: $(CORE) $(HEADERS) tools/npc_preview.c | build

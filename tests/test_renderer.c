@@ -3,6 +3,53 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+static void weapon_visibility(void) {
+    static Game g;
+    Frame f={320,200,0,NULL,{0}};
+    Graphics saved=graphics;
+    Settings settings;
+    uint8_t *first=malloc(640*480);
+    int mode,quality,i,count,different;
+    f.pixels=malloc(640*480); assert(f.pixels && first);
+    for(mode=0;mode<3;mode++) for(quality=0;quality<2;quality++) {
+        f.w=mode==2 ? 640 : 320; f.h=mode==2 ? 480 : mode==1 ? 256 : 200; f.enhanced=mode!=0;
+        settings_defaults(&settings,1); settings_preset(&settings,quality ? QUALITY_HIGH : QUALITY_LOW);
+        render_graphics(&settings.gfx); assert(render_init(&f));
+        game_init(&g,0x53504143); g.docked=g.frame_body=-1;
+        g.pos=vec(0,AU_METRES*FP,0); g.yaw=g.pitch=g.roll=0;
+        render_game(&g,&f); frame=&f; game=&g; view_h=f.h-32*ui_scale(&f);
+        memset(f.pixels,0,(size_t)f.w*f.h);
+        for(i=0;i<f.w*view_h;i++) depth_buffer[i]=1073741824U/100;
+        weapon_beam(add(g.pos,vec(-300*FP,100*FP,600*FP)),add(g.pos,vec(300*FP,100*FP,1200*FP)),11,1);
+        for(i=0;i<f.w*f.h;i++) assert(!f.pixels[i]); /* hidden by terrain/hulls */
+        memset(depth_buffer,0,depth_capacity*sizeof(*depth_buffer));
+        weapon_bolt(&g,add(g.pos,vec(-400*FP,130*FP,800*FP)),add(g.pos,vec(400*FP,130*FP,1800*FP)),vec(0,0,0),11);
+        weapon_effects(); count=0;
+        for(i=0;i<f.w*view_h;i++) count+=f.pixels[i]!=0;
+        assert(count>5); memcpy(first,f.pixels,(size_t)f.w*f.h);
+        weapons_tick(&g); memset(f.pixels,0,(size_t)f.w*f.h); weapon_effects(); different=0;
+        for(i=0;i<f.w*view_h;i++) different+=first[i]!=f.pixels[i];
+        assert(different>5); /* a moving streak, not a fixed cockpit overlay */
+        weapons_reset(&g); memset(f.pixels,0,(size_t)f.w*f.h);
+        g.projectiles[0]=(Missile){add(g.pos,vec(150*FP,80*FP,500*FP)),vec(800*FP,0,400*FP),1,0,HZ*20};
+        weapon_effects(); count=0;
+        for(i=0;i<f.w*view_h;i++) count+=f.pixels[i]!=0;
+        assert(count>2); /* missiles retain a visible engine at minimum detail */
+        memset(f.pixels,0,(size_t)f.w*f.h);
+        /* Clip a long beam and a crossing of the camera near plane. */
+        weapon_beam(add(g.pos,vec(-100000*FP,0,100*FP)),add(g.pos,vec(100000*FP,0,100*FP)),12,1);
+        weapon_beam(add(g.pos,vec(30*FP,10*FP,-100*FP)),add(g.pos,vec(30*FP,10*FP,1000*FP)),13,1);
+        count=0;
+        for(i=0;i<f.w*view_h;i++) { assert(f.pixels[i]<32); count+=f.pixels[i]!=0; }
+        assert(count>=f.w);
+        for(i=f.w*view_h;i<f.w*f.h;i++) assert(!f.pixels[i]);
+        memset(f.pixels,0,(size_t)f.w*f.h);
+        weapon_beam(add(g.pos,vec(0,0,-500*FP)),add(g.pos,vec(0,0,-100*FP)),12,1);
+        for(i=0;i<f.w*f.h;i++) assert(!f.pixels[i]);
+    }
+    free(first); free(f.pixels); render_shutdown(); render_graphics(&saved);
+    puts("PASS moving laser bolts and missile exhaust, depth occlusion, near/screen clipping and HUD bounds in ECS/AGA/RTG Low/High");
+}
 static void destruction_visibility(void) {
     static Game g;
     Frame f = {320,200,0,NULL,{0}};
@@ -1068,6 +1115,7 @@ int main(int argc, char **argv) {
     warp_readout();
     speed_readout();
     destruction_visibility();
+    weapon_visibility();
     body_labels();
     rolled_camera();
     puts("PASS depth, polar contrast, PAL/NTSC layout, compact menus and 200-line C2P");

@@ -38,6 +38,7 @@
 #define FACTIONS 3
 #define MAX_PODS 8
 #define MAX_MISSILES 8
+#define MAX_WEAPON_BOLTS 32
 #define MAX_RIGS 4
 #define MAX_DEPOSITS 32
 #define ASTEROIDS 8
@@ -154,6 +155,9 @@ typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
 #define HYPER_TOTAL (HYPER_CHARGE + HYPER_TUNNEL + HYPER_EXIT)
 typedef struct { Vec pos, vel; int active, good, quantity, mission; } CargoPod;
 typedef struct { Vec pos, vel; int active, target, ttl; } Missile;
+/* Transient laser presentation: fixed-tick travel between Q8 endpoints.
+   Damage remains on the existing weapon path; drift follows the local frame. */
+typedef struct { Vec start, end, drift; int age, ticks, colour; } WeaponBolt;
 typedef struct { Sector sector; int body, stock; Vec anchor; uint32_t last_tick; } MiningRig;
 typedef struct { Sector sector; int ore[ASTEROIDS]; } Deposit;
 /* Transient destruction presentation. Body >= 0 uses body-fixed Q8 coordinates,
@@ -229,6 +233,8 @@ typedef struct {
     uint32_t blast_serial, destruction_clock;
     int death_started, death_yaw, smoke_next;
     int cinematic; /* transient: the title sequence is staging this Game */
+    WeaponBolt bolts[MAX_WEAPON_BOLTS];
+    unsigned bolt_next, bolt_count;
     char message[80];
 } Game;
 typedef struct {
@@ -275,6 +281,12 @@ void destruction_npc(Game *g, int index);
 void destruction_player(Game *g, int impact_body);
 void destruction_tick(Game *g);
 void destruction_rebase(Game *g, Vec delta, Vec velocity);
+void weapons_reset(Game *g);
+void weapons_tick(Game *g);
+void weapons_rebase(Game *g, Vec delta, Vec velocity);
+void weapon_bolt(Game *g, Vec start, Vec end, Vec drift, int colour);
+void weapon_player(Game *g, Vec direction, int distance);
+void weapon_npc(Game *g, int index);
 int fire_missile(Game *g);
 int countermeasure(Game *g);
 int escape_pod(Game *g);

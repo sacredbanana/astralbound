@@ -4,57 +4,6 @@
    are rasterised. Beams, glows, fades and the logo use only the 32 base
    colours and ordered dither: ECS, AGA and RTG show the same picture. */
 static const uint8_t intro_bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
-/* Camera-space point at the near plane between a and b (a behind it). */
-static Vec intro_near(Vec a, Vec b) {
-    int64_t span = b.z - a.z;
-    return vec(a.x + muldiv(b.x - a.x, 8 - a.z, span), a.y + muldiv(b.y - a.y, 8 - a.z, span), 8);
-}
-/* Depth-tested laser, clipped to the view (Liang-Barsky, Q16 parameter):
-   reciprocal depth is linear along the projected line. */
-static void intro_beam(const IntroBeam *b) {
-    Vec a = camera(scale(b->a, 1, FP)), c = camera(scale(b->b, 1, FP));
-    int64_t x0, y0, dx, dy, t0 = 0, t1 = 65536, edge[4][2];
-    int n, i, k, thick;
-    uint32_t da, dc;
-    if (a.z < 8 && c.z < 8) return;
-    if (a.z < 8) a = intro_near(a, c);
-    else if (c.z < 8) c = intro_near(c, a);
-    x0 = frame->w / 2 + a.x * (frame->w / 2) / a.z;
-    y0 = view_h / 2 - a.y * (frame->w / 2) / a.z;
-    dx = frame->w / 2 + c.x * (frame->w / 2) / c.z - x0;
-    dy = view_h / 2 - c.y * (frame->w / 2) / c.z - y0;
-    edge[0][0] = -dx; edge[0][1] = x0;
-    edge[1][0] = dx; edge[1][1] = frame->w - 1 - x0;
-    edge[2][0] = -dy; edge[2][1] = y0;
-    edge[3][0] = dy; edge[3][1] = view_h - 2 - y0;
-    for (k = 0; k < 4; k++) {
-        int64_t p = edge[k][0], q = edge[k][1], r;
-        if (!p) { if (q < 0) return; continue; }
-        r = q * 65536 / p;
-        if (p < 0) { if (r > t1) return; if (r > t0) t0 = r; }
-        else { if (r < t0) return; if (r < t1) t1 = r; }
-    }
-    da = (uint32_t)(1073741824LL / a.z); dc = (uint32_t)(1073741824LL / c.z);
-    {
-        int64_t sx = x0 + dx * t0 / 65536, sy = y0 + dy * t0 / 65536;
-        int64_t ex = x0 + dx * t1 / 65536, ey = y0 + dy * t1 / 65536;
-        int64_t sd = da + ((int64_t)dc - da) * t0 / 65536, ed = da + ((int64_t)dc - da) * t1 / 65536;
-        n = (int)(llabs(ex - sx) > llabs(ey - sy) ? llabs(ex - sx) : llabs(ey - sy));
-        if (n < 1) n = 1;
-        /* Close beams gain a white second row so they read as bolts. */
-        thick = (a.z < 900 || c.z < 900) ? 1 : 0;
-        for (i = 0; i <= n; i++) {
-            int x = (int)(sx + (ex - sx) * i / n), y = (int)(sy + (ey - sy) * i / n);
-            uint32_t depth = (uint32_t)(sd + (ed - sd) * i / n);
-            for (k = 0; k <= thick; k++) {
-                int yy = y + k;
-                if (x < 0 || x >= frame->w || yy < 0 || yy >= view_h) continue;
-                if (depth < depth_buffer[yy * frame->w + x]) continue;
-                frame->pixels[yy * frame->w + x] = (uint8_t)(k ? 31 : b->colour);
-            }
-        }
-    }
-}
 /* A soft emissive disc: white-hot core, coloured halo, dithered rim. The
    depth test uses the near surface, so exhausts show in front of their hull. */
 static void intro_glow(const IntroGlow *g) {
@@ -204,7 +153,7 @@ static void render_intro_full(const Intro *in, const Game *g, Frame *f) {
     cinema = in;
     render_game(g, &view);
     /* render_game leaves the projection set up for the sub-frame. */
-    for (i = 0; i < in->beams; i++) intro_beam(&in->beam[i]);
+    for (i = 0; i < in->beams; i++) weapon_beam(in->beam[i].a,in->beam[i].b,in->beam[i].colour,1);
     for (i = 0; i < in->glows; i++) intro_glow(&in->glow[i]);
     if (in->cockpit) {
         int cx = view.w / 2, cy = view_h / 2;

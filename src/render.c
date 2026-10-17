@@ -1984,6 +1984,8 @@ static void destruction_effects(void) {
     for (i = 0; i < sprite_count; i++) destruction_disc(&destruction_sprites[i]);
 }
 
+#include "render_weapons.inc"
+
 #include "render_ports.inc"
 
 static void npc_hulls(void) {
@@ -3223,6 +3225,7 @@ static void render_game_full(const Game *g, Frame *f) {
         world();
         if(graphics.weather) weather_overlay();
         destruction_effects();
+        if(!cinema || performance_camera) weapon_effects();
         if (graphics.labels && !g->dead && !cinema) system_body_labels();
     }
     if (g->page == FLIGHT && !g->dead && !cinema) {
@@ -3251,10 +3254,6 @@ static void render_game_full(const Game *g, Frame *f) {
             line(f->w / 2 - 9, view_h / 2, f->w / 2 - 3, view_h / 2, 15);
             line(f->w / 2 + 3, view_h / 2, f->w / 2 + 9, view_h / 2, 15);
             line(f->w / 2, view_h / 2 - 9, f->w / 2, view_h / 2 - 3, 15);
-        }
-        if (g->laser && (!g->camera_mode || g->camera_mode >= 3)) {
-            line(20, view_h - 20, f->w / 2, view_h / 2, 12);
-            line(f->w - 20, view_h - 20, f->w / 2, view_h / 2, 12);
         }
         sensors();
     }

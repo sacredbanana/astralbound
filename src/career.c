@@ -293,6 +293,7 @@ void career_system(Game *g) {
     memset(g->npc_ship, 0, sizeof(g->npc_ship));
     memset(g->pods, 0, sizeof(g->pods));
     memset(g->projectiles, 0, sizeof(g->projectiles));
+    weapons_reset(g);
     g->resource_target = -1;
     g->black_market = 0;
     g->police_alert = 0; g->police_tick = g->tick;
@@ -536,6 +537,7 @@ int mine_asteroid(Game *g) {
         if (!pod(g, asteroid_position(g, i), sub(body_velocity(&g->system, 0, g->tick), frame_velocity(g)),
                  i % 3 ? 2 : 6, 1, -1)) return 0;
         d->ore[i]--; g->heat += 10; g->laser = 3; g->shots++;
+        weapon_player(g,f,(int)(along/FP));
         say(g, "ORE RELEASED - APPROACH SLOWLY / N COLLECT");
         return 1;
     }

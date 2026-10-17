@@ -202,6 +202,81 @@ static void destruction_tests(void) {
 /* The title sequence is a fixed script on a borrowed Game: same frames on
    every run, cameras never underground, every story beat audible, and an
    ending or skip that leaves exactly a fresh commander. */
+static int active_bolts(const Game *game) {
+    int i,n=0;
+    for(i=0;i<MAX_WEAPON_BOLTS;i++) n+=game->bolts[i].ticks>0;
+    assert((unsigned)n==game->bolt_count);
+    return n;
+}
+static void weapon_stage(void) {
+    game_init(&g,0x53504143);
+    g.docked=g.frame_body=-1; g.gear=0; g.page=FLIGHT;
+    g.pos=vec(0,AU_METRES*FP,0); g.vel=vec(0,0,0);
+    memset(g.npc,0,sizeof(g.npc));
+    g.yaw=g.pitch=g.roll=0; g.tick=5;
+}
+static void weapon_tests(void) {
+    static Game loaded;
+    WeaponBolt before;
+    Vec delta=vec(100*FP,-80*FP,30*FP),transfer=vec(3*FP,5*FP,-7*FP);
+    int i,mode,role;
+    /* Real fire controls, including turrets, keep hitscan damage and aim. */
+    for(mode=0;mode<=4;mode++) {
+        Vec direction=forward(mode>=3 ? 256 : 0,0);
+        weapon_stage(); g.camera_mode=mode; g.turret_yaw=256;
+        g.npc[0]=(Npc){add(g.pos,scale(direction,2000*FP,16384)),vec(0,0,0),100,1,0,-1,0};
+        game_tick(&g,(Controls){.fire=1});
+        assert(g.shots==1 && g.heat==4 && g.npc[0].hull==80 && active_bolts(&g)==2);
+        for(i=0;i<2;i++) {
+            Vec path=unit(sub(g.bolts[i].end,g.pos),16384);
+            assert(length(sub(path,direction))<4 && g.bolts[i].colour==12);
+        }
+    }
+    /* Banking moves the actual hardpoints; unsupported turrets cannot fire. */
+    weapon_stage(); g.roll=256; game_tick(&g,(Controls){.fire=1});
+    assert(active_bolts(&g)==2 && llabs(g.bolts[0].start.y-g.bolts[1].start.y)>10*FP);
+    for(i=0;i<SHIPS;i++) {
+        weapon_stage(); g.ship=i; weapon_player(&g,forward(0,0),1);
+        assert(g.bolts[0].end.z>g.bolts[0].start.z); /* close targets never reverse a bolt */
+    }
+    weapon_stage(); g.equipment=0; g.camera_mode=3;
+    game_tick(&g,(Controls){.fire=1}); assert(!active_bolts(&g) && !g.shots);
+    weapon_stage(); g.heat=95; game_tick(&g,(Controls){.fire=1}); assert(!active_bolts(&g));
+    weapon_stage(); g.equipment|=1<<MINING;
+    g.pos=sub(asteroid_position(&g,0),vec(0,0,1000*FP));
+    assert(mine_asteroid(&g) && active_bolts(&g)==2 && g.shots==1);
+    for(role=RAIDER;role<=POLICE;role++) {
+        weapon_stage(); g.shield=100;
+        g.npc[0]=(Npc){add(g.pos,vec(600*FP,100*FP,1500*FP)),vec(0,0,0),100,1,1,-1,0};
+        g.npc_role[0]=role; g.npc_port[0]=-1;
+        game_tick(&g,(Controls){0});
+        assert(active_bolts(&g)==1 && g.shield==100-(role==POLICE ? POLICE_DAMAGE : 8));
+        assert(g.bolts[0].colour==(role==POLICE ? 13 : 11));
+        assert(length(sub(g.bolts[0].end,g.pos))==0);
+        game_tick(&g,(Controls){0}); assert(active_bolts(&g)==1); /* cooldown */
+    }
+    weapon_stage(); g.vel=vec(100*FP,40*FP,-80*FP);
+    weapon_player(&g,forward(0,0),5000); before=g.bolts[0];
+    weapons_tick(&g);
+    assert(g.bolts[0].age==1 && length(sub(sub(g.bolts[0].start,before.start),scale(g.vel,1,HZ)))==0);
+    before=g.bolts[0]; weapons_rebase(&g,delta,transfer);
+    assert(length(sub(sub(g.bolts[0].start,before.start),delta))==0);
+    assert(length(sub(sub(g.bolts[0].end,before.end),delta))==0);
+    assert(length(sub(sub(g.bolts[0].drift,before.drift),transfer))==0);
+    before=g.bolts[0]; g.paused=1; game_frame(&g,(Controls){0},8);
+    assert(!memcmp(&before,&g.bolts[0],sizeof(before))); g.paused=0;
+    g.ui_quit=1; game_frame(&g,(Controls){0},8); assert(g.bolts[0].age==before.age); g.ui_quit=0;
+    /* Transient visuals never enter a commander payload. */
+    assert(save_game(&g,DESTRUCTION_SAVE) && load_game(&loaded,DESTRUCTION_SAVE));
+    assert(!active_bolts(&loaded)); remove(DESTRUCTION_SAVE);
+    destruction_player(&g,-1); game_frame(&g,(Controls){0},HZ);
+    assert(!active_bolts(&g));
+    weapon_stage();
+    for(i=0;i<MAX_WEAPON_BOLTS*5;i++) weapon_player(&g,forward(i&1023,0),5000);
+    assert(active_bolts(&g)==MAX_WEAPON_BOLTS && g.bolt_next<MAX_WEAPON_BOLTS*2);
+    setup_system(&g,g.system.sector); assert(!active_bolts(&g));
+    puts("PASS player/turret/banked hardpoints, raider/police fire, unchanged damage, bolt bounds, drift/rebase, pause, death and transient saves");
+}
 static void intro_tests(void) {
     static Game fresh, stage;
     static Intro first, second;
@@ -262,4 +337,4 @@ static void intro_tests(void) {
     assert(!first.running && !intro_skippable(&first) && !memcmp(&g, &fresh, sizeof(Game)));
     puts("PASS title sequence length, determinism, camera clearance, story audio cues, skip and clean handover");
 }
-int main(void) { sound_tests(); controller_tests(); destruction_tests(); intro_tests(); return 0; }
+int main(void) { sound_tests(); controller_tests(); destruction_tests(); weapon_tests(); intro_tests(); return 0; }

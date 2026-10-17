@@ -312,6 +312,12 @@ and Ctrl fires along the turret aim; W/S still controls ship thrust. Turrets hav
 full yaw and pitch limited just short of the poles. Other views fire the forward
 laser. Turret aim and contact selection reset on loading a commander.
 
+Player, turret and mining lasers emit travelling bolts in the 3D world. Raiders
+and police also show their outgoing fire, and homing missiles have bright engine
+streaks. Ships and terrain occlude these effects. Minimum graphics keeps weapon
+fire visible; higher Smoke and Debris settings add bright cores and longer missile
+exhausts. The visuals preserve existing weapon damage, range and cooldowns.
+
 R cycles active contacts within the 10 km radar sphere. Red contacts are hostile,
 green contacts friendly, and gold marks the selected contact. The radar follows
 hull heading, with forward at the top and vertical stems showing height. The

@@ -186,6 +186,12 @@
   show a diamond, hull, range and signed closing speed. Navigation targets
   stay independent. Turret aim and contact selection reset on loading.
 
+  Player, turret and mining lasers show travelling bolts in the world.
+  Raiders and police show outgoing fire; missiles have bright engine streaks.
+  Terrain and ships hide effects behind them. Minimum graphics keeps shots
+  visible. Higher Smoke and Debris detail adds bright cores and longer exhausts.
+  Weapon damage, range and cooldowns are unchanged.
+
   Start with L, then P, to fly from Haven to its orbital Relay.
   Space preserves momentum. Turning does not instantly change velocity.
   With assist disabled, W/S applies forward/reverse thrust directly.

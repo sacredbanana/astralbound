@@ -520,6 +520,8 @@ void game_tick(Game *g, Controls c) {
         g->pods[i].pos = add(g->pods[i].pos, frame_delta);
     for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active)
         g->projectiles[i].pos = add(g->projectiles[i].pos, frame_delta);
+    weapons_rebase(g, frame_delta, vec(0, 0, 0));
+    weapons_tick(g);
     destruction_rebase(g, frame_delta, vec(0, 0, 0));
     destruction_tick(g);
     career_time(g);
@@ -591,6 +593,7 @@ void game_tick(Game *g, Controls c) {
                 g->pods[i].vel = add(g->pods[i].vel, transfer);
             for (i = 0; i < MAX_MISSILES; i++) if (g->projectiles[i].active)
                 g->projectiles[i].vel = add(g->projectiles[i].vel, transfer);
+            weapons_rebase(g, vec(0, 0, 0), transfer);
             destruction_rebase(g, vec(0, 0, 0), transfer);
             g->frame_body = new_frame;
         }
@@ -886,6 +889,7 @@ void game_tick(Game *g, Controls c) {
             if (miss < 250 * FP && g->npc_role[i] == POLICE)
                 aimed = i; /* a near miss on police still counts as firing on them */
         }
+        weapon_player(g,f,hit>=0 ? (int)(length(sub(g->npc[hit].pos,g->pos))/FP) : 5000);
         police_discharge(g, hit >= 0 ? hit : aimed);
         if (hit >= 0)
             damage_npc(g, hit, 20 + (g->camera_mode >= 3 ? g->turret_upgrade[g->camera_mode - 3] : g->upgrade) * 10);
@@ -946,6 +950,7 @@ void game_tick(Game *g, Controls c) {
         if (g->npc_role[i] == POLICE) {
             if (n->hostile && l < POLICE_RANGE * FP && l > 400 * FP && !n->cooldown) {
                 n->cooldown = POLICE_INTERVAL;
+                weapon_npc(g,i);
                 if (g->shield > 0)
                     g->shield = clamp(g->shield - POLICE_DAMAGE, 0, 100);
                 else
@@ -953,6 +958,7 @@ void game_tick(Game *g, Controls c) {
             }
         } else if (n->hostile && l < 2500 * FP && l > 400 * FP && !n->cooldown) {
             n->cooldown = HZ * 3;
+            weapon_npc(g,i);
             if (g->shield > 0)
                 g->shield = clamp(g->shield - 8, 0, 100);
             else
@@ -972,6 +978,7 @@ static int cruise_interval(const Game *g, Controls c, int remaining) {
     int64_t accel = drive_thrust(g) / FP;
     /* Rapid drive changes use short bounded cruise steps. */
     if (accel == SYSTEM_DRIVE_ACCEL && step > HZ) step = HZ;
+    if (g->bolt_count) return 1;
     for (i = 0; i < MAX_BLASTS; i++) if (g->blasts[i].active) return 1;
     for (i = 0; i < MAX_SMOKE; i++) if (g->smoke[i].active) return 1;
     for (i = 1; i <= MAX_NPC; i++) if (g->wrecks[i].state) return 1;
@@ -1129,14 +1136,14 @@ void game_frame(Game *g, Controls c, int ticks) {
         return;
     if (g->dead) {
         if (!g->death_started) destruction_player(g, -1);
-        for (i = 0; i < ticks; i++) destruction_tick(g);
+        for (i = 0; i < ticks; i++) { weapons_tick(g); destruction_tick(g); }
         return;
     }
     if (g->hyperspace && hyperspace_frame(g, ticks))
         return;
     for (i = 0; i < ticks && steps < MAX_FRAME_STEPS; i++) {
         int w = safe_warp(g), advanced = 0;
-        if (g->dead) { destruction_tick(g); continue; }
+        if (g->dead) { weapons_tick(g); destruction_tick(g); continue; }
         while (advanced < w && steps < MAX_FRAME_STEPS) {
             int step, safe = safe_warp(g);
             if (g->dead || g->paused || advanced >= safe)
