@@ -16,7 +16,7 @@ int main(void) {
         if(!f.pixels || !render_init(&f)) return 1;
         game_init(&g,0x53504143); g.docked=g.frame_body=-1; g.page=FLIGHT;
         g.pos=vec(0,AU_METRES*FP,0); g.vel=vec(0,0,0); g.yaw=g.pitch=g.roll=0;
-        g.ship=3; g.gear=0; g.tick=5; g.combat_target=0; g.missiles=2;
+        g.ship=3; g.tick=5; g.combat_target=0; g.missiles=2;
         memset(g.npc,0,sizeof(g.npc));
         for(i=0;i<4;i++) {
             g.npc[i]=(Npc){add(g.pos,vec((i==3 ? 0 : (i-1)*650LL)*FP,(i%2)*130*FP,(1500+i*500LL)*FP)),

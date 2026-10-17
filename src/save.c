@@ -117,7 +117,7 @@ static void payload(Stream *s, Game *g, uint32_t version) {
     FIELD(g->pitch);
     FIELD(g->target);
     FIELD(g->docked);
-    FIELD(g->gear);
+    { int legacy_gear = 1; FIELD(legacy_gear); (void)legacy_gear; } /* landing gear retired */
     FIELD(g->autopilot);
     FIELD(g->assist);
     FIELD(g->throttle);
@@ -266,7 +266,7 @@ static int migrate_catalog(Game *g,int relocated) {
     }
     if(relocated) {
         g->docked=0;g->frame_body=g->ports[0].body;g->target=0;g->target_body=-1;
-        g->pos=g->ports[0].pos;g->vel=vec(0,0,0);g->gear=1;g->throttle=g->autopilot=0;g->warp=1;
+        g->pos=g->ports[0].pos;g->vel=vec(0,0,0);g->throttle=g->autopilot=0;g->warp=1;
         g->clearance=-1;g->dock_stage=0;
         memset(g->npc,0,sizeof(g->npc));memset(g->pods,0,sizeof(g->pods));
         memset(g->projectiles,0,sizeof(g->projectiles));

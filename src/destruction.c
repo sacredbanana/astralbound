@@ -97,7 +97,7 @@ void destruction_player(Game *g, int impact_body) {
     g->death_started = 1; g->dead = 1; g->hull = 0;
     g->death_yaw = g->yaw;
     g->page = FLIGHT; g->camera_mode = 2;
-    g->autopilot = g->drive_manual = g->drive_active = g->entry_brake = 0;
+    g->autopilot = g->drive_manual = g->drive_active = g->entry_brake = g->landing = g->on_foot = 0;
     g->hyperspace = g->laser = g->throttle = g->ui_fire = g->ui_down = 0;
     g->ui_capture = -1; g->warp = g->effective_warp = 1;
     start(g, &g->wrecks[0], g->pos, g->vel, g->ship,

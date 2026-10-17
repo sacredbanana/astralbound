@@ -272,7 +272,7 @@ static void atmospheric_pad_approach(void) {
     assert(g.docked == port && g.hull == 100 && swings < 20);
 }
 /* Cleared at the gate above a pad, the ship levels its nose and wings with the
-   pad and gravity brings it down onto its gear. It used to dive nose-first at
+   pad and gravity brings it down onto the pad. It used to dive nose-first at
    the pad and snap down from up to 35 m. */
 static int64_t along_axis(Vec a, Vec n) {
     return (a.x * n.x + a.y * n.y + a.z * n.z) / 16384;

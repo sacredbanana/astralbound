@@ -173,7 +173,8 @@ Press **T** to cycle ports, **Q** to cycle body waypoints, or **Y** to see the
 selected destination list. Up/Down changes its target; return to flight with **V**
 and engage **P**. Body waypoints stop above the atmosphere, including at gas giants.
 Orbital stations rotate and move: autopilot matches port velocity, waits for clearance,
-and enters through the marked corridor. **D** requests clearance for manual docking.
+and enters through the marked corridor. Station control grants clearance
+automatically to a manual pilot closing within 10 km.
 Request time compression with **]**, up to **4,096x** (1, 4, 16, 64, 256, 1,024, 4,096);
 **[** lowers the requested rate. Compression works in manual flight, with autopilot,
 in combat, near terrain and traffic, and while landed or docked. Firing missiles or
@@ -228,8 +229,8 @@ use the labelled action buttons to trade, accept or negotiate jobs, buy equipmen
 hire crew or service the ship. Dim controls are unavailable in the current state.
 Buttons activate on release inside the same control; dragging away cancels a click.
 
-In flight, click **LAUNCH**, **AUTO**, **DRIVE**, **ASSIST**, **GEAR**, **DOCK** or
-**LOCK** to operate the ship. Drag the cyan throttle strip; **STOP** commands zero
+In flight, click **LAUNCH**, **AUTO**, **DRIVE**, **ASSIST**, **EXIT**/**BOARD**,
+**DOCK**/**LAND**/**USE** or **LOCK** to operate the ship. Drag the cyan throttle strip; **STOP** commands zero
 speed. The time strip selects 1/4/16/64/256/1024/4096x while retaining the existing
 safety limits; the cockpit shows delivered/requested compression. **PAUSE/PLAY**
 works with the mouse. Click the scanner to show missile/decoy controls and click
@@ -338,7 +339,8 @@ other systems show values derived from each world's size, gravity and climate. Y
 destination list; V returns to flight.
 
 Flight controls: left/right arrows roll, up/down pitch, W/S change set speed, Ctrl fires, E switches flight
-assist, K controls landing gear, Space pauses, H opens help, F5 saves, F9 loads,
+assist, D docks or lands (or uses a ground site on foot), K leaves or re-boards a
+landed ship, Space pauses, H opens help, F5 saves, F9 loads,
 and Escape opens a paused quit dialog: **Save & quit** (S), **Quit without saving**
 (Q), or **Cancel** (Escape/C). A failed save keeps the dialog open.
 At ports F refuels and repairs, O upgrades the laser, and N
@@ -354,6 +356,38 @@ Select a contact to see their portrait; **Call / Return** opens their service.
 The engineer's **Authorise 100 CR** restores hull, shields and fuel.
 **B** opens contract notices directly. Click a notice or press 1-8 to read it;
 Return first opens the briefing, then accepts an offer from its briefing.
+
+## Docking, landing and going ashore
+
+Ships no longer carry landing gear: any contact with solid ground below 8 m/s is a
+landing, and anything faster is an impact. The console's context button (**D**)
+parks the ship:
+
+- **DOCK**, within 20 km of any port: the autopilot takes the port as its target,
+  requests clearance, flies the approach and settles onto the pad or into the
+  station. Pressed from behind or beside a station, it swings wide of the hull and
+  comes round to the corridor. Press **D** again to abort and hold a hover.
+- **LAND**, elsewhere below 30 km above solid ground: the ship lands where it is.
+  It returns over the point that was beneath it when pressed, levels, and
+  descends on its engines, slowing to about 2 m/s at touchdown. The ground must
+  be dry, no steeper than about 1:2 under the hull, the engines must outlift
+  gravity and no hostile may be within 5 km; otherwise the message line gives the
+  reason. **D** aborts the descent into an assisted hover.
+- In space, away from ports, the button is dimmed.
+
+Landed on a planet (open ground or a surface pad, not a station berth), **K**
+(**EXIT**) steps outside. On foot, W/S walk forward/back (3 m/s, half pace
+backwards), left/right turn and up/down look. Water, cliffs steeper than about
+50° and the suit's 1.5 km range from the ship stop you without ending the
+excursion. The HUD marks the ship and the nearest **ground site**, and the scope
+plots everything within 500 m. Walk within 12 m of a site and press **D** (**USE**):
+mineral outcrops yield a tonne of crystals, wreckage a tonne of alloys or
+machinery (hold space permitting), and survey beacons sell their data for
+credits. Each site is used once per session. Sites are deterministic: the same
+ground always has the same sites, and they are visible from low flight, so you can
+land beside one. Return within reach of the hull and press **K** (**BOARD**) to go
+back aboard; launching, autopilot and time compression wait until you do. A save
+made outside restores you aboard the landed ship.
 
 ## Contracts
 

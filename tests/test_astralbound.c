@@ -1279,7 +1279,7 @@ static void test_environment(void) {
     for (a=0; a<g.system.count && g.system.planets[a].type!=MOON; a++) {}
     assert(a<g.system.count);
     g.body=g.frame_body=a; g.docked=-1; g.target=-1; g.target_body=a;
-    g.assist=0; g.throttle=0; g.gear=1;
+    g.assist=0; g.throttle=0;
     local=vec(0,g.system.planets[a].radius+13,0);
     g.pos=scale(add(g.system.planets[a].center,local),FP,1);
     g.vel=surface_velocity(&g.system.planets[a],local);
@@ -1298,7 +1298,7 @@ static void test_environment(void) {
     local=radial(local,g.system.planets[0].radius+600);
     g.pos=scale(add(g.system.planets[0].center,local),FP,1);
     g.vel=add(surface_velocity(&g.system.planets[0],local),unit(local,400*FP));
-    g.docked=-1; g.assist=0; g.throttle=0; g.gear=0;
+    g.docked=-1; g.assist=0; g.throttle=0;
     found_cloud=0;
     for (a=0; a<10*HZ && !g.dead; a++) {
         game_tick(&g,(Controls){0});

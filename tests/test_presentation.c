@@ -210,7 +210,7 @@ static int active_bolts(const Game *game) {
 }
 static void weapon_stage(void) {
     game_init(&g,0x53504143);
-    g.docked=g.frame_body=-1; g.gear=0; g.page=FLIGHT;
+    g.docked=g.frame_body=-1; g.page=FLIGHT;
     g.pos=vec(0,AU_METRES*FP,0); g.vel=vec(0,0,0);
     memset(g.npc,0,sizeof(g.npc));
     g.yaw=g.pitch=g.roll=0; g.tick=5;

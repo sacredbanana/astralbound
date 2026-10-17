@@ -153,6 +153,23 @@ typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
 #define HYPER_TUNNEL (HZ * 11 / 2)
 #define HYPER_EXIT (HZ * 3 / 2)
 #define HYPER_TOTAL (HYPER_CHARGE + HYPER_TUNNEL + HYPER_EXIT)
+/* Parking. DOCK flies to and settles on a port within DOCK_RANGE metres;
+   elsewhere below LAND_CEILING metres above solid ground, LAND descends in
+   place. Landed on a surface, the commander may walk WALK_RANGE metres from
+   the ship at WALK_SPEED m/s and use ground sites within SITE_REACH metres. */
+#define DOCK_RANGE 20000
+#define LAND_CEILING 30000
+#define WALK_SPEED 3
+#define WALK_RANGE 1500
+#define EYE_HEIGHT 2
+#define SITE_REACH 12
+#define SITE_CELL 384
+#define GROUND_SITES 9
+#define GROUND_CLAIMS 16
+enum { PARK_NONE, PARK_DOCK, PARK_LAND };
+typedef enum { SITE_OUTCROP, SITE_WRECKAGE, SITE_BEACON, SITE_KINDS } SiteKind;
+/* A point of interest on the ground: body-fixed Q8 base and a stable id. */
+typedef struct { Vec anchor; uint32_t id; int body, kind; } GroundSite;
 typedef struct { Vec pos, vel; int active, good, quantity, mission; } CargoPod;
 typedef struct { Vec pos, vel; int active, target, ttl; } Missile;
 /* Transient laser presentation: fixed-tick travel between Q8 endpoints.
@@ -180,7 +197,7 @@ typedef struct {
     Exploration explored[MAX_EXPLORED];
     int explored_count;
     Vec pos, vel;
-    int yaw, pitch, target, docked, gear, autopilot, assist, body;
+    int yaw, pitch, target, docked, autopilot, assist, body;
     int roll; /* v7 commander bank, 0..1023 */
     int throttle, hull, shield, fuel, heat, credits, ship, upgrade, kills;
     int cargo[GOODS];
@@ -235,6 +252,16 @@ typedef struct {
     int cinematic; /* transient: the title sequence is staging this Game */
     WeaponBolt bolts[MAX_WEAPON_BOLTS];
     unsigned bolt_next, bolt_count;
+    /* Transient parking: 1 + body of an automatic landing, 0 idle; the
+       touchdown point is body-fixed Q8 at the landed rest height. */
+    int landing;
+    Vec land_anchor;
+    /* Transient excursion on foot: body-fixed Q8 feet position, heading from
+       local north toward east and look pitch (table angles), used sites. */
+    int on_foot, walk_yaw, walk_pitch;
+    Vec walker;
+    uint32_t site_claims[GROUND_CLAIMS];
+    int site_claim_next;
     char message[80];
 } Game;
 typedef struct {
@@ -364,6 +391,7 @@ extern const char *body_names[BODY_TYPES];
 int nearest_body(const Game *g, Vec pos);
 int64_t altitude_at(const Game *g, Vec pos);
 int terrain_height(const Planet *p, Vec relative_metres);
+int64_t terrain_height_fine(const Planet *p, Vec relative_q8);
 int terrain_impact(const Game *g, Vec from, Vec to, int body);
 int port_count(const Game *g);
 void game_init(Game *g, uint32_t seed);
@@ -371,6 +399,27 @@ void game_tick(Game *g, Controls c);
 void game_frame(Game *g, Controls c, int ticks);
 void game_action(Game *g, int key);
 void view_angles(const Game *g, int *yaw, int *pitch);
+/* Integer atan2 in table angles: sine component x, cosine component z. */
+int attitude_angle(int64_t x, int64_t z);
+/* Parking console: PARK_DOCK (with the port), PARK_LAND or PARK_NONE. */
+int park_mode(const Game *g, int *port);
+const char *land_refusal(const Game *g);
+/* The DOCK/LAND/USE button's label and state for the flight console. */
+const char *park_label(const Game *g, int *enabled, int *active);
+/* On foot (ground.c). Positions are Q8 in the system frame. */
+extern const char *site_names[SITE_KINDS];
+const char *disembark_refusal(const Game *g);
+int disembark(Game *g);
+int embark(Game *g);
+int64_t walker_ship_distance(const Game *g);
+int board_reach(const Game *g);
+void ground_tick(Game *g, Controls c);
+Vec walker_position(const Game *g);
+void ground_view(const Game *g, Vec *eye, int *yaw, int *pitch, int *roll);
+int ground_sites(const Game *g, Vec around, GroundSite *out, int max);
+Vec site_position(const Game *g, const GroundSite *s);
+int nearest_site(const Game *g, GroundSite *site, int64_t *metres);
+int use_site(Game *g);
 int combat_target(const Game *g);
 int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int64_t acceleration, int radius);

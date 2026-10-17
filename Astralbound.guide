@@ -15,6 +15,7 @@
   @{"Startup / GFX" link graphics}
   @{"Title        " link intro}
   @{"Flight       " link flight}
+  @{"Dock / Ashore" link parking}
   @{"Navigation   " link navigation}
   @{"Contracts    " link contracts}
   @{"Trade / Ships" link trade}
@@ -131,7 +132,7 @@
 @node flight "Flying Your Ship"
 @toc main
 @prev intro
-@next navigation
+@next parking
 
   L         Launch from a port or open ground.
   Arrows    Left/right roll; up/down pitch.
@@ -142,11 +143,11 @@
   E         Toggle flight assist / direct thrust.
   A         Engage System Drive cruise / disengage and brake.
   Ctrl      Fire forward laser, or the aimed turret in turret views.
-  K         Raise/lower landing gear while flying.
+  K         Step outside a landed ship (EXIT) / go back aboard (BOARD).
   P         Toggle autopilot to the selected port.
   T         Cycle port targets.
   Q         Cycle planet/moon approach waypoints.
-  D         Request manual docking clearance.
+  D         DOCK at a port within 20 km, LAND here, or USE a site on foot.
   V         Return to flight; cycle front/rear/external/dorsal/ventral.
   R         Cycle contacts within the 10 km radar sphere.
   Z / I     Open orbital map / system and body data.
@@ -161,8 +162,8 @@
   are unavailable. Release inside the pressed control to activate it; drag
   away to cancel. GUI clicks never fire the laser.
 
-  The cockpit has launch, autopilot, drive, assist, gear, docking and contact
-  buttons. Drag the cyan throttle strip; STOP commands zero speed. Click
+  The cockpit has launch, autopilot, drive, assist, exit/board,
+  dock/land/use and contact buttons. Drag the cyan throttle strip; STOP commands zero speed. Click
   a time factor for 1 through 4096x; safety limits still apply. PAUSE/PLAY
   halts/resumes flight. Click the scanner for missile/decoy controls; click
   its background again to return. SAVE and LOAD are in the panels.
@@ -201,16 +202,58 @@
   and leaves the ship hovering with assist on. Fast flight reads in c from 0.01c;
   1c is the speed of light. Bodies and stars in view are labelled in space;
   moons are labelled only when the ship is near their host planet.
-  Lower gear and approach below 8 m/s relative to the port to dock.
-  Orbital stations move and rotate. Match their velocity, request D
-  clearance, then enter the central opening through the marked corridor.
-  Autopilot requests clearance and waits outside the corridor if busy.
+  Ships have no landing gear: any ground contact below 8 m/s lands, and
+  a slow arrival within 35 m of a port docks. Orbital stations move and
+  rotate. Station control clears a manual pilot closing within 10 km;
+  enter the central opening through the marked corridor. Autopilot
+  requests clearance and waits outside the corridor if busy. The D button
+  does all of this for you: see @{"Dock / Ashore" link parking}.
+
+@endnode
+
+@node parking "Docking, Landing and Going Ashore"
+@toc main
+@prev flight
+@next navigation
+
+  The console's context button, D, parks the ship:
+
+  DOCK      Within 20 km of any port. Autopilot targets the port, asks
+            for clearance, flies the approach and settles onto the pad
+            or into the station. From behind or beside a station it
+            swings wide of the hull before turning into the corridor.
+            D again aborts and leaves the ship hovering on assist.
+  LAND      Elsewhere below 30 km above solid ground. The ship returns
+            over the point beneath it when D was pressed, levels and
+            descends on its engines to about 2 m/s at touchdown.
+            Refused over water, on slopes steeper than about 1:2 under
+            the hull, when gravity outweighs the engines, or with a
+            hostile within 5 km; the message line says why. D aborts.
+  (dim)     In space away from ports there is nothing to park on.
+
+  Landed on a planet - open ground or a surface pad, not a station
+  berth - K (EXIT) steps outside. On foot:
+
+  W / S     Walk forward at 3 m/s / back at half pace.
+  Arrows    Left/right turn; up/down look.
+  D         USE a ground site within 12 m.
+  K         BOARD when back within reach of the hull.
+
+  Water, cliffs steeper than about 50 degrees and the suit's 1.5 km
+  range from the ship stop you without ending the excursion. The HUD
+  marks the ship and the nearest ground site; the scope plots both
+  within 500 m. Mineral outcrops yield a tonne of crystals, wreckage a
+  tonne of alloys or machinery if the hold has room, and survey beacons
+  sell their data. Each site gives once per session. The same ground
+  always holds the same sites, and they show from low flight, so you can
+  land beside one. Launch, autopilot and time compression wait until you
+  are aboard; a save made outside restores you aboard the landed ship.
 
 @endnode
 
 @node navigation "Navigation and Time"
 @toc main
-@prev flight
+@prev parking
 @next contracts
 
   [ / ] decrease/increase time: 1, 4, 16, 64, 256, 1024, 4096x.
@@ -549,10 +592,10 @@
 @toc main
 @prev limits
 
-  Launch L / Port T / Body Q / Auto P / Clearance D / Flight V
+  Launch L / Port T / Body Q / Auto P / Dock or Land D / Flight V
   System ports Y / Galaxy G / Jump X / Contract log J
   Services S / Contracts B / Market M / Shipyard U / Equipment 0 / Crew 9
-  Steer arrows / Set speed W S / Fire Ctrl / Assist E / Gear K
+  Steer arrows / Set speed W S / Fire Ctrl / Assist E / Exit or Board K
   Time [ ] / Pause Space / Save F5 / Load F9 / Quit dialog Escape
   Any key skips the title sequence; --nointro or NOINTRO disables it
 

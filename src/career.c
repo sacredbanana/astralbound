@@ -494,7 +494,7 @@ int escape_pod(Game *g) {
     g->body = g->frame_body = g->ports[destination].body;
     g->docked = destination; g->pos = g->ports[destination].pos;
     g->vel = port_relative_velocity(g, destination);
-    g->gear = 1; g->autopilot = g->drive_manual = g->drive_active = 0;
+    g->autopilot = g->drive_manual = g->drive_active = g->landing = 0;
     g->warp = 1; g->throttle = 0; g->clearance = -1; g->dock_stage = 0;
     memset(g->npc, 0, sizeof(g->npc)); career_system(g); refresh_board(g);
     say(g, "POD RESCUE - HULL/CARGO LOST - LOANED A CINDER");

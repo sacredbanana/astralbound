@@ -1018,7 +1018,7 @@ void intro_start(Intro *in, Game *g, uint32_t seed) {
             if (along < best) { best = along; play.liftoff_eye = eye; }
         }
     }
-    g->docked = -1; g->gear = 0; g->target = -1;
+    g->docked = -1; g->target = -1;
     g->ship = 3; /* KESTREL */
     g->cinematic = 1;
     g->page = FLIGHT;

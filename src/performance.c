@@ -75,7 +75,7 @@ static void combat_weapons(Game *g, uint64_t tick) {
 void performance_scene(Game *g, int scene) {
     Planet *p; int i;
     game_init(g,scene>=6 && scene<=8 ? 37 : 0x53504143);
-    g->docked=-1; g->page=FLIGHT; g->gear=0; g->ui_visible=0;
+    g->docked=-1; g->page=FLIGHT; g->ui_visible=0;
     g->target=-1; g->target_body=0; g->body=0;
     memset(g->npc,0,sizeof(g->npc));
     p=&g->system.planets[0];

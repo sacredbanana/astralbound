@@ -23,6 +23,7 @@ void setup_system(Game *g, Sector sector) {
     g->nports = 0;
     g->clearance = -1;
     g->dock_stage = 0;
+    g->landing = g->on_foot = 0;
     g->target_body = -1;
     g->combat_target = -1;
     g->frame_body = 0;
@@ -60,7 +61,6 @@ void game_init(Game *g, uint32_t seed) {
     setup_system(g, (Sector){0, 0, 0});
     g->pos = g->ports[0].pos;
     g->docked = 0;
-    g->gear = 1;
     g->assist = 1;
     g->hull = g->shield = g->fuel = 100;
     g->credits = 1500;
@@ -95,7 +95,7 @@ static Vec level_up(int yaw, int pitch) {
 }
 /* Integer atan2 in table angles. Search the cross-product sign instead of
    maximizing a dot product: rounded trig lengths otherwise bias tiny turns. */
-static int attitude_angle(int64_t x, int64_t z) {
+int attitude_angle(int64_t x, int64_t z) {
     int lo = 0, hi = 256, a;
     int64_t ax = llabs(x), az = llabs(z);
     if (!ax && !az) return 0;
@@ -249,7 +249,7 @@ static void burn_fuel(Game *g, Vec engine, int ticks, int drive) {
 int safe_warp(const Game *g) {
     /* Local hazards choose fixed physics ticks in cruise_interval; they do
        not prevent the player from accelerating time. */
-    return g->paused || g->dead || g->ui_quit ? 1 : clamp(g->warp, 1, MAX_WARP);
+    return g->paused || g->dead || g->ui_quit || g->on_foot ? 1 : clamp(g->warp, 1, MAX_WARP);
 }
 /* Catch an orbiting station above its orbit before descending to the gate.
    A chord toward its current position cuts into the atmosphere and repeatedly
@@ -276,6 +276,31 @@ static Vec station_approach(const Game *g, const Port *port) {
     }
     return add(port->pos, scale(port->normal, 2000 * FP, 16384));
 }
+static int64_t along(Vec a, Vec unit_axis);
+/* A straight leg through the station's disc (its 56 m half-thickness plus
+   margin, within 360 m of the axis) would strike the hull. */
+static int corridor_blocked(const Port *port, Vec from, Vec to) {
+    Vec a = scale(sub(from, port->pos), 1, FP), b = scale(sub(to, port->pos), 1, FP);
+    int64_t az = along(a, port->normal), bz = along(b, port->normal), first = 0, last = 65536;
+    if ((az > 120 && bz > 120) || (az < -120 && bz < -120))
+        return 0;
+    if (az != bz) {
+        int64_t enter = (-120 - az) * 65536 / (bz - az), leave = (120 - az) * 65536 / (bz - az);
+        if (enter > leave) {
+            int64_t swap = enter;
+            enter = leave;
+            leave = swap;
+        }
+        if (enter > first) first = enter;
+        if (leave < last) last = leave;
+        if (first > last) return 0;
+    }
+    from = add(a, scale(sub(b, a), first, 65536));
+    to = add(a, scale(sub(b, a), last, 65536));
+    from = sub(from, scale(port->normal, along(from, port->normal), 16384));
+    to = sub(to, scale(port->normal, along(to, port->normal), 16384));
+    return swept_sphere(from, to, vec(0, 0, 0), 360);
+}
 /* Detours (climb-outs, around-body and stellar avoidance) report themselves
    so callers can withhold the drive. The destination's own approach points,
    a station corridor or the point above a pad, count as the destination. */
@@ -285,9 +310,27 @@ static Vec autopilot_route(const Game *g, int *detour) {
     Vec dest = navigation_position(g);
     *detour = 1;
     /* Enter rotating stations only through their outward traffic corridor. */
-    if (port && (!g->dock_stage || g->clearance != g->target))
+    int outside = port && (!g->dock_stage || g->clearance != g->target);
+    if (outside)
         dest = port->surface ? add(dest, scale(port->normal, 2000 * FP, 16384))
                              : station_approach(g, port);
+    /* Behind or beside a station, swing 1.5 km wide of its axis at the
+       current level, then come round in front of the disc to the gate. */
+    if (outside && !port->surface && corridor_blocked(port, g->pos, dest)) {
+        Vec rel = sub(g->pos, port->pos), side, beside;
+        int64_t ahead = along(rel, port->normal);
+        side = sub(rel, scale(port->normal, ahead, 16384));
+        if (length(side) < 32 * FP) {
+            side = vec(port->normal.y, -port->normal.x, 0);
+            if (length(side) < 4096) side = vec(0, port->normal.z, -port->normal.y);
+        }
+        side = unit(side, 16384);
+        beside = add(port->pos, add(scale(side, 1500LL * FP, 16384), scale(port->normal, 300LL * FP, 16384)));
+        *detour = 0;
+        return corridor_blocked(port, g->pos, beside)
+                   ? add(port->pos, add(scale(side, 1500LL * FP, 16384), scale(port->normal, ahead, 16384)))
+                   : beside;
+    }
     int b;
     /* Check every planet along the route, including the departure body.
        A tangent waypoint outside its terrain shell prevents straight-line dives. */
@@ -387,7 +430,7 @@ static void entry_brake(Game *g) {
     Vec local, up, air;
     int64_t descent, room, envelope, limit;
     int i;
-    if (g->autopilot) {
+    if (g->autopilot || g->landing) {
         g->entry_brake = 0;
         return;
     }
@@ -456,24 +499,30 @@ static int pad_settling(const Game *g) {
     return height < 2500LL * FP && length(sub(off, scale(pad->normal, height, 16384))) < 100LL * FP;
 }
 /* Gravity brings the ship down. The engines hold back the sink rate, tapering
-   to a couple of metres per second at the gear, and cancel drift over the
-   pad; they never push the ship towards the ground. */
-static Vec pad_settle_thrust(const Game *g, Vec gravity, int64_t thrust) {
-    const Port *pad = &g->ports[g->target];
-    Vec n = pad->normal, off = sub(g->pos, pad->pos), drift, want, engine;
+   to a couple of metres per second at touchdown, and cancel drift over the
+   site; they never push the ship towards the ground. off is the ship's Q8
+   offset from the touchdown point, n its Q14 up, site_vel its Q8 motion. */
+static Vec settle_thrust(const Game *g, Vec off, Vec n, Vec site_vel, Vec gravity,
+                         int64_t thrust, int64_t sink_cap, int64_t drift_cap) {
+    Vec drift, want, engine;
     int64_t height = along(off, n), sink, push;
     drift = sub(off, scale(n, height, 16384));
-    /* Constant 2 m/s^2 braking that meets the pad at 2 m/s. */
+    /* Constant 2 m/s^2 braking that meets the ground at 2 m/s. */
     sink = (int64_t)isqrt64(4ULL * FP * FP + (uint64_t)(height > 0 ? height : 0) * 4 * FP);
-    if (sink > 30 * FP)
-        sink = 30 * FP;
+    if (sink > sink_cap)
+        sink = sink_cap;
     want = scale(n, -sink, 16384);
-    want = sub(want, length(drift) > 20 * FP ? unit(drift, 5 * FP) : scale(drift, 1, 4));
-    engine = sub(scale(sub(want, sub(g->vel, port_relative_velocity(g, g->target))), 4, 1), gravity);
+    want = sub(want, length(drift) > drift_cap * 4 ? unit(drift, drift_cap) : scale(drift, 1, 4));
+    engine = sub(scale(sub(want, sub(g->vel, site_vel)), 4, 1), gravity);
     push = along(engine, n);
     if (push < 0)
         engine = sub(engine, scale(n, push, 16384));
     return length(engine) > thrust ? unit(engine, thrust) : engine;
+}
+static Vec pad_settle_thrust(const Game *g, Vec gravity, int64_t thrust) {
+    const Port *pad = &g->ports[g->target];
+    return settle_thrust(g, sub(g->pos, pad->pos), pad->normal, port_relative_velocity(g, g->target),
+                         gravity, thrust, 30 * FP, 5 * FP);
 }
 /* Turn an attitude angle at most three table steps per tick. */
 static int slew_angle(int angle, int goal) {
@@ -494,6 +543,198 @@ static void level_attitude(Game *g, Vec up) {
     g->yaw = slew_angle(g->yaw, yaw);
     g->pitch = clamp(g->pitch + clamp(pitch - g->pitch, -3, 3), -250, 250);
     g->roll = slew_angle(g->roll, attitude_angle(along(up, right), along(up, level_up(yaw, pitch))));
+}
+/* Parking replaces landing gear. Within DOCK_RANGE of a port the console
+   offers DOCK: the autopilot flies the approach and settles on the pad or
+   into the station. Elsewhere, low over solid ground, LAND descends in place. */
+int park_mode(const Game *g, int *port) {
+    int i, best = -1, body;
+    int64_t range = (int64_t)DOCK_RANGE * FP;
+    if (port) *port = -1;
+    if (g->dead || g->docked != -1 || g->hyperspace || g->on_foot)
+        return PARK_NONE;
+    for (i = 0; i < g->nports; i++) {
+        int64_t d = length(sub(g->ports[i].pos, g->pos));
+        if (d < range) {
+            range = d;
+            best = i;
+        }
+    }
+    if (best >= 0) {
+        if (port) *port = best;
+        return PARK_DOCK;
+    }
+    body = nearest_body(g, g->pos);
+    return g->system.planets[body].type != GAS_GIANT && altitude_at(g, g->pos) <= LAND_CEILING
+               ? PARK_LAND : PARK_NONE;
+}
+/* Body-fixed rest point beneath a Q8 body-relative position: 12 m above the
+   terrain, the landed datum shared with saves and open-ground touchdowns. */
+static Vec rest_anchor(const Planet *p, Vec local) {
+    int64_t height = terrain_height(p, scale(local, 1, FP));
+    return body_rotate(p, radial(local, ((int64_t)p->radius + height + 12) * FP), 1);
+}
+/* NULL when the ground beneath is safe to land on: dry, no steeper than about
+   1:2 under the hull, with engines able to hover and no hostiles nearby. */
+const char *land_refusal(const Game *g) {
+    const Planet *p;
+    Vec local, up, east, north;
+    int i, body, span, height;
+    if (g->dead || g->docked != -1 || g->on_foot) return "NOT IN FLIGHT";
+    body = nearest_body(g, g->pos);
+    p = &g->system.planets[body];
+    if (p->type == GAS_GIANT) return "NO SOLID SURFACE";
+    if (altitude_at(g, g->pos) > LAND_CEILING) return "DESCEND BELOW 30 KM";
+    if (g->fuel <= 0) return "NO FUEL";
+    if ((int64_t)p->gravity * FP >= ordinary_thrust(g)) return "INSUFFICIENT THRUST";
+    for (i = 0; i < MAX_NPC; i++)
+        if (g->npc[i].active && g->npc[i].hostile &&
+            length(sub(g->npc[i].pos, g->pos)) < 5000LL * FP)
+            return "HOSTILES NEARBY";
+    local = scale(sub(g->pos, scale(p->center, FP, 1)), 1, FP);
+    if (!terrain_material(p, local)) return "WATER BELOW";
+    height = terrain_height(p, local);
+    up = unit(local, 16384);
+    east = vec(-up.y, up.x, 0);
+    if (length(east) < 4096) east = vec(16384, 0, 0);
+    east = unit(sub(east, scale(up, along(east, up), 16384)), 16384);
+    north = vec((up.y * east.z - up.z * east.y) / 16384, (up.z * east.x - up.x * east.z) / 16384,
+                (up.x * east.y - up.y * east.x) / 16384);
+    span = ship_specs[g->ship].depth / 2 + 10;
+    for (i = 0; i < 4; i++) {
+        Vec axis = i < 2 ? east : north;
+        Vec probe = add(local, scale(axis, i % 2 ? -span : span, 16384));
+        if (!terrain_material(p, probe)) return "WATER BELOW";
+        if (abs(terrain_height(p, probe) - height) > span / 2) return "TERRAIN TOO STEEP";
+    }
+    return NULL;
+}
+/* The landing site in the current frame: Q8 position, Q14 up and velocity. */
+static void landing_site(const Game *g, Vec *site, Vec *up, Vec *velocity) {
+    int body = g->landing - 1;
+    const Planet *p = &g->system.planets[body];
+    Vec local = body_rotate(p, g->land_anchor, 0);
+    *site = add(scale(p->center, FP, 1), local);
+    *up = unit(local, 16384);
+    *velocity = add(surface_velocity(p, scale(local, 1, FP)),
+                    sub(body_velocity(&g->system, body, g->tick), frame_velocity(g)));
+}
+/* Return over the site first, then let the lander law bring the ship down.
+   Far above the site a wider drift is left to the settling descent. */
+static Vec landing_thrust(Game *g, Vec gravity, int64_t thrust) {
+    Vec site, up, site_vel, off, drift;
+    int64_t height;
+    landing_site(g, &site, &up, &site_vel);
+    off = sub(g->pos, site);
+    height = along(off, up);
+    drift = sub(off, scale(up, height, 16384));
+    level_attitude(g, up);
+    if (length(drift) > 40LL * FP + (height > 0 ? height / 4 : 0)) {
+        int64_t hold = height > 300LL * FP ? height : 300LL * FP;
+        Vec goal = sub(add(site, scale(up, hold, 16384)), scale(site_vel, 1, HZ));
+        Vec engine = sub(guidance(g->pos, sub(g->vel, site_vel), goal, thrust / 4 * 3, 600LL * FP), gravity);
+        return length(engine) > thrust ? unit(engine, thrust) : engine;
+    }
+    return settle_thrust(g, off, up, site_vel, gravity, thrust, 120 * FP,
+                         5 * FP + (height > 0 ? height / 64 : 0));
+}
+static void settle_on_ground(Game *g, int body, Vec anchor) {
+    const Planet *p = &g->system.planets[body];
+    Vec local = body_rotate(p, anchor, 0);
+    g->pos = add(scale(p->center, FP, 1), local);
+    g->vel = surface_velocity(p, scale(local, 1, FP));
+    g->ground_anchor = anchor;
+    g->frame_body = g->body = body;
+    g->docked = -2;
+    g->autopilot = g->landing = 0;
+    g->warp = 1;
+    g->throttle = 0;
+    say(g, "LANDED - K DISEMBARK / L LAUNCH");
+}
+static int landing_touchdown(Game *g) {
+    Vec site, up, site_vel;
+    if (!g->landing)
+        return 0;
+    landing_site(g, &site, &up, &site_vel);
+    if (along(sub(g->pos, site), up) >= 1 * FP ||
+        length(sub(g->vel, site_vel)) >= 8 * FP)
+        return 0;
+    settle_on_ground(g, g->landing - 1, g->land_anchor);
+    return 1;
+}
+const char *park_label(const Game *g, int *enabled, int *active) {
+    int port, mode;
+    *enabled = *active = 0;
+    if (g->on_foot) {
+        GroundSite site;
+        int64_t metres;
+        *enabled = nearest_site(g, &site, &metres) && metres <= SITE_REACH;
+        return "USE";
+    }
+    if (g->landing) {
+        *enabled = *active = 1;
+        return "LAND";
+    }
+    mode = park_mode(g, &port);
+    *enabled = mode != PARK_NONE;
+    if (mode == PARK_LAND)
+        return "LAND";
+    *active = mode == PARK_DOCK && g->autopilot && g->target == port;
+    return "DOCK";
+}
+/* D: dock, land, abort either, or (on foot) use the nearest ground site. */
+static void park(Game *g) {
+    int port, mode;
+    const char *refusal;
+    if (g->on_foot) {
+        use_site(g);
+        return;
+    }
+    if (g->landing) {
+        g->landing = 0;
+        g->assist = 1;
+        g->throttle = 0;
+        say(g, "LANDING ABORTED - ASSIST HOLDING");
+        return;
+    }
+    mode = park_mode(g, &port);
+    if (mode == PARK_DOCK) {
+        if (g->autopilot && g->target == port) {
+            g->autopilot = 0;
+            g->assist = 1;
+            g->throttle = 0;
+            say(g, "DOCKING ABORTED - ASSIST HOLDING");
+            return;
+        }
+        g->target = port;
+        g->target_body = g->resource_target = -1;
+        if (g->clearance != port) g->clearance = -1;
+        g->dock_stage = 0;
+        g->drive_manual = g->entry_brake = 0;
+        g->autopilot = 1;
+        snprintf(g->message, sizeof(g->message), "%s %.24s",
+                 request_clearance(g, port) ? "DOCKING AT" : "CLEARANCE QUEUED -",
+                 g->ports[port].name);
+        return;
+    }
+    if (mode == PARK_LAND) {
+        const Planet *p;
+        int body = nearest_body(g, g->pos);
+        if ((refusal = land_refusal(g))) {
+            snprintf(g->message, sizeof(g->message), "LANDING REFUSED - %s", refusal);
+            return;
+        }
+        p = &g->system.planets[body];
+        g->land_anchor = rest_anchor(p, sub(g->pos, scale(p->center, FP, 1)));
+        g->landing = body + 1;
+        g->autopilot = g->drive_manual = g->entry_brake = 0;
+        g->throttle = 0;
+        say(g, "LANDING - D ABORTS");
+        return;
+    }
+    if (g->docked >= 0) say(g, "DOCKED - L TO LAUNCH");
+    else if (g->docked == -2) say(g, "LANDED - K DISEMBARK / L LAUNCH");
+    else say(g, "NO PORT IN 20 KM / NO GROUND BELOW 30 KM");
 }
 void game_tick(Game *g, Controls c) {
     Vec acceleration = vec(0, 0, 0), gravity, old, frame_delta;
@@ -544,7 +785,7 @@ void game_tick(Game *g, Controls c) {
         g->roll_fraction %= 256; g->pitch_fraction %= 256;
         c.axis_roll = dy; c.axis_pitch = dp;
     }
-    if (g->camera_mode >= 3 && g->page == FLIGHT) {
+    if (g->camera_mode >= 3 && g->page == FLIGHT && !g->on_foot) {
         g->turret_yaw = (g->turret_yaw + c.axis_roll) & 1023;
         g->turret_pitch = clamp(g->turret_pitch + c.axis_pitch, -250, 250);
         c.roll = c.pitch = c.axis_roll = c.axis_pitch = 0;
@@ -572,6 +813,8 @@ void game_tick(Game *g, Controls c) {
             g->pos = g->ports[g->docked].pos;
             g->vel = port_relative_velocity(g, g->docked);
         }
+        if (g->on_foot)
+            ground_tick(g, c);
         if (g->tick % HZ == 0)
             record_exploration(g);
         career_missions(g);
@@ -619,7 +862,17 @@ void game_tick(Game *g, Controls c) {
     }
     thrust = drive_thrust(g);
     g->drive_active = thrust == SYSTEM_DRIVE_ACCEL * FP;
-    if (g->autopilot) {
+    if (g->landing && (g->landing - 1 != g->body || !g->fuel || planet->gravity * FP >= thrust)) {
+        say(g, !g->fuel ? "LANDING ABORTED - NO FUEL" : g->landing - 1 != g->body
+                ? "LANDING ABORTED - SITE LOST" : "LANDING ABORTED - INSUFFICIENT THRUST AUTHORITY");
+        g->landing = 0;
+        g->assist = 1;
+        g->throttle = 0;
+        g->warp = 1;
+    }
+    if (g->landing) {
+        acceleration = landing_thrust(g, gravity, thrust);
+    } else if (g->autopilot) {
         Vec target;
         int settling;
         if (g->target >= 0 && g->clearance == g->target) {
@@ -739,9 +992,16 @@ void game_tick(Game *g, Controls c) {
             acceleration = unit(acceleration, thrust);
         if (settling)
             acceleration = pad_settle_thrust(g, gravity, thrust);
-        if (g->target >= 0 && length(sub(g->ports[g->target].pos, g->pos)) < 500 * FP)
-            g->gear = 1;
     } else {
+        /* Station control clears manual pilots on approach; the corridor and
+           a slow arrival still decide whether the ship docks. */
+        for (i = 0; i < g->nports; i++) {
+            Vec rel = sub(g->ports[i].pos, g->pos);
+            if (!g->ports[i].surface && g->clearance != i && length(rel) < 10000LL * FP &&
+                along(sub(g->vel, port_relative_velocity(g, i)), unit(rel, 16384)) > 0 &&
+                request_clearance(g, i))
+                say(g, "STATION CLEARANCE GRANTED - ENTER THE CORRIDOR");
+        }
         g->roll = (g->roll + c.axis_roll) & 1023;
         pitch_ship(g, c.axis_pitch);
         if (c.thrust)
@@ -795,10 +1055,11 @@ void game_tick(Game *g, Controls c) {
         Vec air = surface_velocity(planet, scale(local, 1, FP));
         g->vel = add(air, scale(sub(g->vel, air), 1048576 - density, 1048576));
     }
+    landing_touchdown(g);
     /* A settling autopilot docks on touchdown, not by snapping down 35 m. */
-    for (i = 0, touchdown = pad_settling(g); i < port_count(g); i++)
+    for (i = 0, touchdown = pad_settling(g); g->docked == -1 && i < port_count(g); i++)
         if (length(sub(g->pos, g->ports[i].pos)) < 35 * FP &&
-            length(sub(g->vel, port_relative_velocity(g, i))) < 8 * FP && g->gear &&
+            length(sub(g->vel, port_relative_velocity(g, i))) < 8 * FP &&
             (g->ports[i].surface || g->clearance == i) &&
             (!touchdown || i != g->target || along(sub(g->pos, g->ports[i].pos), g->ports[i].normal) < 1 * FP)) {
             g->pos = g->ports[i].pos;
@@ -806,7 +1067,7 @@ void game_tick(Game *g, Controls c) {
             g->body = g->ports[i].body;
             g->frame_body = g->body;
             g->docked = i;
-            g->autopilot = 0;
+            g->autopilot = g->landing = 0;
             g->warp = 1;
             g->throttle = 0;
             refresh_board(g);
@@ -826,17 +1087,9 @@ void game_tick(Game *g, Controls c) {
             if (terrain_impact(g, old, g->pos, i)) {
                 const Planet *p = &g->system.planets[i];
                 Vec lc = sub(g->pos, scale(p->center, FP, 1));
-                if (g->gear && p->type != GAS_GIANT && length(sub(g->vel, surface_velocity(p, scale(lc, 1, FP)))) < 8 * FP) {
-                    int height = terrain_height(p, scale(lc, 1, FP));
-                    g->pos = add(scale(p->center, FP, 1),
-                                 radial(lc, (int64_t)(p->radius + height + 12) * FP));
-                    g->vel = surface_velocity(p, scale(lc, 1, FP));
-                    g->ground_anchor = body_rotate(p, sub(g->pos, scale(p->center, FP, 1)), 1);
-                    g->frame_body = i;
-                    g->docked = -2;
-                    g->autopilot = 0;
-                    g->body = i;
-                    say(g, "LANDED ON OPEN GROUND - L TO LAUNCH");
+                /* Any slow contact with solid ground is a landing. */
+                if (p->type != GAS_GIANT && length(sub(g->vel, surface_velocity(p, scale(lc, 1, FP)))) < 8 * FP) {
+                    settle_on_ground(g, i, rest_anchor(p, lc));
                 } else {
                     g->hull = 0;
                     impact_body = i;
@@ -1227,7 +1480,7 @@ void game_action(Game *g, int k) {
         g->page = g->page == HELP ? FLIGHT : HELP;
         break;
     case 'v':
-        if (g->page == FLIGHT) {
+        if (g->page == FLIGHT && !g->on_foot) {
             g->camera_mode = (g->camera_mode + 1) % 5;
             if (g->camera_mode >= 3) {
                 g->turret_yaw = g->yaw;
@@ -1314,6 +1567,7 @@ void game_action(Game *g, int k) {
         if (g->docked == -1 && (g->target >= 0 || g->target_body >= 0)) {
             g->autopilot = !g->autopilot;
             g->dock_stage = 0;
+            g->landing = 0;
         }
         break;
     case 'a':
@@ -1328,17 +1582,21 @@ void game_action(Game *g, int k) {
         }
         break;
     case 'd':
-        say(g, request_clearance(g, g->target) ? "DOCKING CLEARANCE GRANTED" : "CLEARANCE QUEUED");
+        park(g);
         break;
     case 'e':
+        if (g->on_foot) break;
         if (g->drive_manual || g->drive_active) g->throttle = 0;
         g->drive_manual = 0;
         g->assist = !g->assist;
-        g->autopilot = 0;
+        g->autopilot = g->landing = 0;
         break;
     case 'k':
-        if (g->docked == -1)
-            g->gear = !g->gear;
+        if (g->on_foot) {
+            if (!embark(g)) say(g, "WALK BACK TO THE SHIP TO BOARD");
+        } else if (!disembark(g)) {
+            snprintf(g->message, sizeof(g->message), "CANNOT DISEMBARK - %s", disembark_refusal(g));
+        }
         break;
     case ' ':
         g->paused = !g->paused;
@@ -1350,6 +1608,10 @@ void game_action(Game *g, int k) {
         g->warp = g->warp <= 1 ? 1 : g->warp / 4;
         break;
     case 'l':
+        if (g->on_foot) {
+            say(g, "BOARD FIRST - K NEAR THE SHIP");
+            break;
+        }
         if (g->docked != -1 && g->crew < ship_specs[g->ship].crew) {
             say(g, "INSUFFICIENT CREW - 9 THEN + TO RECRUIT"); break;
         }
@@ -1379,7 +1641,7 @@ void game_action(Game *g, int k) {
         g->hyperspace = 1;
         g->hyperspace_destination = g->selected;
         g->page = FLIGHT;
-        g->autopilot = 0;
+        g->autopilot = g->landing = 0;
         g->warp = 1;
         say(g, "HYPERSPACE DRIVE CHARGING");
         break;

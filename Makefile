@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Isrc
 HEADERS = $(wildcard src/*.h src/*.inc) src/third_party/micromod/micromod.h
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/render.c
 .PHONY: all test sanitize preview clean amiga
 all: build/astralbound
 build:
@@ -17,12 +17,13 @@ build/presentation-tests: $(CORE) $(HEADERS) tests/test_presentation.c src/contr
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_presentation.c -o $@
 build/music-tests: $(CORE) $(HEADERS) tests/test_music.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_music.c -o $@
-test: build/settings-tests build/galaxy-tests build/tests build/renderer-tests build/presentation-tests build/music-tests build/career-tests build/ui-tests
+test: build/settings-tests build/galaxy-tests build/tests build/renderer-tests build/presentation-tests build/music-tests build/career-tests build/ui-tests build/parking-tests
 	./build/settings-tests
 	./build/galaxy-tests
 	./build/music-tests
 	./build/ui-tests
 	./build/career-tests
+	./build/parking-tests
 	./build/presentation-tests
 	./build/renderer-tests
 	./build/tests
@@ -37,6 +38,8 @@ sanitize: | build
 	./build/ui-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_careers.c -o build/career-tests-sanitize
 	./build/career-tests-sanitize
+	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_parking.c -o build/parking-tests-sanitize
+	./build/parking-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_presentation.c -o build/presentation-tests-sanitize
 	./build/presentation-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_astralbound.c -o build/tests-sanitize
@@ -52,7 +55,7 @@ amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
 	rm -f build/settings-tests build/settings-tests-sanitize build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
-	rm -f build/port-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
+	rm -f build/port-preview build/ground-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/parking-tests build/parking-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 build/intro-preview: $(CORE) $(HEADERS) tools/intro_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/intro_preview.c -o $@
@@ -104,12 +107,22 @@ surface-preview: build/surface-preview
 build/career-tests: $(CORE) $(HEADERS) tests/test_careers.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_careers.c -o $@
 
+build/parking-tests: $(CORE) $(HEADERS) tests/test_parking.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_parking.c -o $@
+
 .PHONY: career-preview
 build/career-preview: $(CORE) $(HEADERS) tools/career_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/career_preview.c -o $@
 career-preview: build/career-preview
 	mkdir -p build/evidence
 	./build/career-preview
+
+build/ground-preview: $(CORE) $(HEADERS) tools/ground_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/ground_preview.c -o $@
+.PHONY: ground-preview
+ground-preview: build/ground-preview
+	mkdir -p build/evidence
+	./build/ground-preview
 
 build/weapons-preview: $(CORE) $(HEADERS) tools/weapons_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/weapons_preview.c -o $@

@@ -116,6 +116,7 @@ int music_context(const Game *g) {
     int i;
     if (g->cinematic) return MUSIC_INTRO;
     if (g->dead) return MUSIC_GAME_OVER;
+    if (g->on_foot) return MUSIC_PLANETARY;
     if (g->docked != -1) return MUSIC_DOCKED;
     for (i = 0; i < MAX_NPC; i++)
         if (g->npc[i].active && g->npc[i].hostile && g->npc[i].hull > 0 &&

@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
     }
     local=body_rotate(p,local,0);
     g.pos=scale(add(p->center,local),FP,1); g.vel=surface_velocity(p,local);
-    g.page=FLIGHT; g.target=-1; g.target_body=0; g.gear=0;
+    g.page=FLIGHT; g.target=-1; g.target_body=0;
     aim_angles(forward(0,0),&g.yaw,&g.pitch);
     /* Face a tangent, slightly down, independent of planetary latitude. */
     Vec tangent=vec(-local.y,local.x,0);

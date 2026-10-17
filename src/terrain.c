@@ -106,35 +106,43 @@ int terrain_elevation(const Planet *p, Vec relative) {
 }
 /* Collision follows the renderer's fixed 256 m cube-face triangles. Sampling
    the raw angular noise at a moving position quantizes hills near the pads. */
-int terrain_height(const Planet *p, Vec relative) {
+/* relative and the result share one unit: one = 1 for metres, FP for Q8. */
+static int64_t mesh_height(const Planet *p, Vec relative, int64_t one) {
     Planet fixed = *p;
     Vec q = body_rotate(p, relative, 1), a, b, c, hit;
-    int axis = 0, face, u, v, u0, v0, du, dv, h, i;
-    int64_t dominant = llabs(q.x);
+    int axis = 0, face, i;
+    int64_t dominant = llabs(q.x), cell = 256 * one, u, v, u0, v0, du, dv, h;
     Vec points[3];
     if (llabs(q.y) > dominant) { axis = 1; dominant = llabs(q.y); }
     if (llabs(q.z) > dominant) { axis = 2; dominant = llabs(q.z); }
     if (!dominant || p->type == GAS_GIANT) return 0;
     face = axis * 2 + ((axis == 0 ? q.x : axis == 1 ? q.y : q.z) < 0);
-    q = scale(q, p->radius, dominant);
-    u = (int)(axis == 0 ? q.y : q.x); v = (int)(axis == 2 ? q.y : q.z);
-    u0 = (u >= 0 ? u / 256 : (u - 255) / 256) * 256;
-    v0 = (v >= 0 ? v / 256 : (v - 255) / 256) * 256;
+    q = scale(q, (int64_t)p->radius * one, dominant);
+    u = axis == 0 ? q.y : q.x; v = axis == 2 ? q.y : q.z;
+    u0 = (u >= 0 ? u / cell : (u - cell + 1) / cell) * cell;
+    v0 = (v >= 0 ? v / cell : (v - cell + 1) / cell) * cell;
     du = u - u0; dv = v - v0;
     set_rotation(&fixed, 0);
     for (i = 0; i < 3; i++) {
-        int x = u0 + (i == 2 || (i == 1 && du >= dv) ? 256 : 0);
-        int y = v0 + (i == 2 || (i == 1 && du < dv) ? 256 : 0);
-        int sign = face & 1 ? -p->radius : p->radius;
+        int x = (int)(u0 / one) + (i == 2 || (i == 1 && du >= dv) ? 256 : 0);
+        int y = (int)(v0 / one) + (i == 2 || (i == 1 && du < dv) ? 256 : 0);
+        int sign = face & 1 ? -p->radius : p->radius, e;
         Vec d = axis == 0 ? vec(sign,x,y) : axis == 1 ? vec(x,sign,y) : vec(x,y,sign);
-        h = terrain_elevation(&fixed, d); if (h < 0) h = 0;
-        points[i] = radial(d, p->radius + h);
+        e = terrain_elevation(&fixed, d); if (e < 0) e = 0;
+        points[i] = scale(radial(d, p->radius + e), one, 1);
     }
     a = points[0]; b = points[1]; c = points[2];
-    hit = du >= dv ? add(a,add(scale(sub(b,a),du,256),scale(sub(c,b),dv,256))) :
-                       add(a,add(scale(sub(c,b),du,256),scale(sub(b,a),dv,256)));
-    h = (int)(length(hit) - p->radius);
+    hit = du >= dv ? add(a,add(scale(sub(b,a),du,cell),scale(sub(c,b),dv,cell))) :
+                       add(a,add(scale(sub(c,b),du,cell),scale(sub(b,a),dv,cell)));
+    h = length(hit) - (int64_t)p->radius * one;
     return h > 0 ? h : 0;
+}
+int terrain_height(const Planet *p, Vec relative) {
+    return (int)mesh_height(p, relative, 1);
+}
+/* The same surface at Q8 precision, for a commander walking on it. */
+int64_t terrain_height_fine(const Planet *p, Vec relative_q8) {
+    return mesh_height(p, relative_q8, FP);
 }
 /* Shared land/water/forest/rock/ice classification drives local and globe LOD. */
 int terrain_material(const Planet *p, Vec relative) {

@@ -47,7 +47,10 @@ static int camera_yaw, camera_pitch, camera_roll;
 /* The title sequence directs a free camera; terrain, sky and stars are then
    resolved around that viewpoint instead of the commander's ship. */
 static const Intro *cinema;
-static Vec viewer(void) { return cinema ? camera_position : game->pos; }
+static Vec viewer(void) { return cinema || game->on_foot ? camera_position : game->pos; }
+/* On foot the eye is a couple of metres off the ground: keep sub-metre
+   camera translation and bring the near plane in from 8 m to 1 m. */
+static int fine_camera, near_plane = 8;
 /* A sub-viewport for inset scenes: the projection centre moves by proj_dx/dy
    from the frame centre and rasterisation is scissored to the view rectangle.
    All zero (the full frame) except while an inset is being drawn. */
@@ -194,8 +197,8 @@ static void line(int x, int y, int xx, int yy, int c) {
         }
     }
 }
-static Vec camera(Vec p) {
-    Vec r = sub(p, scale(camera_position, 1, FP));
+/* World-to-camera rotation (yaw, pitch, then roll) in the offset's unit. */
+static Vec view_rotate(Vec r) {
     int sy = sini(camera_yaw), cy = cosi(camera_yaw), sp = sini(camera_pitch),
         cp = cosi(camera_pitch);
     int64_t x = (r.x * cy - r.z * sy) / 16384, z = (r.x * sy + r.z * cy) / 16384;
@@ -206,6 +209,34 @@ static Vec camera(Vec p) {
         return vec((x * cr - y * sr) / 16384, (y * cr + x * sr) / 16384, depth);
     }
     return vec(x, y, depth);
+}
+static int64_t round_div(int64_t v, int64_t d) {
+    return (v + (v < 0 ? -d / 2 : d / 2)) / d;
+}
+/* Camera space in metres. On foot, nearby points rotate their exact Q8
+   offset and round only at the end, so the eye moves by less than a metre. */
+static Vec camera(Vec p) {
+    Vec r = sub(p, scale(camera_position, 1, FP));
+    if (fine_camera && llabs(r.x) < 1000000 && llabs(r.y) < 1000000 && llabs(r.z) < 1000000) {
+        Vec q = view_rotate(sub(scale(p, FP, 1), camera_position));
+        return vec(round_div(q.x, FP), round_div(q.y, FP), round_div(q.z, FP));
+    }
+    return view_rotate(r);
+}
+/* Camera space in camera_unit steps per metre for polygons: 1/16 m on foot,
+   where whole-metre vertices clipped at a 1 m near plane would bend the
+   depth plane that ground texturing reconstructs each pixel from. */
+static int camera_unit = 1;
+static Vec camera_poly(Vec p) {
+    Vec r;
+    if (camera_unit == 1) return camera(p);
+    r = sub(p, scale(camera_position, 1, FP));
+    if (llabs(r.x) < 1000000 && llabs(r.y) < 1000000 && llabs(r.z) < 1000000) {
+        Vec q = view_rotate(sub(scale(p, FP, 1), camera_position));
+        int64_t d = FP / camera_unit;
+        return vec(round_div(q.x, d), round_div(q.y, d), round_div(q.z, d));
+    }
+    return scale(view_rotate(r), camera_unit, 1);
 }
 static int screen_coord(int64_t value) {
     return value < -32760 ? -32760 : value > 32760 ? 32760 : (int)value;
@@ -280,10 +311,11 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     t->slope = (int8_t)slope;
 #ifdef ASTRALBOUND_FPU
     /* One reciprocal replaces six 64-bit divisions per vertex. Clipping
-       guarantees z >= 8, so every projected quantity stays finite. */
+       guarantees z >= near_plane, so every projected quantity stays finite.
+       Depths keep their metre scale whatever camera_unit the polygon uses. */
     for (i = 0; i < 3; i++) {
-        double reciprocal = 1.0 / fpu_double(v[i].z);
-        double px = fpu_double(v[i].x) * reciprocal, py = fpu_double(v[i].y) * reciprocal;
+        double reciprocal = camera_unit / fpu_double(v[i].z);
+        double px = fpu_double(v[i].x) * reciprocal / camera_unit, py = fpu_double(v[i].y) * reciprocal / camera_unit;
         t->inverse_z[i] = (uint32_t)(int32_t)(1073741824.0 * reciprocal);
         t->x[i] = screen_coord(frame->w / 2 + proj_dx + fpu_int(px * (frame->w / 2), 65536));
         t->y[i] = screen_coord(view_h / 2 + proj_dy - fpu_int(py * (frame->w / 2), 65536));
@@ -295,11 +327,11 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     }
 #else
     for (i = 0; i < 3; i++) {
-        t->inverse_z[i] = (uint32_t)(1073741824LL / v[i].z);
+        t->inverse_z[i] = (uint32_t)(1073741824LL * camera_unit / v[i].z);
         t->x[i] = screen_coord(frame->w / 2 + proj_dx + v[i].x * (frame->w / 2) / v[i].z);
         t->y[i] = screen_coord(view_h / 2 + proj_dy - v[i].y * (frame->w / 2) / v[i].z);
         if (t->surface) {
-            t->surface_depth[i] = 274877906944LL / v[i].z;
+            t->surface_depth[i] = 274877906944LL * camera_unit / v[i].z;
             t->surface_x[i] = frame->w * 128 + (int)(v[i].x * (frame->w * 128) / v[i].z);
             t->surface_y[i] = (view_h / 2) * 256 - (int)(v[i].y * (frame->w * 128) / v[i].z);
         }
@@ -310,7 +342,7 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
         (t->y[0] < 0 && t->y[1] < 0 && t->y[2] < 0) ||
         (t->y[0] >= view_h && t->y[1] >= view_h && t->y[2] >= view_h))
         return;
-    t->z = (a.z + b.z + c.z) / 3;
+    t->z = (a.z + b.z + c.z) / 3 / camera_unit;
     t->color = (uint8_t)color;
     nt++;
 }
@@ -318,7 +350,7 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
    bends the reciprocal-depth plane of large nearby terrain faces. */
 static int64_t clip_distance(Vec v, int plane) {
     switch (plane) {
-    case 0: return v.z - 8;
+    case 0: return v.z - near_plane * camera_unit;
     case 1: return v.z + v.x;
     case 2: return v.z - v.x;
     case 3: return v.z * (view_h / 2) - v.y * (frame->w / 2);
@@ -378,9 +410,9 @@ static void triangle(Vec a, Vec b, Vec c, int color) {
     Vec vertices[2][10];
     if (nt >= triangle_limit) return;
     int plane, i, count = 3, current = 0;
-    vertices[0][0] = camera(a);
-    vertices[0][1] = camera(b);
-    vertices[0][2] = camera(c);
+    vertices[0][0] = camera_poly(a);
+    vertices[0][1] = camera_poly(b);
+    vertices[0][2] = camera_poly(c);
     for (plane = 0; plane < 5 && count >= 3; plane++) {
         Vec *in = vertices[current], *out = vertices[1 - current];
         int n = 0;
@@ -2011,6 +2043,31 @@ static void commander_hull(void) {
     up = add(scale(level_right, sini(game->roll), 16384), scale(up, cosi(game->roll), 16384));
     ship_mesh(game->ship, p, right, up, f, 1, unit(sub(game->system.star[0].center, p), 16384));
 }
+/* Ground sites near a low or landed ship: the outcrop, wreck or beacon
+   that a commander on foot walks to. */
+static void ground_markers(void) {
+    GroundSite sites[GROUND_SITES];
+    Vec eye = scale(camera_position, 1, FP);
+    int i, n;
+    if (game->docked >= 0 && !game->on_foot) return;
+    if (altitude_at(game, viewer()) > 3000) return;
+    n = ground_sites(game, viewer(), sites, GROUND_SITES);
+    for (i = 0; i < n; i++) {
+        Vec base = scale(site_position(game, &sites[i]), 1, FP);
+        Vec up = unit(sub(base, game->system.planets[sites[i].body].center), 16384);
+        if (length(sub(base, eye)) > 2500) continue;
+        if (sites[i].kind == SITE_OUTCROP) {
+            box(base, up, 4, 3, 6);
+            box(add(base, scale(up, 3, 16384)), up, 2, 2, 7);
+        } else if (sites[i].kind == SITE_WRECKAGE) {
+            box(base, up, 9, 2, 22);
+            box(add(base, scale(up, 2, 16384)), up, 3, 4, 21);
+        } else {
+            box(base, up, 1, 7, 23);
+            box(add(base, scale(up, 7, 16384)), up, 1, 1, 13);
+        }
+    }
+}
 static void world(void) {
     int i, b;
     /* Directed shots are composed around their hulls: emit them before
@@ -2054,7 +2111,8 @@ static void world(void) {
     }
     for (i = 0; i < MAX_MISSILES; i++) if (game->projectiles[i].active)
         box(scale(game->projectiles[i].pos, 1, FP), vec(0, 16384, 0), 4, 8, 11);
-    if (!cinema && game->camera_mode == 2 && !game->dead) commander_hull();
+    if (!cinema && (game->camera_mode == 2 || game->on_foot) && !game->dead) commander_hull();
+    if (!cinema) ground_markers();
     destruction_geometry();
     /* Fill the remaining geometry capacity with scenery. Ports, contacts,
        weapons and wrecks must survive an aggressively reduced triangle cap. */
@@ -2360,7 +2418,7 @@ static void menus(void) {
         {
             const char *help[] = {
                 "ARROWS ROLL PITCH / W S SET SPEED",  "CTRL FIRE / E ASSIST / A DRIVE",
-                "L LAUNCH / Y PORTS / T PORT / Q BODY", "K GEAR / D CLEARANCE / F SERVICE",
+                "L LAUNCH / Y PORTS / T PORT / Q BODY", "D DOCK OR LAND / K EXIT / F SERVICE",
                 "[ ] TIME TO 4096X / SPACE PAUSE",          "G MAP / DRAG ROTATE / +/- ZOOM",
                 "S SERVICES / B BOARD / M MARKET",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
                 "F5 SAVE / F9 LOAD / ESC QUIT DIALOG",         "R CONTACT / Z ORBITS / I BODY DATA",
@@ -2501,9 +2559,28 @@ static void shipyard(void) {
     }
 }
 #include "render_services.inc"
+/* On foot the scope plots the ship and ground sites within 500 m, ahead up. */
+static void ground_scan(int top) {
+    int cx=160,cy=top+24,i,n;
+    GroundSite sites[GROUND_SITES];
+    Vec me=walker_position(game), up=unit(sub(scale(me,1,FP),game->system.planets[game->body].center),16384);
+    Vec fwd=forward(camera_yaw,camera_pitch), right;
+    fwd=unit(sub(fwd,scale(up,dot(fwd,up),16384LL*16384)),16384);
+    right=cross(up,fwd);
+    line(106,cy,214,cy,3); line(cx,top+11,cx,top+36,3);
+    n=ground_sites(game,me,sites,GROUND_SITES);
+    for(i=0;i<=n;i++) {
+        Vec r=scale(sub(i<n?site_position(game,&sites[i]):game->pos,me),1,FP);
+        int64_t x=dot(r,right)/16384, y=dot(r,fwd)/16384;
+        if(llabs(x)>500 || llabs(y)>500) continue;
+        rect(cx+(int)(x*53/500)-1,cy-(int)(y*12/500)-1,3,3,i<n?12:15);
+    }
+    rect(cx-1,cy-1,3,3,13); text(124,top+4,7,"SURFACE 500M");
+}
 static void cockpit_scan(int top) {
     int cx=160,cy=top+24,i,a,px=0,py=0;
     rect(102,top+3,115,36,0);
+    if(game->on_foot) { ground_scan(top); return; }
     if(game->ui_weapons) { text(107,top+5,13,"WEAPON CONTROL"); return; }
     for(a=0;a<=ANGLE;a+=32) {
         int x=cx+sini(a)*53/16384,y=cy+cosi(a)*12/16384;
@@ -2679,7 +2756,8 @@ static void gui(void) {
         bevel(0,top,100,64,0); bevel(99,top,121,43,0); bevel(220,top,100,45,0);
         cockpit_scan(top);
         rect(3,top+31,94,10,0);
-        { int64_t speed=length(game->vel)/FP;
+        if(game->on_foot) text(5,top+33,13,"ON FOOT");
+        else { int64_t speed=length(game->vel)/FP;
           speed_text(speed,buf,sizeof(buf)); text(5,top+33,13,buf); }
         for(i=0;i<4;i++) {
             int value=i==0?game->hull:i==1?game->shield:i==2?game->fuel:game->heat, x=223+i*23;
@@ -2735,8 +2813,10 @@ static void gui(void) {
         snprintf(buf,sizeof(buf),"%.50s",game->message); text(8,h-52,13,buf);
     } else if(game->page==FLIGHT && !game->death_started) {
         draw_scale=1;
-        { int64_t alt=altitude_at(game,game->pos);
-          snprintf(buf,sizeof(buf),"ALT %ld %s / %s",(long)(alt>=1000000?alt/1000:alt),alt>=1000000?"KM":"M",game->drive_manual?(game->drive_active?(game->autopilot?"AUTO DRIVE":"DRIVE"):(game->autopilot?"AUTO DRIVE LOCK":"DRIVE LOCK")):(game->autopilot?"AUTO":game->drive_active?"BRAKING":"MANUAL")); text(7,view_h-23,13,buf); }
+        if(game->on_foot) {
+          snprintf(buf,sizeof(buf),"SHIP %ld M / RANGE %d M",(long)walker_ship_distance(game),WALK_RANGE); text(7,view_h-23,13,buf);
+        } else { int64_t alt=altitude_at(game,game->pos);
+          snprintf(buf,sizeof(buf),"ALT %ld %s / %s",(long)(alt>=1000000?alt/1000:alt),alt>=1000000?"KM":"M",game->drive_manual?(game->drive_active?(game->autopilot?"AUTO DRIVE":"DRIVE"):(game->autopilot?"AUTO DRIVE LOCK":"DRIVE LOCK")):(game->landing?"LANDING":game->autopilot?"AUTO":game->drive_active?"BRAKING":"MANUAL")); text(7,view_h-23,13,buf); }
         snprintf(buf,sizeof(buf),"%.50s",hover>=0 && v[hover].label[0]?v[hover].label:game->message);
         text(7,view_h-10,12,buf);
         draw_scale=s;
@@ -3140,6 +3220,37 @@ static int star_visible(Vec d, int y, int bright) {
     glare += sky_glow(elevation, (int)(dot(d, sky_state.sun) / 16384)) / 16;
     return glare < (bright ? 6 : 2);
 }
+static const char *suit_status(const Planet *p) {
+    return p->climate == TEMPERATE ? "BREATHABLE AIR" :
+           p->climate == VACUUM ? "VACUUM - SUIT SEALED" : "TOXIC - SUIT SEALED";
+}
+/* Walking: markers for the parked ship and the nearest ground site. */
+static void foot_hud(void) {
+    GroundSite site;
+    int64_t metres;
+    char s[48];
+    int x, y;
+    target_marker_position(camera(scale(game->pos, 1, FP)), 30, &x, &y);
+    line(x - 6, y - 4, x + 6, y - 4, 15); line(x - 6, y + 4, x + 6, y + 4, 15);
+    line(x - 6, y - 4, x - 6, y + 4, 15); line(x + 6, y - 4, x + 6, y + 4, 15);
+    snprintf(s, sizeof(s), "SHIP %ld M", (long)walker_ship_distance(game));
+    text(x - 24 < 2 ? 2 : x - 24, y + 8, 15, s);
+    if (nearest_site(game, &site, &metres)) {
+        target_marker_position(camera(scale(site_position(game, &site), 1, FP)), 30, &x, &y);
+        line(x - 6, y, x, y - 6, 12); line(x, y - 6, x + 6, y, 12);
+        line(x + 6, y, x, y + 6, 12); line(x, y + 6, x - 6, y, 12);
+        snprintf(s, sizeof(s), "%s %ld M", site_names[site.kind], (long)metres);
+        x -= (int)strlen(s) * 3;
+        if (x + (int)strlen(s) * 6 > frame->w - 2) x = frame->w - 2 - (int)strlen(s) * 6;
+        text(x < 2 ? 2 : x, y + 9, 12, s);
+    }
+    text(7, 8, 13, game->system.planets[game->body].name);
+    text(7, 20, 7, suit_status(&game->system.planets[game->body]));
+    if (nearest_site(game, &site, &metres) && metres <= SITE_REACH) {
+        snprintf(s, sizeof(s), "D USE %s", site_names[site.kind]);
+        text(7, 32, 12, s);
+    }
+}
 static void render_game_full(const Game *g, Frame *f) {
     int i;
     frame = f;
@@ -3153,6 +3264,7 @@ static void render_game_full(const Game *g, Frame *f) {
     view_angles(g, &camera_yaw, &camera_pitch);
     camera_roll = g->camera_mode == 0 ? g->roll :
                   g->camera_mode == 1 ? (-g->roll & 1023) : 0;
+    fine_camera = 0; near_plane = 8; camera_unit = 1;
     if (cinema) {
         camera_position = cinema->eye;
         camera_yaw = cinema->yaw; camera_pitch = cinema->pitch; camera_roll = cinema->roll;
@@ -3181,6 +3293,9 @@ static void render_game_full(const Game *g, Frame *f) {
         }
         aim_angles(sub(g->pos, camera_position), &camera_yaw, &camera_pitch);
         camera_roll = 0;
+    } else if (g->on_foot) {
+        ground_view(g, &camera_position, &camera_yaw, &camera_pitch, &camera_roll);
+        fine_camera = 1; near_plane = 1; camera_unit = 16;
     } else if (g->camera_mode == 2) {
         Vec up = unit(sub(g->pos, scale(g->system.planets[g->body].center, FP, 1)), 16384);
         camera_position = add(sub(g->pos, scale(forward(g->yaw, g->pitch), 600 * FP, 16384)),
@@ -3228,7 +3343,9 @@ static void render_game_full(const Game *g, Frame *f) {
         if(!cinema || performance_camera) weapon_effects();
         if (graphics.labels && !g->dead && !cinema) system_body_labels();
     }
-    if (g->page == FLIGHT && !g->dead && !cinema) {
+    if (g->page == FLIGHT && !g->dead && !cinema && g->on_foot) {
+        foot_hud();
+    } else if (g->page == FLIGHT && !g->dead && !cinema) {
         Vec p = camera(scale(navigation_position(g), 1, FP));
         const char *name = g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name;
         char range[24];
