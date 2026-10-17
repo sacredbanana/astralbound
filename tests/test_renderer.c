@@ -886,6 +886,51 @@ static void night_and_twilight_skies(void) {
 }
 /* Scenery lights must obey scene depth, including hull backs and terrain,
    while the station's actual central approach remains visibly open. */
+/* Title sequence frames: letterbox bars stay black outside captions, every
+   act draws a picture in all layouts, and the cinematic camera never leaks
+   into ordinary flight rendering. */
+static void intro_frames(void) {
+    static Game g, plain;
+    static Intro in;
+    static const int seconds[] = {6, 18, 24, 31, 44, 58, 76, 85, 91, 100, 118, 121, 130, 152, 172};
+    Frame f = {320, 256, 1, NULL, {0}};
+    uint8_t *reference;
+    int mode, i;
+    f.pixels = malloc(640 * 480); reference = malloc(640 * 480);
+    assert(f.pixels && reference);
+    for (mode = 0; mode < 4; mode++) {
+        f.w = mode == 3 ? 640 : 320; f.h = mode == 3 ? 480 : mode == 2 ? 200 : 256;
+        f.enhanced = mode != 0;
+        assert(render_init(&f));
+        intro_start(&in, &g, 0x53504143);
+        for (i = 0; i < (int)(sizeof(seconds) / sizeof(*seconds)); i++) {
+            int x, y, colours = 0, seen[256] = {0}, bar = (f.h - f.w * 100 / 185) / 2;
+            intro_frame(&in, &g, seconds[i] * HZ - in.tick);
+            memset(f.pixels, 77, (size_t)f.w * f.h);
+            render_intro(&in, &g, &f);
+            assert(!cinema);
+            for (y = 0; y < f.h; y++) for (x = 0; x < f.w; x++) {
+                int c = f.pixels[y * f.w + x];
+                if (!seen[c]) { seen[c] = 1; colours++; }
+                if (!in.title && y < bar) assert(c == 0); /* captions use only the lower bar */
+            }
+            assert(colours >= 4);
+        }
+        render_shutdown();
+    }
+    /* Ordinary flight renders identically before and after a title frame. */
+    f.w = 320; f.h = 256; f.enhanced = 1;
+    assert(render_init(&f));
+    game_init(&plain, 0x53504143);
+    render_game(&plain, &f); memcpy(reference, f.pixels, (size_t)f.w * f.h);
+    intro_start(&in, &g, 0x53504143); intro_frame(&in, &g, 40 * HZ);
+    render_intro(&in, &g, &f);
+    render_game(&plain, &f);
+    assert(!memcmp(reference, f.pixels, (size_t)f.w * f.h));
+    render_shutdown();
+    free(f.pixels); free(reference);
+    puts("PASS title sequence frames on ECS/AGA/NTSC/RTG, black letterbox and isolated cinematic camera");
+}
 static void port_scenery(void) {
     static Game g, before;
     Frame f={320,200,0,NULL,{0}};
@@ -963,6 +1008,7 @@ static void port_scenery(void) {
 int main(int argc, char **argv) {
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;
+    intro_frames();
     persistent_target_markers();
     night_and_twilight_skies();
     Frame f = {64, 120, 1, 0, {0}};

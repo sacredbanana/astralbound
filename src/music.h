@@ -2,7 +2,7 @@
 #ifndef ASTRALBOUND_MUSIC_H
 #define ASTRALBOUND_MUSIC_H
 #include "astralbound.h"
-enum { MUSIC_BATTLE, MUSIC_PLANETARY, MUSIC_SPACE, MUSIC_DOCKED, MUSIC_GAME_OVER, MUSIC_SCENES };
+enum { MUSIC_BATTLE, MUSIC_PLANETARY, MUSIC_SPACE, MUSIC_DOCKED, MUSIC_GAME_OVER, MUSIC_INTRO, MUSIC_SCENES };
 /* One player, shared by the platform's single audio mixer. Load/close with the
    OS active and the mixer stopped. Observe/mix require the host's audio lock. */
 int music_load(const char *root, uint32_t seed);

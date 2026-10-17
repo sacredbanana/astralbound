@@ -5,6 +5,7 @@
 #include "ui.h"
 #include "native_video.h"
 #include "controller.h"
+#include "intro.h"
 #include <proto/lowlevel.h>
 #include <libraries/lowlevel.h>
 #ifndef JP_TYPE_ANALOGUE
@@ -46,7 +47,8 @@ static Controller pad;
 static int analog, analog_x = 128, analog_y = 128, highcolour, rtg_depth = 8;
 static ULONG pad_state;
 static uint64_t analog_last;
-static int profiling;
+static int profiling, show_intro = 1;
+static Intro intro;
 static BPTR wb_old_dir;
 static int wb_changed;
 static struct MsgPort *timer_port;
@@ -450,6 +452,7 @@ int main(int argc, char **argv) {
             lowres = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"LOWRES") != NULL;
             audio_muted = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"NOSOUND") != NULL;
             analog = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"ANALOG") != NULL;
+            show_intro = FindToolType((CONST_STRPTR *)icon->do_ToolTypes, (CONST_STRPTR)"NOINTRO") == NULL;
             FreeDiskObject(icon);
         }
     }
@@ -457,6 +460,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--nosound")) audio_muted = 1;
         else if (!strcmp(argv[i], "--analog")) analog = 1;
         else if (!strcmp(argv[i], "--profile")) profiling = 1;
+        else if (!strcmp(argv[i], "--nointro")) show_intro = 0;
         else if (!strcmp(argv[i], "--rtg16")) rtg = highcolour = 1;
         else if (!strcmp(argv[i], "--aga"))
             aga = 1;
@@ -465,7 +469,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--lowres"))
             lowres = 1;
         else if (strcmp(argv[i], "--ecs")) {
-            puts("Astralbound --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--profile]");
+            puts("Astralbound --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--nointro] [--profile]");
             return 1;
         }
     }
@@ -505,6 +509,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     game_init(&g, 0x53504143);
+    /* The title sequence chooses its light with DOS still running, so the
+       search cannot stall a native display. Profiling measures flight. */
+    if (show_intro && !profiling) intro_start(&intro, &g, 0x53504143);
     if (analog) {
         PotgoBase = OpenResource((CONST_STRPTR)POTGONAME);
         if (PotgoBase) pot_bits = AllocPotBits(0x5001);
@@ -607,7 +614,7 @@ int main(int argc, char **argv) {
                     if (code == SELECTDOWN) mouse_left = 1;
                     if (code == SELECTUP) mouse_left = 0;
                     if (!mouse_right) mouse_stick(&mouse, 0, 0, 0);
-                    { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                    if (!intro.running) { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
                       if (u == UI_SAVE) request = 1;
                       if (u == UI_LOAD) request = 2;
                       if (u == UI_EXIT) quit = 1;
@@ -615,7 +622,7 @@ int main(int argc, char **argv) {
                 } else if (m->Class == IDCMP_MOUSEMOVE) {
                     if (!mouse_right) {
                         ui_move(&g, &f, g.ui_x + m->MouseX, g.ui_y + m->MouseY);
-                        ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                        if (!intro.running) ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
                     }
                     mouse_stick(&mouse, m->MouseX, m->MouseY,
                                 mouse_right && g.page == FLIGHT && !g.paused);
@@ -630,7 +637,7 @@ int main(int argc, char **argv) {
             }
         } else
             keyboard();
-        if (input_active) {
+        if (input_active && !intro.running) {
             int ui_request = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
             if (ui_request == UI_SAVE) request = 1;
             if (ui_request == UI_LOAD) request = 2;
@@ -638,6 +645,18 @@ int main(int argc, char **argv) {
             if (ui_request == UI_SAVE_EXIT) request = 3;
         }
         controller_poll();
+        if (intro.running) {
+            /* Any key, click, fire button or pad button skips the sequence. */
+            int skip = mouse_left || !(*(volatile UBYTE *)0xbfe001 & 0x80);
+            ULONG type = pad_state & JP_TYPE_MASK;
+            if (LowLevelBase && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK) &&
+                controller_buttons(pad_state)) skip = 1;
+            for (i = 0; i < 128; i++) { skip |= pressed[i]; pressed[i] = 0; }
+            if (skip && intro_skippable(&intro)) {
+                intro_finish(&intro, &g);
+                audio_init(&sound, &g);
+            }
+        }
         for (i = 0; i < 128; i++) {
             if (pressed[i]) {
                 if (i == 0x45 || g.ui_quit) {
@@ -713,7 +732,7 @@ int main(int argc, char **argv) {
             flight_input(&c, &mouse, analog ? 0 : joystick_roll(joy), analog ? 0 : joystick_pitch(joy),
                          ui_fire(&g, &f) || !(*(volatile UBYTE *)0xbfe001 & 0x80));
         }
-        if (input_active && !g.ui_quit) {
+        if (input_active && !g.ui_quit && !intro.running) {
             ULONG type = pad_state & JP_TYPE_MASK;
             int usb_analog = type == JP_TYPE_ANALOGUE;
             unsigned buttons = !analog && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK || usb_analog)
@@ -738,13 +757,16 @@ int main(int argc, char **argv) {
             {
                 int due = (int)(accumulator / clock_rate);
                 accumulator -= (uint64_t)due * clock_rate;
-                game_frame(&g, c, due);
+                if (intro.running) {
+                    if (!intro_frame(&intro, &g, due)) audio_init(&sound, &g);
+                } else game_frame(&g, c, due);
             }
         }
         sound_update();
         if (profiling) tick_start = clock_now();
-        g.ui_visible = input_active && !mouse_right;
-        render_game(&g, &f);
+        g.ui_visible = input_active && !mouse_right && !intro.running;
+        if (intro.running) render_intro(&intro, &g, &f);
+        else render_game(&g, &f);
         if (profiling) { uint64_t now = clock_now(); render_ticks += rtg ? now - tick_start : (now - tick_start) & 0xffffffU; tick_start = now; }
         if (rtg) {
             struct RastPort rp = screen->RastPort;

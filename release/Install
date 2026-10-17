@@ -27,6 +27,7 @@
 (makedir (tackon destination "music/space-flight"))
 (makedir (tackon destination "music/docked"))
 (makedir (tackon destination "music/game-over"))
+(makedir (tackon destination "music/intro"))
 (copyfiles
     (source (tackon install-source "music"))
     (dest (tackon destination "music"))

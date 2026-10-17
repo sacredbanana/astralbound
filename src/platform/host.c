@@ -5,11 +5,13 @@
 #include "audio.h"
 #include "music.h"
 #include "controller.h"
+#include "intro.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 static Game g;
+static Intro intro;
 static SpaceAudio sound;
 static SDL_AudioDeviceID audio_device;
 static void audio_callback(void *userdata, Uint8 *out, int size) {
@@ -57,9 +59,16 @@ int main(int argc, char **argv) {
     uint32_t *rgb;
     Uint64 last, now, freq;
     uint64_t accumulator = 0;
-    int quit = 0, i, compact = 0, radar_preview = 0, muted = 0;
+    int quit = 0, i, compact = 0, radar_preview = 0, muted = 0, show_intro = 1;
     game_init(&g, 0x53504143);
     for (i = 1; i < argc; i++) {
+        /* Preview flags stage a scene the title sequence would overwrite. */
+        static const char *staged[] = {"--city-overhead", "--market", "--board", "--equipment",
+            "--shipyard", "--destinations", "--weapons", "--system-map", "--system-data",
+            "--local-map", "--turret", "--radar", "--orbit", "--surface", "--nointro"};
+        size_t k;
+        for (k = 0; k < sizeof(staged) / sizeof(*staged); k++)
+            if (!strcmp(argv[i], staged[k])) show_intro = 0;
         if (!strcmp(argv[i], "--nosound")) muted = 1;
         if (!strcmp(argv[i], "--lowres") || !strcmp(argv[i], "--ntsc"))
             compact = 1;
@@ -128,6 +137,18 @@ int main(int argc, char **argv) {
         render_shutdown();
         return 0;
     }
+    if (argc > 3 && !strcmp(argv[1], "--render-intro")) {
+        intro_start(&intro, &g, 0x53504143);
+        intro_frame(&intro, &g, (int)(atof(argv[2]) * HZ));
+        if (intro.running) render_intro(&intro, &g, &f);
+        else render_game(&g, &f);
+        ppm(&f, argv[3]);
+        free(rgb);
+        free(f.pixels);
+        render_shutdown();
+        return 0;
+    }
+    if (show_intro) intro_start(&intro, &g, 0x53504143);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "%s\n", SDL_GetError());
         return 1;
@@ -174,6 +195,7 @@ int main(int argc, char **argv) {
         SDL_Event e;
         Controls c = {0};
         const Uint8 *keys;
+        int skip = 0, staged = intro.running;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_JOYDEVICEADDED && !joystick) {
                 if (SDL_IsGameController(e.jdevice.which)) gamepad = SDL_GameControllerOpen(e.jdevice.which);
@@ -183,6 +205,13 @@ int main(int argc, char **argv) {
                 SDL_JoystickInstanceID(joystick) == e.jdevice.which) {
                 if (gamepad) SDL_GameControllerClose(gamepad); else SDL_JoystickClose(joystick);
                 joystick = NULL; gamepad = NULL; pad.held = 0;
+            }
+            if (intro.running) {
+                /* Any key, button or click skips the title sequence. */
+                if (e.type == SDL_QUIT) quit = 1;
+                if ((e.type == SDL_KEYDOWN && !e.key.repeat) || e.type == SDL_MOUSEBUTTONDOWN ||
+                    e.type == SDL_JOYBUTTONDOWN || e.type == SDL_CONTROLLERBUTTONDOWN) skip = 1;
+                continue;
             }
             if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_RIGHT &&
                 g.page == FLIGHT && !g.ui_quit) {
@@ -237,14 +266,16 @@ int main(int argc, char **argv) {
                     game_action(&g, k);
             }
         }
-        ui_pointer(&g, &f, g.ui_x, g.ui_y, g.ui_down);
+        if (intro.running) {
+            if (skip && intro_skippable(&intro)) intro_finish(&intro, &g);
+        } else ui_pointer(&g, &f, g.ui_x, g.ui_y, g.ui_down);
         keys = SDL_GetKeyboardState(0);
         if (g.page != FLIGHT || g.paused || g.ui_quit) {
             mouse_right = 0;
             SDL_SetRelativeMouseMode(SDL_FALSE);
             mouse_stick(&mouse, 0, 0, 0);
         }
-        if (!g.ui_quit && g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
+        if (!intro.running && !g.ui_quit && g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             c.pitch = keys[SDL_SCANCODE_DOWN] - keys[SDL_SCANCODE_UP];
             c.roll = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
             c.thrust = keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S];
@@ -265,7 +296,7 @@ int main(int argc, char **argv) {
             flight_input(&c, &mouse, roll, pitch,
                          fire || ui_fire(&g, &f));
         }
-        if (!g.ui_quit && gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
+        if (!intro.running && !g.ui_quit && gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             unsigned buttons = 0;
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_A)) buttons |= PAD_FIRE;
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_B)) buttons |= PAD_BRAKE;
@@ -286,13 +317,22 @@ int main(int argc, char **argv) {
         {
             int due = (int)(accumulator / freq);
             accumulator -= (uint64_t)due * freq;
-            game_frame(&g, c, due);
+            if (intro.running) intro_frame(&intro, &g, due);
+            else game_frame(&g, c, due);
+            /* The commander's Game replaced the stage: resynchronise sound
+               silently instead of hearing the switch as a jump and a dock. */
+            if (staged && !intro.running) {
+                if (audio_device) SDL_LockAudioDevice(audio_device);
+                audio_init(&sound, &g);
+                if (audio_device) SDL_UnlockAudioDevice(audio_device);
+            }
         }
         if (audio_device) SDL_LockAudioDevice(audio_device);
         audio_observe(&sound, &g);
         if (audio_device) SDL_UnlockAudioDevice(audio_device);
-        g.ui_visible = !mouse_right && !!(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
-        render_game(&g, &f);
+        g.ui_visible = !intro.running && !mouse_right && !!(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
+        if (intro.running) render_intro(&intro, &g, &f);
+        else render_game(&g, &f);
         for (i = 0; i < f.w * f.h; i++)
             rgb[i] = 0xff000000U | f.palette[f.pixels[i]];
         SDL_UpdateTexture(texture, 0, rgb, f.w * 4);

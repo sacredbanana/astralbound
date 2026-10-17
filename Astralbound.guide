@@ -12,6 +12,7 @@
   This is a playable foundation. Full-game development is still ongoing.
 
   @{"Installation " link install}
+  @{"Title        " link intro}
   @{"Flight       " link flight}
   @{"Navigation   " link navigation}
   @{"Contracts    " link contracts}
@@ -26,7 +27,7 @@
 
 @node install "Installation"
 @toc main
-@next flight
+@next intro
 
   Copy Astralbound.000 and Astralbound.020 to an Amiga drawer. Run from Shell:
 
@@ -39,12 +40,33 @@
   AGA requires an AGA chipset. RTG needs CyberGraphX V41 or a
   Picasso96 setup with the compatible CyberGraphX API.
   Expansion RAM is needed; stock A500 performance is not established.
+  A three-minute title sequence plays first: see @{"Title Sequence" link intro}.
+
+@endnode
+
+@node intro "Title Sequence"
+@toc main
+@prev install
+@next flight
+
+  Each launch opens with a three-minute title sequence: a courier lifts
+  off from Haven at dawn, survives a raider ambush in orbit, jumps to a
+  red giant and docks under police escort. It is staged with the game's
+  own worlds, ports, hulls and effects, so it runs in ECS, AGA and RTG.
+
+  Any key, mouse button, fire button or CD32 button skips it (Escape too).
+  The game then starts exactly as it would without the sequence.
+
+  --nointro, or the NOINTRO tooltype, skips it on every launch.
+
+  Music: MODs in the intro drawer of the music folder play during the
+  sequence. If that drawer is empty, space-flight music is used.
 
 @endnode
 
 @node flight "Flying Your Ship"
 @toc main
-@prev install
+@prev intro
 @next navigation
 
   L         Launch from a port or open ground.
@@ -461,6 +483,7 @@
   Services S / Contracts B / Market M / Shipyard U / Equipment 0 / Crew 9
   Steer arrows / Set speed W S / Fire Ctrl / Assist E / Gear K
   Time [ ] / Pause Space / Save F5 / Load F9 / Quit dialog Escape
+  Any key skips the title sequence; --nointro or NOINTRO disables it
 
   @{"Flight details" link flight}
   @{"Navigation    " link navigation}
@@ -468,7 +491,8 @@
 
   @{b}Sound and expanded controllers@{ub}
   Put your own ProTracker MODs in the music drawer beside the executable:
-  battle, planetary-flight, space-flight, docked and game-over subdrawers.
+  battle, planetary-flight, space-flight, docked, game-over and intro
+  subdrawers.
   Names can be tune.mod or MOD.tune (case insensitive). No music is supplied.
   Tracks change randomly at song end and on situation changes, excluding the
   previous selection when alternatives exist. Empty subdrawers stay silent;
@@ -501,7 +525,7 @@
 
   Open Install with SYS:Utilities/Installer V42.12+ and choose a drawer.
   Existing astralbound.sav is preserved. CPU icons accept MODE=ECS/AGA/RTG/RTG16
-  and LOWRES, NOSOUND, ANALOG tooltypes. Play-AGA/Play-RTG/Play-RTG16 scripts
+  and LOWRES, NOSOUND, ANALOG, NOINTRO tooltypes. Play-AGA/Play-RTG/Play-RTG16 scripts
   use Astralbound.020; Play-ECS-Lowres uses Astralbound.000.
   The original boot ADF starts ECS 320 x 200 with a user-supplied OS3 ROM.
   Tested with 2 MiB Chip and 8 MiB Fast; unexpanded A500s are not validated.

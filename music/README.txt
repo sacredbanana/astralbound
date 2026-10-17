@@ -5,6 +5,7 @@ Add your own ProTracker MOD music to these folders:
   space-flight/       Other flight.
   docked/             Docked at a port or landed on terrain.
   game-over/          Commander destroyed.
+  intro/              Opening title sequence (space-flight/ if empty).
 
 Battle takes priority over planetary/space flight. Menus keep the current
 situation's music. Put tracks directly in each folder; nested folders are not

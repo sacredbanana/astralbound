@@ -5,6 +5,7 @@
 #include "galaxy.h"
 #include "solar.h"
 #include "fpu.h"
+#include "intro.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +36,10 @@ static int view_h;
 static int draw_scale = 1;
 static Vec camera_position;
 static int camera_yaw, camera_pitch, camera_roll;
+/* The title sequence directs a free camera; terrain, sky and stars are then
+   resolved around that viewpoint instead of the commander's ship. */
+static const Intro *cinema;
+static Vec viewer(void) { return cinema ? camera_position : game->pos; }
 /* A sub-viewport for inset scenes: the projection centre moves by proj_dx/dy
    from the frame centre and rasterisation is scissored to the view rectangle.
    All zero (the full frame) except while an inset is being drawn. */
@@ -1308,7 +1313,7 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
 }
 static void planet_mesh(int body) {
     const Planet *p = &game->system.planets[body];
-    Vec cam_local = sub(scale(game->pos, 1, FP), p->center);
+    Vec cam_local = sub(scale(viewer(), 1, FP), p->center);
     int slot, radius = p->radius, x, y, lons = frame->enhanced ? 32 : 16, lats = lons / 2;
     int64_t distance = length(cam_local), altitude = distance - radius;
     /* Within a radius of the surface, globe facets span far more of the view
@@ -1387,10 +1392,10 @@ static void planet_mesh(int body) {
    Only nearby land has geometry; the globe material carries distant forests. */
 static void forests(void) {
     const Planet *p = &game->system.planets[game->body];
-    Vec local = sub(scale(game->pos, 1, FP), p->center), up = unit(local, 16384);
+    Vec local = sub(scale(viewer(), 1, FP), p->center), up = unit(local, 16384);
     Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), front;
     int x, y;
-    if (altitude_at(game, game->pos) > 3000 || p->type != OCEAN)
+    if (altitude_at(game, viewer()) > 3000 || p->type != OCEAN)
         return;
     if (!length(right))
         right = vec(16384, 0, 0);
@@ -1959,8 +1964,37 @@ static void destruction_effects(void) {
 
 #include "render_ports.inc"
 
+static void npc_hulls(void) {
+    int i;
+    for (i = 0; i < MAX_NPC; i++)
+        if (game->npc[i].active) {
+            Vec p = scale(game->npc[i].pos, 1, FP);
+            if (game->npc_role[i] == INSTALLATION_TARGET) {
+                const Planet *body = &game->system.planets[nearest_body(game, game->npc[i].pos)];
+                Vec up = unit(sub(p, body->center), 16384);
+                box(p, up, 75, 100, 23);
+                box(add(p, scale(up, 100, 16384)), up, 20, 60, 24);
+                continue;
+            }
+            npc_ship(&game->npc[i], game->npc_ship[i], p);
+        }
+}
+static void commander_hull(void) {
+    Vec p = scale(game->pos, 1, FP), f = forward(game->yaw, game->pitch);
+    Vec right = vec(cosi(game->yaw), 0, -sini(game->yaw)), up = unit(cross(f, right), 16384);
+    Vec level_right = right;
+    right = sub(scale(right, cosi(game->roll), 16384), scale(up, sini(game->roll), 16384));
+    up = add(scale(level_right, sini(game->roll), 16384), scale(up, cosi(game->roll), 16384));
+    ship_mesh(game->ship, p, right, up, f, 1, unit(sub(game->system.star[0].center, p), 16384));
+}
 static void world(void) {
     int i, b;
+    /* Directed shots are composed around their hulls: emit them before
+       terrain and port scenery can exhaust the triangle budget. */
+    if (cinema) {
+        npc_hulls();
+        if (cinema->hero && !game->dead) commander_hull();
+    }
     scenery_reserve = 1000;
     for (i = 0; i < port_count(game); i++)
         if (game->ports[i].surface &&
@@ -1977,18 +2011,7 @@ static void world(void) {
     cloud_deck();
     port_light_count = 0;
     for (i = 0; i < port_count(game); i++) port_geometry(i);
-    for (i = 0; i < MAX_NPC; i++)
-        if (game->npc[i].active) {
-            Vec p = scale(game->npc[i].pos, 1, FP);
-            if (game->npc_role[i] == INSTALLATION_TARGET) {
-                const Planet *body = &game->system.planets[nearest_body(game, game->npc[i].pos)];
-                Vec up = unit(sub(p, body->center), 16384);
-                box(p, up, 75, 100, 23);
-                box(add(p, scale(up, 100, 16384)), up, 20, 60, 24);
-                continue;
-            }
-            npc_ship(&game->npc[i], game->npc_ship[i], p);
-        }
+    if (!cinema) npc_hulls();
     for (i = 0; i < ASTEROIDS; i++) {
         Vec p = scale(asteroid_position(game, i), 1, FP);
         if (length(sub(p, scale(camera_position, 1, FP))) < 100000) {
@@ -2010,14 +2033,7 @@ static void world(void) {
     }
     for (i = 0; i < MAX_MISSILES; i++) if (game->projectiles[i].active)
         box(scale(game->projectiles[i].pos, 1, FP), vec(0, 16384, 0), 4, 8, 11);
-    if (game->camera_mode == 2 && !game->dead) {
-        Vec p = scale(game->pos, 1, FP), f = forward(game->yaw, game->pitch);
-        Vec right = vec(cosi(game->yaw), 0, -sini(game->yaw)), up = unit(cross(f, right), 16384);
-        Vec level_right = right;
-        right = sub(scale(right, cosi(game->roll), 16384), scale(up, sini(game->roll), 16384));
-        up = add(scale(level_right, sini(game->roll), 16384), scale(up, cosi(game->roll), 16384));
-        ship_mesh(game->ship, p, right, up, f, 1, unit(sub(game->system.star[0].center, p), 16384));
-    }
+    if (!cinema && game->camera_mode == 2 && !game->dead) commander_hull();
     destruction_geometry();
     draw_triangles();
     port_draw_lights();
@@ -3009,7 +3025,7 @@ static int sky_row(int tint, int y) {
 }
 static void sky(void) {
     const Planet *p = &game->system.planets[game->body];
-    Vec local = sub(scale(game->pos, 1, FP), p->center), cu, cs, eye;
+    Vec local = sub(scale(viewer(), 1, FP), p->center), cu, cs, eye;
     int tint = p->climate, w = frame->w, x, y, bw = w / SKY_COLUMNS, bh = bw / 2, cx, cy;
     int columns = bw ? (w + bw - 1) / bw : 0, rows = bh ? (view_h + bh - 1) / bh : 0;
     sky_state.scatter = rayleigh_scattering(&game->system, p, local, forward(camera_yaw, camera_pitch));
@@ -3090,7 +3106,10 @@ void render_game(const Game *g, Frame *f) {
     view_angles(g, &camera_yaw, &camera_pitch);
     camera_roll = g->camera_mode == 0 ? g->roll :
                   g->camera_mode == 1 ? (-g->roll & 1023) : 0;
-    if (g->death_started) {
+    if (cinema) {
+        camera_position = cinema->eye;
+        camera_yaw = cinema->yaw; camera_pitch = cinema->pitch; camera_roll = cinema->roll;
+    } else if (g->death_started) {
         const Wreck *w = &g->wrecks[0];
         Vec up = w->body < 0 ? vec(0, 16384, 0) :
             unit(sub(g->pos, scale(g->system.planets[w->body].center, FP, 1)), 16384);
@@ -3121,7 +3140,7 @@ void render_game(const Game *g, Frame *f) {
                               scale(up, 220 * FP, 16384));
         aim_angles(sub(g->pos, camera_position), &camera_yaw, &camera_pitch);
     }
-    view_h = ui_view_height(g, f);
+    view_h = cinema ? f->h : ui_view_height(g, f);
     nt = 0;
     {
         size_t count = (size_t)f->w * view_h;
@@ -3132,7 +3151,7 @@ void render_game(const Game *g, Frame *f) {
     }
     if (g->hyperspace > HYPER_CHARGE && g->hyperspace <= HYPER_CHARGE + HYPER_TUNNEL) {
         hyperspace_tunnel(g, g->hyperspace - HYPER_CHARGE - 1);
-        gui();
+        if (!cinema) gui();
         return;
     }
     sky();
@@ -3141,7 +3160,7 @@ void render_game(const Game *g, Frame *f) {
         for (i = 0; i < 120; i++) {
             uint32_t h = hash32((unsigned)i + g->seed);
             Vec d = forward(h % 1024, (int)((h >> 16) % 512) - 256);
-            Vec v = camera(add(scale(g->pos, 1, FP), scale(d, 1000000, 16384)));
+            Vec v = camera(add(scale(viewer(), 1, FP), scale(d, 1000000, 16384)));
             if (v.z > 100) {
                 int x = f->w / 2 + (int)(v.x * (f->w / 2) / v.z),
                     y = view_h / 2 - (int)(v.y * (f->w / 2) / v.z);
@@ -3159,9 +3178,9 @@ void render_game(const Game *g, Frame *f) {
         world();
         weather_overlay();
         destruction_effects();
-        if (!g->dead) system_body_labels();
+        if (!g->dead && !cinema) system_body_labels();
     }
-    if (g->page == FLIGHT && !g->dead) {
+    if (g->page == FLIGHT && !g->dead && !cinema) {
         Vec p = camera(scale(navigation_position(g), 1, FP));
         const char *name = g->resource_target >= 0 ? (g->resource_target >= ASTEROIDS ? "MINING RIG" : "ASTEROID") : g->target < 0 ? g->system.planets[g->target_body].name : g->ports[g->target].name;
         char range[24];
@@ -3198,7 +3217,7 @@ void render_game(const Game *g, Frame *f) {
         hyperspace_charge(g->hyperspace - 1);
     else if (g->hyperspace > HYPER_CHARGE + HYPER_TUNNEL)
         hyperspace_exit(g->hyperspace - HYPER_CHARGE - HYPER_TUNNEL - 1);
-    gui();
+    if (!cinema) gui();
 }
 /* Planes are contiguous and MSB-first, independent of host byte order. */
 void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
@@ -3248,3 +3267,5 @@ void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
         }
     }
 }
+
+#include "render_intro.inc"

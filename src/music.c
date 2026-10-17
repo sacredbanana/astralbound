@@ -19,11 +19,11 @@ typedef struct {
 } Track;
 static Track tracks[MAX_TRACKS];
 static int track_count, scene = -1, current = -1, paused;
-static int previous[MUSIC_SCENES] = {-1, -1, -1, -1, -1};
+static int previous[MUSIC_SCENES] = {-1, -1, -1, -1, -1, -1};
 static uint32_t random_state;
 static unsigned long remaining;
 static const char *folders[MUSIC_SCENES] = {
-    "battle", "planetary-flight", "space-flight", "docked", "game-over"
+    "battle", "planetary-flight", "space-flight", "docked", "game-over", "intro"
 };
 
 static int is_mod(const char *name) {
@@ -114,6 +114,7 @@ int music_load(const char *root, uint32_t seed) {
 
 int music_context(const Game *g) {
     int i;
+    if (g->cinematic) return MUSIC_INTRO;
     if (g->dead) return MUSIC_GAME_OVER;
     if (g->docked != -1) return MUSIC_DOCKED;
     for (i = 0; i < MAX_NPC; i++)
@@ -149,8 +150,13 @@ static void next_track(void) {
 }
 
 void music_observe(const Game *g) {
-    int context = music_context(g);
+    int context = music_context(g), i;
     paused = g->paused;
+    /* Without an intro score the title sequence plays space-flight music. */
+    if (context == MUSIC_INTRO) {
+        for (i = 0; i < track_count && tracks[i].scene != MUSIC_INTRO; i++) ;
+        if (i == track_count) context = MUSIC_SPACE;
+    }
     if (context != scene) { scene = context; next_track(); }
 }
 

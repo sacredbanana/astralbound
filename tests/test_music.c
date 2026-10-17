@@ -16,7 +16,7 @@ static Game g;
 static char music_root[128];
 #define ROOT music_root
 #endif
-static const char *folders[] = {"battle", "planetary-flight", "space-flight", "docked", "game-over"};
+static const char *folders[] = {"battle", "planetary-flight", "space-flight", "docked", "game-over", "intro"};
 
 static void fixture(const char *relative, int kind) {
     unsigned char data[1084 + 1024 + 32] = {0};
@@ -64,7 +64,8 @@ static void contexts(void) {
     assert(music_context(&g) == MUSIC_SPACE);
     g.page = MARKET; assert(music_context(&g) == MUSIC_SPACE);
     g.dead = 1; assert(music_context(&g) == MUSIC_GAME_OVER);
-    puts("PASS music context priority, hostile range, landing and menu continuity");
+    g.cinematic = 1; assert(music_context(&g) == MUSIC_INTRO);
+    puts("PASS music context priority, hostile range, landing, menu continuity and title sequence");
 }
 
 static void playback(void) {
@@ -108,6 +109,9 @@ static void playback(void) {
     music_observe(&g); assert(strstr(music_track(), "battle/loop.MOD"));
     music_mix(whole, sizeof(whole)); /* malformed sample loop is clamped safely */
     assert(strstr(music_track(), "battle/loop.MOD"));
+    /* Without an intro score the title sequence borrows space-flight music. */
+    g.cinematic = 1; music_observe(&g); assert(strstr(music_track(), "space-flight/full.mod"));
+    g.cinematic = 0;
     g.dead = 1; music_observe(&g); assert(!music_track());
     music_mix(whole, sizeof(whole));
     for (i = 0; i < (int)sizeof(whole); i++) assert(whole[i] == 0);

@@ -228,6 +228,7 @@ typedef struct {
     Wreck wrecks[MAX_NPC + 1]; /* slot 0 is reserved for the commander */
     uint32_t blast_serial, destruction_clock;
     int death_started, death_yaw, smoke_next;
+    int cinematic; /* transient: the title sequence is staging this Game */
     char message[80];
 } Game;
 typedef struct {

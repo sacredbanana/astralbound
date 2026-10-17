@@ -2,6 +2,7 @@
 #include "astralbound.h"
 #include "audio.h"
 #include "controller.h"
+#include "intro.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -198,4 +199,53 @@ static void destruction_tests(void) {
     assert(!active_blasts(&g) && !g.death_started);
     puts("PASS external death camera, ballistic smoke/terrain impact, real-time playback, blast lifetime, NPC destruction and transient saves");
 }
-int main(void) { sound_tests(); controller_tests(); destruction_tests(); return 0; }
+/* The title sequence is a fixed script on a borrowed Game: same frames on
+   every run, cameras never underground, every story beat audible, and an
+   ending or skip that leaves exactly a fresh commander. */
+static void intro_tests(void) {
+    static Game fresh, stage;
+    static Intro first, second;
+    SpaceAudio audio;
+    int heard[SOUND_COUNT] = {0}, t, chunk = 7, jumped = 0;
+    uint32_t home;
+    assert(INTRO_TICKS >= HZ * 175 && INTRO_TICKS <= HZ * 185);
+    game_init(&fresh, 0x53504143);
+    home = fresh.system.seed;
+    intro_start(&first, &g, 0x53504143);
+    assert(first.running && g.cinematic && g.docked == -1 && g.ship == 3);
+    assert(!intro_skippable(&first));
+    intro_start(&second, &stage, 0x53504143);
+    audio_init(&audio, &g);
+    for (t = 1; first.running; t += chunk) {
+        int steps = t + chunk > INTRO_TICKS ? INTRO_TICKS - t + 1 : chunk, k;
+        for (k = 0; k < steps && first.running; k++) {
+            intro_frame(&first, &g, 1);
+            if (!first.running) break;
+            heard[audio_observe(&audio, &g)] = 1;
+            if (g.system.seed != home) jumped = 1;
+            /* Directed cameras stay above ground and inside the system. */
+            if (!first.title && !(g.hyperspace > HYPER_CHARGE && g.hyperspace <= HYPER_CHARGE + HYPER_TUNNEL))
+                assert(altitude_at(&g, first.eye) > 5);
+            assert(first.beams <= INTRO_BEAMS && first.glows <= INTRO_GLOWS);
+        }
+        /* Chunked playback matches tick-by-tick playback exactly. */
+        if (first.running) {
+            intro_frame(&second, &stage, steps);
+            assert(second.tick == first.tick && !memcmp(&second.eye, &first.eye, sizeof(Vec)));
+            assert(!memcmp(&stage.pos, &g.pos, sizeof(Vec)) && stage.yaw == g.yaw && stage.roll == g.roll);
+        }
+    }
+    assert(t >= INTRO_TICKS - chunk && jumped);
+    assert(heard[SOUND_LASER] && heard[SOUND_HIT] && heard[SOUND_EXPLOSION]);
+    assert(heard[SOUND_HYPERSPACE] && heard[SOUND_JUMP] && heard[SOUND_DOCK]);
+    assert(!g.cinematic && !memcmp(&g, &fresh, sizeof(Game)));
+    /* A skip, after the launch keypress grace period, gives the same Game. */
+    intro_start(&first, &g, 0x53504143);
+    intro_frame(&first, &g, HZ / 2);
+    assert(intro_skippable(&first));
+    intro_frame(&first, &g, HZ * 100);
+    intro_finish(&first, &g);
+    assert(!first.running && !intro_skippable(&first) && !memcmp(&g, &fresh, sizeof(Game)));
+    puts("PASS title sequence length, determinism, camera clearance, story audio cues, skip and clean handover");
+}
+int main(void) { sound_tests(); controller_tests(); destruction_tests(); intro_tests(); return 0; }
