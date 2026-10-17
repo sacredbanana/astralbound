@@ -559,7 +559,17 @@ suites through the FPU code paths.
 output/synchronization times; native uses CIA display ticks, RTG uses EClock.
 Emulated acceleration does not establish physical-machine frame rates.
 
-Run `./package.sh` for ZIP/LHA drawer packages and `dist/Astralbound-0.1-boot.adf`.
+Run `./package.sh` to build all six CPU variants and create
+`dist/Astralbound-0.1-amiga.zip`, `dist/Astralbound.lha` and
+`dist/Astralbound-0.1-boot.adf`. An archive-capable `lha` command must be in
+PATH; a missing archiver is an error. Both archives include `Astralbound.readme`,
+the executables, installer, icons, manual and license notices. Locally added
+music tracks are excluded. ZIP and LHA contents are extracted and byte-checked.
+The packager also copies `dist/Astralbound.readme` beside the LHA, with the
+matching, version-free basename required for Aminet uploads. Submit that pair
+when uploading to Aminet; packaging does not upload anything. The readme follows
+[Aminet's readme format](https://wiki.aminet.net/The_Readme_file) and is checked
+for required metadata, ASCII text, LF endings and lines of at most 78 characters.
 ADF generation needs amitools' `xdftool` (`XDFTOOL=/path/to/xdftool`) and vasm;
 `build/release-venv/bin/xdftool` is also recognized. On Workbench, open Install
 using the system Installer (V42.12+), choose a destination, then use a CPU icon

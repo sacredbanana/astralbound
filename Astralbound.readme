@@ -1,0 +1,91 @@
+Short:        Space trading and combat adventure
+Author:       Cameron Armstrong (Nightfox)
+Uploader:     cameronscottarmstrong@gmail.com (Cameron Armstrong)
+Type:         game/misc
+Version:      0.1
+Architecture: m68k-amigaos >= 3.0
+Requires:     ECS or AGA, expansion RAM; CGX V41+ for RTG
+URL:          https://github.com/sacredbanana/astralbound
+
+Astralbound
+===========
+
+An original space trading and combat game for the Commodore Amiga,
+inspired by the scope and solid-polygon presentation of Frontier: Elite II.
+This is a playable development prototype, with unfinished features and
+performance still being tuned. It is not a finished Frontier-scale game.
+
+Features
+--------
+
+- Explore a galaxy using an adapted HYG star catalog and generated worlds.
+- Fly among moving stars, planets, moons, rings and orbital stations.
+- Descend through weather to terrain, forests, cities and surface ports.
+- Trade, mine, carry passengers, hire crew and take thirteen contract types.
+- Visit station services, meet contacts and plan routes to job destinations.
+- Buy ships and equipment, fight pirates and use lasers and missiles.
+- Use autopilot, System Drive, time compression and portable commander saves.
+- Choose ECS, AGA, indexed RTG or high-colour RTG graphics, with adjustable
+  detail settings and a built-in performance test.
+- Control flight and menus with keyboard, mouse, joystick or a CD32 pad.
+- Watch an optional cinematic intro rendered by the game engine.
+
+Requirements
+------------
+
+Kickstart/AmigaOS 3.0 or later and expansion RAM are required, including
+on a 68000. The emulator-tested low-resolution ECS configuration has
+2 MiB Chip RAM and 8 MiB Fast RAM; this is not a measured minimum.
+Higher resolutions and detail settings need more memory and CPU speed.
+An accelerator or fast emulator is recommended. Stock A500 performance
+has not been established.
+
+ECS and AGA support PAL and NTSC, including a 320 x 200 low-resolution
+option. AGA needs an AGA machine and a 68020 or later executable.
+RTG needs CyberGraphX V41+ or Picasso96's compatible CyberGraphX API,
+and a suitable graphics mode. No SDL or OpenGL is required.
+
+Select the executable for your CPU:
+
+  Astralbound.000     68000 or later, no FPU required
+  Astralbound.020     68020 or later, no FPU required
+  Astralbound.030     68030 or later, no FPU required
+  Astralbound.020fpu  68020/68030 with a 68881 or 68882
+  Astralbound.040     Full 68040 with FPU
+  Astralbound.060     Full 68060 with FPU
+
+Use Astralbound.020 on an LC/EC040 or LC/EC060 without an FPU.
+
+Installation and first flight
+-----------------------------
+
+Extract the archive to a hard disk, preserving its drawer structure.
+Open Install with the system Installer V42.12 or later, or copy the whole
+Astralbound drawer to your chosen destination. Existing commander saves
+and graphics preferences are preserved by the installer.
+
+Open the appropriate CPU icon or Play-AGA, Play-RTG or Play-RTG16.
+The setup menu lets you choose graphics, resolution and detail before
+starting. Low detail is the initial Amiga default. CLI example:
+
+  Astralbound.020 --aga --lowres
+
+The game allocates its required stack automatically for CLI launches.
+Workbench icons request 256 KiB. Escape exits and restores the display.
+At Haven, press L to launch and P for autopilot to the orbital Relay.
+Read Astralbound.guide for controls, station services and flight advice.
+
+Music is optional. Add your own supported ProTracker MOD files to the
+music subdrawers; see music/README.txt. No music tracks are included.
+
+License and sources
+-------------------
+
+Original code, ship geometry, font and generated content are released
+under the Unlicense; see LICENSE. Micromod replay uses the BSD 3-Clause
+license; see THIRD_PARTY.txt. The adapted HYG catalog uses CC BY-SA 4.0;
+see data/README.md and data/LICENSE-HYG.txt for attribution and terms.
+No Frontier assets, Amiga ROMs or Workbench files are included.
+
+Source code, build instructions and issue reporting:
+https://github.com/sacredbanana/astralbound

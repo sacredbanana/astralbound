@@ -17,7 +17,7 @@
              "Astralbound.040.info" "Astralbound.060.info"
              "Play-AGA" "Play-AGA.info" "Play-RTG" "Play-RTG.info"
              "Play-RTG16" "Play-RTG16.info" "Play-ECS-Lowres" "Play-ECS-Lowres.info"
-             "Astralbound.guide" "Astralbound.guide.info" "README.md" "LICENSE" "THIRD_PARTY.txt")
+             "Astralbound.guide" "Astralbound.guide.info" "Astralbound.readme" "README.md" "LICENSE" "THIRD_PARTY.txt")
     (prompt "Install Astralbound game files?")
     (help "Use Astralbound.000 on a 68000. Astralbound.020/.030 need no FPU. Astralbound.020fpu needs a 68020/030 with a 68881/68882; Astralbound.040 and Astralbound.060 need a full 68040/68060 with its FPU. Use Astralbound.020 on an LC/EC040 or LC/EC060.")
     (confirm))
