@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
-   The opening title sequence: one courier's run from dawn at Haven to
-   sanctuary under a red giant. Every actor follows keyframed paths in a
+   The opening title sequence: a courier's run from dawn at Haven, joined by
+   an escort in the rain clouds, through an ambush, to sanctuary at a ringed
+   gas giant. Every actor follows keyframed paths in a
    scene-local frame built from the real world (port, planet and sun), so
    playback is identical on every machine and never runs flight physics.
    World time is frozen per act; only lamps, station spin and effects move. */
@@ -13,21 +14,24 @@
 #define S(seconds) ((int)((seconds) * HZ))
 /* Shot boundaries in ticks. The jump keeps the game's own sequence length. */
 enum {
-    T_OPEN = 0, T_APPROACH = S(14), T_PAD = S(21), T_LIFT = S(27), T_CLIMB = S(38),
-    T_HIGH = S(46), T_RELAY = S(54), T_AMBUSH = S(68), T_PASS = S(74), T_CHASE = S(82),
-    T_KILL = S(88), T_MISSILE = S(94), T_AFTER = S(102), T_TURN = S(110), T_JUMP = S(116),
-    T_ARRIVE = S(116) + HYPER_TOTAL, T_FOLLOW = S(134), T_POLICE = S(140), T_DOCK = S(150),
-    T_TITLE = S(164)
+    T_OPEN = 0, T_APPROACH = S(14), T_PAD = S(21), T_LIFT = S(27), T_MEET = S(38),
+    T_FORM = S(45), T_CLOUD = S(52), T_TOPS = S(59), T_RELAY = S(66), T_AMBUSH = S(80),
+    T_PASS = T_AMBUSH + S(6), T_CHASE = T_AMBUSH + S(14), T_KILL = T_AMBUSH + S(20),
+    T_MISSILE = T_AMBUSH + S(26), T_AFTER = T_AMBUSH + S(34), T_TURN = T_AMBUSH + S(42),
+    T_JUMP = T_AMBUSH + S(48), T_ARRIVE = T_JUMP + HYPER_TOTAL, T_RINGS = T_ARRIVE + S(7),
+    T_SANCTUARY = T_ARRIVE + S(14), T_POLICE = T_SANCTUARY + S(6), T_DOCK = T_SANCTUARY + S(16),
+    T_TITLE = T_SANCTUARY + S(30)
 };
+typedef char intro_length_matches[T_TITLE + S(16) == INTRO_TICKS ? 1 : -1];
 typedef struct { Vec o, r, u, f; } Stage; /* origin Q8 system position, Q14 axes */
 typedef struct { int t; int32_t x, y, z; } Key; /* ticks from the act start, metres */
 enum { RAIDER_ONE, RAIDER_TWO, POLICE_ONE, POLICE_TWO };
 static struct {
-    Stage ground, climb, city, relay, convoy, dock;
+    Stage ground, climb, city, rain, relay, convoy, giant, dock;
     Vec liftoff_eye; /* Q8: corner of the pad's clear square behind the climb */
     uint32_t dawn, relay_tick, dock_tick;
     Sector home, destination;
-    int station, jumped;
+    int station, jumped, giant_body;
     Vec hero_front, hero_up, hero_right; /* Q14 hull axes after the last placement */
 } play;
 
@@ -155,6 +159,44 @@ static void exhaust(Intro *in, const Game *g, int power, uint32_t t) {
     for (side = -1; side <= 1; side += 2)
         glow(in, hull(g, side * 12, 0, -92), 3 + power * (9 + flicker) / 256, 31, power > 160 ? 13 : 12);
 }
+/* Navigation lamps: red to port, green to starboard, a white tail strobe. */
+static void nav_lamps(Intro *in, Vec left, Vec right, Vec tail, uint32_t clock) {
+    glow(in, left, 3, 23, 22);
+    glow(in, right, 3, 11, 10);
+    if (clock % 40 < 3) glow(in, tail, 5, 31, 15);
+}
+/* The escort: a Wayfarer flown as a directed hull, so it can bank. */
+#define ALLY_SHIP 5
+static void ally(Intro *in, Vec pos, Vec front, Vec up, int bank) {
+    Vec f = unit(front, 16384), u = sub(up, scale(f, dot14(up, f), 16384));
+    if (length(u) < 2000) u = up;
+    u = unit(banked(f, unit(u, 16384), bank), 16384);
+    in->escort = 1;
+    in->ally = (IntroHull){pos, f, u, ALLY_SHIP};
+}
+static Vec ally_point(const Intro *in, int x, int y, int z) {
+    Vec r = cross14(in->ally.up, in->ally.front);
+    return add(in->ally.pos, add(scale(r, (int64_t)x * FP, 16384),
+                                 add(scale(in->ally.up, (int64_t)y * FP, 16384),
+                                     scale(in->ally.front, (int64_t)z * FP, 16384))));
+}
+static void ally_engines(Intro *in, int power, uint32_t t) {
+    int side, flicker = (int)(hash32(t * 104729U) % 5);
+    for (side = -1; side <= 1; side += 2)
+        glow(in, ally_point(in, side * 77, -14, -152), 4 + power * (10 + flicker) / 256, 31, 12);
+    nav_lamps(in, ally_point(in, -86, -10, -40), ally_point(in, 86, -10, -40), ally_point(in, 0, 60, -150), t + 17);
+}
+/* Formation slot relative to the commander's hull, sharing its attitude. */
+static void escort(Intro *in, const Game *g, int x, int y, int z, int bank) {
+    ally(in, hull(g, x, y, z), play.hero_front, play.hero_up, bank);
+}
+static void hero_lamps(Intro *in, const Game *g, uint32_t clock) {
+    nav_lamps(in, hull(g, -64, 0, -64), hull(g, 64, 0, -64), hull(g, 0, 6, -95), clock);
+}
+/* Two rocks of the wings and back to level. */
+static int waggle(int t, int from, int to) {
+    return t < from || t >= to ? 0 : sini((t - from) * 2048 / (to - from)) * 110 / 16384;
+}
 static void puff(Game *g, Vec pos, Vec vel, int size) {
     Smoke *s = &g->smoke[g->smoke_next++ % MAX_SMOKE];
     memset(s, 0, sizeof(*s));
@@ -229,6 +271,17 @@ static void star_glow(Intro *in, const Game *g, int percent, int core, int halo)
     const Star *s = &g->system.star[0];
     glow(in, scale(s->center, FP, 1), s->radius / 100 * percent, core, halo);
 }
+/* Every star as a soft disc seen from a point: at least a degree and a half
+   across, reddish for cool stars. */
+static void suns(Intro *in, const Game *g, Vec from) {
+    int i;
+    for (i = 0; i < g->system.stars; i++) {
+        const Star *s = &g->system.star[i];
+        int64_t r = s->radius / 10 * 13, reach = length(sub(s->center, scale(from, 1, FP))) / 40;
+        int cool = s->type == ST_M || s->type == ST_K || s->type == ST_RED_GIANT || s->type == ST_GIANT;
+        glow(in, scale(s->center, FP, 1), r > reach ? r : reach, cool ? 24 : 31, cool ? 23 : 15);
+    }
+}
 /* Elevation (Q14 sine) of the host star seen from a port. */
 static int port_sun(Game *g, int port, uint32_t tick) {
     g->tick = tick;
@@ -260,18 +313,51 @@ static int orbital_port(const Game *g) {
     for (i = 0; i < g->nports; i++) if (!g->ports[i].surface) return i;
     return -1;
 }
-/* A red giant within one jump makes the arrival; any system with a station
-   will do if the galaxy differs. Leaves the chosen system loaded. */
-static Sector pick_destination(Game *g) {
-    static const Sector candidates[] = {{4, 0, -1}, {-1, 0, -1}, {-1, 0, 1}, {0, 0, 1}};
+/* A station circling a ringed gas giant, else any orbital station. */
+static int giant_port(const Game *g) {
     int i;
-    for (i = 0; i < (int)(sizeof(candidates) / sizeof(*candidates)); i++) {
-        if (!galaxy_exists(g->seed, candidates[i])) continue;
-        setup_system(g, candidates[i]);
-        if (orbital_port(g) >= 0) return candidates[i];
+    for (i = 0; i < g->nports; i++) {
+        const Planet *p = &g->system.planets[g->ports[i].body];
+        if (!g->ports[i].surface && p->type == GAS_GIANT && p->rings) return i;
     }
+    return orbital_port(g);
+}
+/* The arrival wants a ringed gas giant with a station, within one jump;
+   any system with a station will do if the galaxy differs. Leaves the
+   chosen system loaded. */
+static Sector pick_destination(Game *g) {
+    static const Sector candidates[] = {{-2, 3, 1}, {-1, 1, 3}, {0, -2, -4}, {4, 0, -1}, {-1, 0, -1}, {0, 0, 1}};
+    int pass, i, n = (int)(sizeof(candidates) / sizeof(*candidates));
+    for (pass = 0; pass < 2; pass++)
+        for (i = 0; i < n; i++) {
+            int port;
+            if (!galaxy_exists(g->seed, candidates[i])) continue;
+            setup_system(g, candidates[i]);
+            port = giant_port(g);
+            if (port >= 0 && (pass || g->system.planets[g->ports[port].body].type == GAS_GIANT))
+                return candidates[i];
+        }
     setup_system(g, play.home);
     return play.home;
+}
+/* Daylight rain over forested lowland somewhere on Haven's world: the
+   rendezvous is flown there. A spiral of samples 1 km up; Q14 direction. */
+static Vec rain_spot(const Game *g, int body) {
+    const Planet *p = &g->system.planets[body];
+    Vec found = g->ports[0].normal;
+    int i, n = 1536, best = -(1 << 30);
+    for (i = 0; i < n; i++) {
+        int z = 16384 - (2 * i + 1) * 16384 / n, a = (i * 391) & 1023, h, light, score;
+        int64_t xy = (int64_t)isqrt64((uint64_t)(16384LL * 16384 - (int64_t)z * z));
+        Vec d = vec(xy * cosi(a) / 16384, xy * sini(a) / 16384, z), air = radial(d, p->radius + 1000LL);
+        if (precipitation(p, air, g->tick) != 1) continue;
+        light = surface_light(&g->system, p, air);
+        h = terrain_height(p, air);
+        if (light < 4000 || h < 30 || h > 450) continue;
+        score = light - h * 8 + (terrain_material(p, radial(d, p->radius + (int64_t)h)) == 2 ? 16384 : 0);
+        if (score > best) { best = score; found = d; }
+    }
+    return found;
 }
 static void clear_actors(Game *g) {
     memset(g->npc, 0, sizeof(g->npc));
@@ -328,9 +414,6 @@ static const Key lift_keys[] = {
     {S(7), 0, 300, 120}, {S(9), 0, 760, 520}, {S(11), 0, 1500, 1150},
     {S(13), 0, 2550, 2050}, {S(15), 0, 3800, 3250}, {S(17), 0, 5300, 4800},
     {S(19), 0, 7200, 6800}};
-static const Key high_keys[] = {
-    {0, 0, 42000, 60000}, {S(2), 0, 47000, 66000}, {S(4), 0, 52500, 72500},
-    {S(6), 0, 58500, 79500}, {S(8), 0, 65000, 87000}};
 static const Key approach_keys[] = {
     {0, 60, 2650, 4200}, {S(1.5), 40, 2700, 3200}, {S(3.5), 20, 1700, 2000},
     {S(5.5), 10, 600, 1050}, {S(7), 0, 260, 650}};
@@ -405,32 +488,83 @@ static void act_ground(Intro *in, Game *g, int t) {
         look(in, eye, blend(at(s, 0, 20, 0), g->pos, 64 + ramp(k, S(1), S(5)) * 3 / 4), s->u);
     }
 }
-static void act_climb(Intro *in, Game *g, int t) {
-    const Stage *s = &play.climb;
-    if (t < T_HIGH) {
-        int k = t - T_LIFT;
-        Vec eye;
-        lift_hero(in, g, k);
-        eye = add(g->pos, add(scale(play.hero_front, -340 * FP, 16384),
-                              add(scale(s->u, 200 * FP, 16384), scale(play.hero_right, 140 * FP, 16384))));
-        look(in, eye, add(g->pos, scale(play.hero_front, 150 * FP, 16384)), s->u);
-        g->throttle = 4000;
+/* ---- Act 2: rendezvous in the rain --------------------------------------- */
+/* Under the cloud base in daylight rain the escort drops out of the murk,
+   slides alongside and rocks its wings; the pair climb through the cloud
+   into sunlight. Offsets are stage-relative, so the escort keeps its height. */
+static const Key rain_hero[] = {
+    {0, 0, 0, -1200}, {S(7), 0, 0, 60}, {S(14), 0, 10, 1320}, {S(18), 0, 600, 2040},
+    {S(22), 0, 1600, 2760}, {S(28), 0, 2700, 3840}};
+static const Key rain_ally[] = {
+    {0, 470, 900, -140}, {S(1.5), 420, 760, -110}, {S(4), 340, 300, -60}, {S(7), 250, 30, 0},
+    {S(9), 215, 0, 0}, {S(28), 215, 0, 0}};
+/* Slide the rendezvous so the climb threads the largest cumulus puff near
+   it: the pair, and the chase camera behind them, really fly through cloud. */
+static void thread_cloud(const Game *g, const Planet *p) {
+    Stage *s = &play.rain;
+    Vec centre = scale(p->center, FP, 1), fixed = body_rotate(p, scale(sub(s->o, centre), 1, FP), 1), best_at = fixed, o;
+    int face, du, dv, i, best = 0, u, v;
+    int64_t y, z;
+    for (face = 0; face < 6; face++) {
+        if (!cloud_face_cell(p, face, fixed, (int64_t)cloud_spacing(p) * 3, &u, &v)) continue;
+        for (dv = -2; dv <= 2; dv++) for (du = -2; du <= 2; du++) {
+            const Cloud *c = cloud_at(p, face, u + du, v + dv, g->tick);
+            if (c) for (i = 0; i < c->puffs; i++) if (c->puff[i].radius > best) {
+                const CloudPuff *f = &c->puff[i];
+                best = f->radius;
+                best_at = add(c->base, add(scale(c->east, f->x, 16384), add(scale(c->north, f->y, 16384), scale(c->up, f->z, 16384))));
+            }
+        }
+    }
+    if (!best) return;
+    best_at = add(centre, scale(body_rotate(p, best_at, 0), FP, 1));
+    /* Where the climb (rain_hero, 14-22 s) passes the puff's height. */
+    y = length(sub(best_at, centre)) / FP - p->radius - 1000;
+    z = y < 600 ? 1320 + (y - 10) * 720 / 590 : 2040 + (y - 600) * 720 / 1000;
+    o = sub(best_at, add(scale(s->f, z * FP, 16384), scale(s->u, y * FP, 16384)));
+    o = add(centre, radial(sub(o, centre), ((int64_t)p->radius + 1000) * FP));
+    *s = stage(o, sub(o, centre), s->f);
+}
+static void act_rendezvous(Intro *in, Game *g, int t) {
+    const Stage *s = &play.rain;
+    int k = t - T_MEET, body = g->ports[0].body;
+    Vec pos = place(s, PATH(rain_hero, k)), front, up, apos, afront;
+    front = unit(sub(place(s, PATH(rain_hero, k + 2)), place(s, PATH(rain_hero, k - 2))), 16384);
+    up = sub(s->u, scale(front, dot14(s->u, front), 16384));
+    hero(in, g, pos, front, banked(front, up, waggle(k, S(10.5), S(12.5))));
+    exhaust(in, g, 210, (uint32_t)t);
+    hero_lamps(in, g, (uint32_t)k);
+    g->throttle = 3000;
+    apos = add(place(s, PATH(rain_hero, k)), sub(place(s, PATH(rain_ally, k)), s->o));
+    afront = unit(sub(add(place(s, PATH(rain_hero, k + 2)), sub(place(s, PATH(rain_ally, k + 2)), s->o)),
+                      add(place(s, PATH(rain_hero, k - 2)), sub(place(s, PATH(rain_ally, k - 2)), s->o))), 16384);
+    /* Banked into the descent, then a greeting. */
+    ally(in, apos, afront, s->u, -ease(k, 0, S(2)) / 4 + ease(k, S(4), S(7)) / 4 + waggle(k, S(8.5), S(10.5)));
+    ally_engines(in, 200, (uint32_t)t);
+    if (k < S(6)) glow(in, ally_point(in, 0, -12, 172), 7, 31, 15); /* landing light in the murk */
+    if (t < T_FORM) {
+        /* From below, looking up at the cloud base. */
+        Vec eye = above_ground(g, at(s, -240, -200, -150), body, 70);
+        look(in, eye, blend(g->pos, apos, 70 + ramp(k, S(1), S(5)) / 3), s->u);
+        in->fade = 16 - ramp(k, 0, S(1)) / 16;
+    } else if (t < T_CLOUD) {
+        /* Ahead of the pair, wing to wing in the rain. */
+        Vec mid = blend(g->pos, apos, 128);
+        Vec eye = add(mid, add(scale(s->r, -60 * FP, 16384), add(scale(s->u, 90 * FP, 16384), scale(s->f, 560 * FP, 16384))));
+        look(in, eye, mid, s->u);
+    } else if (t < T_TOPS) {
+        /* Riding behind them up into the cloud. */
+        Vec mid = blend(g->pos, apos, 128);
+        Vec eye = add(mid, add(scale(front, -420 * FP, 16384), scale(s->u, 50 * FP, 16384)));
+        look(in, eye, add(mid, scale(front, 300 * FP, 16384)), s->u);
     } else {
-        /* Fly alongside, then let the courier pull away into the dark. */
-        int k = t - T_HIGH, lag = k < S(4.5) ? k : S(4.5) + (k - S(4.5)) * 9 / 10;
-        Vec v, front, up, pos = place(s, PATH(high_keys, k)), alongside = place(s, PATH(high_keys, lag));
-        v = sub(place(s, PATH(high_keys, k + 2)), place(s, PATH(high_keys, k - 2)));
-        front = unit(v, 16384);
-        up = sub(s->u, scale(front, dot14(s->u, front), 16384));
-        hero(in, g, pos, front, banked(front, up, 90 - ease(k, S(5), S(8)) / 3));
-        look(in, add(alongside, add(scale(s->r, 250 * FP, 16384), scale(s->u, 150 * FP, 16384))),
-             g->pos, s->u);
-        exhaust(in, g, 256, (uint32_t)t);
-        g->throttle = 4000;
-        if (k > S(7)) in->fade = ramp(k, S(7), S(8)) / 16;
+        /* Above the tops: the pair burst out of the cloud into the sun. */
+        Vec eye = at(s, 1000, 2650, 3800);
+        look(in, eye, blend(g->pos, apos, 100), s->u);
+        if (k > S(27)) in->fade = ramp(k, S(27), S(28)) / 16;
     }
 }
-/* ---- Act 2: past the Relay ---------------------------------------------- */
+/* ---- Act 3: past the Relay ---------------------------------------------- */
 static const Key relay_keys[] = {
     {0, -1050, 570, 1100}, {S(3), -595, 260, 620}, {S(6), -214, 99, 194},
     {S(9), 400, 60, -500}, {S(12), 1200, 100, -1900}, {S(14), 1700, 150, -2800}};
@@ -444,13 +578,15 @@ static void act_relay(Intro *in, Game *g, int t) {
     hero(in, g, pos, front, banked(front, up, -90 + sini(k * 3) * 40 / 16384));
     exhaust(in, g, 220, (uint32_t)t);
     g->throttle = 3000;
+    escort(in, g, 240, 25, -170, -90 + sini(k * 3) * 40 / 16384);
+    ally_engines(in, 220, (uint32_t)t);
     eye = at(s, -560 + k * 60 / S(14), 330 - k * 30 / S(14), 760 - k * 50 / S(14));
     target = blend(s->o, g->pos, 64 + ramp(k, S(2), S(10)) * 3 / 4);
     look(in, eye, target, s->u);
     g->ports[play.station].rotation = (int)(k * 1024 / S(30)) & 1023;
     in->fade = 16 - ramp(k, 0, S(1)) / 16;
 }
-/* ---- Act 3: ambush ------------------------------------------------------- */
+/* ---- Act 4: ambush ------------------------------------------------------- */
 /* All actors move in a convoy frame cruising at 250 m/s; the planet,
    stars and wreckage stay in the system frame and fall behind. */
 static const Key hero_keys[] = {
@@ -467,6 +603,13 @@ static const Key raider_two[] = {
     {S(13), 500, -100, -2000}, {S(18), 380, 60, -1700}, {S(24), 300, 90, -1900},
     {S(27), 260, 80, -2000}, {S(34), -200, 200, -2600}, {S(42), -100, 150, -2200},
     {S(48), 0, 100, -1800}};
+/* The escort holds formation, breaks to duel the second raider, loses it
+   when the missile flies, and rejoins for the turn. Convoy-local metres. */
+static const Key ally_keys[] = {
+    {0, 260, 20, -80}, {S(5), 260, 20, -80}, {S(7), 420, -40, -500}, {S(9), 700, -200, -1700},
+    {S(11), 1150, -380, -2700}, {S(13.5), 800, -200, -2300}, {S(18), 560, 40, -2100},
+    {S(24), 480, 110, -2350}, {S(28), 400, 60, -2600}, {S(34), 200, 60, -900},
+    {S(38), 280, 30, -200}, {S(42), 230, 15, 40}, {S(48), 230, 15, 40}};
 #define MISSILE_LAUNCH S(26.5)
 #define FLARES S(29.6)
 #define DETONATE S(31.5)
@@ -560,11 +703,29 @@ static void ambush_raiders(Intro *in, Game *g, int k) {
         spark(in, g, hull(g, -40, 10, 0), k);
     }
 }
+static void ambush_ally(Intro *in, Game *g, int k) {
+    Stage m = convoy_at(k);
+    Vec pos = ACTOR(ally_keys, k), v = VELOCITY(ally_keys, k);
+    ally(in, pos, v, m.u, 0);
+    if (k >= S(40)) {
+        /* Into the hero's own frame for the climbing turn. */
+        IntroHull keyed = in->ally;
+        escort(in, g, 230, 15, 40, 0);
+        in->ally.pos = blend(keyed.pos, in->ally.pos, ease(k, S(40), S(42)));
+    }
+    ally_engines(in, 210, (uint32_t)k);
+    if (g->npc[RAIDER_TWO].active) {
+        Vec muzzle = ally_point(in, 0, 0, 175);
+        volley(in, g, k, S(14), S(20), 8, muzzle, g->npc[RAIDER_TWO].pos, 13, 60, 43);
+        volley(in, g, k, S(28), S(31), 9, muzzle, g->npc[RAIDER_TWO].pos, 13, 80, 47);
+    }
+}
 static void act_ambush(Intro *in, Game *g, int t) {
     int k = t - T_AMBUSH;
     Stage m = convoy_at(k);
     ambush_hero(in, g, k);
     ambush_raiders(in, g, k);
+    ambush_ally(in, g, k);
     if (t < T_PASS) {
         /* Riding behind the courier as the raiders drop in ahead. */
         look(in, in_convoy(k, vec((70 - k / 8) * FP, 120 * FP, (-380 + k / 4) * FP)),
@@ -617,15 +778,34 @@ static const Key arrival_keys[] = {
     {S(20), -300, 1700, -500}, {S(25), -40, 1100, -60}, {S(29), 0, 700, 0},
     {S(33), 0, 300, 0}, {S(36), 0, 40, 0}, {S(38), 0, -60, 0}};
 static void arrive(Game *g) {
+    const Planet *p;
+    Vec centre, sun, flat, side, d;
     setup_system(g, play.destination);
     clear_actors(g);
-    play.station = orbital_port(g);
+    play.station = giant_port(g);
     if (play.station < 0) play.station = 0;
     stage_world(g, play.dock_tick);
     play.dock = stage(g->ports[play.station].pos, g->ports[play.station].normal, vec(0, 0, 16384));
     g->target = play.station;
-    g->body = g->ports[play.station].body;
+    play.giant_body = g->ports[play.station].body;
+    g->body = play.giant_body;
+    /* Approach the giant two-thirds lit and from above its ring plane (the
+       rings lie in the system XY plane), so they open into a wide ellipse. */
+    p = &g->system.planets[play.giant_body];
+    centre = scale(p->center, FP, 1);
+    sun = sun_from(g, centre);
+    flat = unit(vec(sun.x, sun.y, 0), 16384);
+    if (length(flat) < 8192) flat = vec(16384, 0, 0);
+    side = vec(-flat.y, flat.x, 0);
+    d = add(scale(flat, cosi(190), 16384), scale(side, sini(190), 16384));
+    d = unit(add(scale(d, cosi(64), 16384), vec(0, 0, sini(64))), 16384);
+    play.giant = stage(add(centre, scale(d, (int64_t)p->radius * 32 / 10 * FP, 16384)),
+                       vec(0, 0, 16384), scale(d, -1, 1));
     play.jumped = 1;
+}
+/* The pair cruise towards the giant at 300 m/s, the escort on the right. */
+static Vec giant_point(int k, int x, int y, int z) {
+    return at(&play.giant, x, y, z + 300LL * k / HZ);
 }
 static void act_jump(Intro *in, Game *g, int t) {
     int k = t - T_JUMP;
@@ -633,17 +813,51 @@ static void act_jump(Intro *in, Game *g, int t) {
     if (!play.jumped && g->hyperspace > HYPER_CHARGE) arrive(g);
     if (!play.jumped) {
         ambush_hero(in, g, T_JUMP - T_AMBUSH);
+        escort(in, g, 230, 15, 260, 0);
         volley(in, g, k, 0, HYPER_CHARGE - 8, 18, nose(g, RAIDER_TWO), g->pos, 23, 140, 29);
     } else {
-        Vec pos = place(&play.dock, PATH(arrival_keys, 0));
-        hero(in, g, pos, unit(sub(place(&play.dock, PATH(arrival_keys, S(2))), pos), 16384), play.dock.u);
-        star_glow(in, g, 130, 24, 23);
+        int exit = g->hyperspace - HYPER_CHARGE - HYPER_TUNNEL;
+        hero(in, g, giant_point(0, 0, 0, 0), play.giant.f, play.giant.u);
+        suns(in, g, g->pos);
+        /* The escort drops out of its own cloud alongside. */
+        if (exit > 8) escort(in, g, 230, 15, 260, 0);
+        if (exit > 0 && exit < 20) glow(in, hull(g, 230, 15, 260), 20 + 120 * sini(exit * 25) / 16384, 31, 27);
     }
     in->hero = 0; in->cockpit = 1;
     in->eye = g->pos; in->yaw = g->yaw; in->pitch = g->pitch; in->roll = g->roll;
     g->throttle = 0;
 }
-/* ---- Act 5: sanctuary ----------------------------------------------------- */
+/* ---- Act 6: the ringed giant ---------------------------------------------- */
+static void act_giant(Intro *in, Game *g, int t) {
+    const Stage *s = &play.giant;
+    int k = t - T_ARRIVE;
+    Vec centre = scale(g->system.planets[play.giant_body].center, FP, 1), eye, to_giant;
+    hero(in, g, giant_point(k, 0, 0, 0), s->f, banked(s->f, s->u, sini(k * 2) * 20 / 16384));
+    escort(in, g, 230, 15, -40, sini(k * 2 + 300) * 20 / 16384);
+    exhaust(in, g, 200, (uint32_t)t);
+    ally_engines(in, 200, (uint32_t)t);
+    suns(in, g, g->pos);
+    g->throttle = 2400;
+    if (t < T_RINGS) {
+        /* Far behind and above: two specks before the banded giant. */
+        eye = giant_point(k, -520 + k, 300, -1700);
+        to_giant = unit(sub(centre, eye), 16384);
+        look(in, eye, add(eye, add(scale(to_giant, 700, 1), scale(unit(sub(g->pos, eye), 16384), 300, 1))), s->u);
+        snprintf(in->caption_text, sizeof(in->caption_text), "%.24s SYSTEM", g->system.name);
+        caption(in, in->caption_text, k, S(1), S(6.5));
+    } else {
+        /* Over the commander's shoulder towards the rings. */
+        eye = hull(g, -60, 95, -460);
+        to_giant = unit(sub(centre, eye), 16384);
+        look(in, eye, add(eye, add(scale(to_giant, 560, 1), scale(unit(sub(blend(g->pos, in->ally.pos, 100), eye), 16384), 440, 1))), s->u);
+        if (k > S(13)) in->fade = ramp(k, S(13), S(14)) / 16;
+    }
+}
+/* ---- Act 7: sanctuary ----------------------------------------------------- */
+static const Key ally_dock_keys[] = {
+    {S(8), -1300, 3640, -2950}, {S(12), -620, 2560, -1560}, {S(15), -900, 3300, -2300},
+    {S(18), -1100, 3500, -2700}, {S(21.5), -1250, 3350, -2600}, {S(26), -700, 2600, -1400},
+    {S(38), -500, 1500, -600}};
 static const Key follower_keys[] = {
     {S(9), -3200, 6400, -6800}, {S(12), -2600, 5200, -5000}, {S(16), -1700, 3900, -3300},
     {S(19), -1300, 3300, -2600}, {S(21.5), -1150, 3000, -2300}};
@@ -660,12 +874,17 @@ static const Key police_two[] = {
 #define DOCK_VELOCITY(keys, k) path_velocity(&play.dock, keys, (int)(sizeof(keys) / sizeof(*keys)), k)
 static void act_sanctuary(Intro *in, Game *g, int t) {
     const Stage *s = &play.dock;
-    int k = t - T_ARRIVE, spin = (int)(k * 1024 / S(40)) & 1023;
+    /* Joins the arrival script eight seconds in, as the follower drops out. */
+    int k = t - T_SANCTUARY + S(8), spin = (int)(k * 1024 / S(40)) & 1023;
     Vec pos = DOCK_POINT(arrival_keys, k), v = sub(DOCK_POINT(arrival_keys, k + 2), DOCK_POINT(arrival_keys, k - 2));
-    Vec front = unit(v, 16384), up, bore_right, bore_up, sun = sun_from(g, pos);
+    Vec front = unit(v, 16384), up, bore_right, bore_up;
     int align = ease(k, S(22), S(27));
     g->ports[play.station].rotation = spin;
-    star_glow(in, g, 130, 24, 23);
+    suns(in, g, pos);
+    ally(in, DOCK_POINT(ally_dock_keys, k), DOCK_VELOCITY(ally_dock_keys, k), s->u, 0);
+    ally_engines(in, 200, (uint32_t)t);
+    if (g->npc[RAIDER_TWO].active)
+        volley(in, g, k, S(16), FOLLOWER_DIES, 9, ally_point(in, 0, 0, 175), g->npc[RAIDER_TWO].pos, 13, k > S(20) ? 8 : 60, 53);
     /* Wings slot between the docking collars and turn with the station. */
     bore_right = axis(s, cosi(spin + 128), 0, sini(spin + 128));
     bore_up = cross14(scale(s->u, -1, 1), bore_right);
@@ -693,23 +912,17 @@ static void act_sanctuary(Intro *in, Game *g, int t) {
         volley(in, g, k, S(17.6), FOLLOWER_DIES, 8, nose(g, POLICE_TWO), g->npc[RAIDER_TWO].pos, 13, k > S(20) ? 6 : 50, 41);
     }
     if (k >= S(15.5) && k < S(15.7)) spark(in, g, hull(g, 15, 5, -50), k);
-    if (t < T_FOLLOW) {
-        /* The courier against the red giant. */
-        Vec eye = add(pos, add(scale(sun, -(700 - k) * FP, 16384), scale(s->u, 160 * FP, 16384)));
-        look(in, eye, g->pos, s->u);
-        snprintf(in->caption_text, sizeof(in->caption_text), "%.24s SYSTEM", g->system.name);
-        caption(in, in->caption_text, k, S(1), S(6.5));
-    } else if (t < T_POLICE) {
+    if (t < T_POLICE) {
         /* Over the commander's shoulder, looking back the way it came. */
         Vec back = unit(sub(DOCK_POINT(follower_keys, S(9)), g->pos), 16384);
         Vec eye = add(g->pos, add(scale(back, -260 * FP, 16384), scale(s->u, 70 * FP, 16384)));
         look(in, eye, blend(g->pos, DOCK_POINT(follower_keys, S(9)), 60), s->u);
     } else if (t < T_DOCK) {
-        /* Riding with the second interceptor into the fight. */
-        Vec p2 = DOCK_POINT(police_two, k), d = unit(DOCK_VELOCITY(police_two, k), 16384);
+        /* Riding with the escort as it runs the follower down. */
+        Vec a = in->ally.pos, d = in->ally.front;
         Vec target = k < FOLLOWER_DIES ? DOCK_POINT(follower_keys, k) : DOCK_POINT(follower_keys, FOLLOWER_DIES);
-        Vec eye = add(p2, add(scale(d, -170 * FP, 16384), scale(s->u, 45 * FP, 16384)));
-        look(in, eye, blend(p2, target, 170), s->u);
+        Vec eye = add(a, add(scale(d, -420 * FP, 16384), scale(s->u, 100 * FP, 16384)));
+        look(in, eye, blend(a, target, 150), s->u);
     } else {
         int j = t - T_DOCK;
         Vec eye = add(g->pos, add(scale(s->u, (300 - j / 4) * FP, 16384), scale(axis(s, 1, 0, 1), 140 * FP, 16384)));
@@ -746,7 +959,7 @@ static void enter(Game *g, int t) {
 static void step(Intro *in, Game *g) {
     int t = in->tick;
     in->beams = in->glows = 0;
-    in->hero = 1; in->cockpit = in->guns = 0;
+    in->hero = 1; in->escort = 0; in->cockpit = in->guns = 0;
     in->fade = in->flash = 0;
     in->caption = NULL; in->caption_chars = 0;
     in->letterbox = 1; in->title = 0;
@@ -754,11 +967,12 @@ static void step(Intro *in, Game *g) {
     g->ui_clock++;
     g->hyperspace = 0;
     if (t < T_APPROACH) act_open(in, g, t);
-    else if (t < T_CLIMB) act_ground(in, g, t);
-    else if (t < T_RELAY) act_climb(in, g, t);
+    else if (t < T_MEET) act_ground(in, g, t);
+    else if (t < T_RELAY) act_rendezvous(in, g, t);
     else if (t < T_AMBUSH) act_relay(in, g, t);
     else if (t < T_JUMP) act_ambush(in, g, t);
     else if (t < T_ARRIVE) act_jump(in, g, t);
+    else if (t < T_SANCTUARY) act_giant(in, g, t);
     else if (t < T_TITLE) act_sanctuary(in, g, t);
     else act_title(in, g, t);
     destruction_tick(g);
@@ -774,8 +988,8 @@ void intro_start(Intro *in, Game *g, uint32_t seed) {
     /* Choose light before the first frame: the destination station's sky,
        a bright morning at Haven and a day-side pass of its Relay. */
     play.destination = pick_destination(g);
-    if (orbital_port(g) >= 0)
-        play.dock_tick = sunrise(g, orbital_port(g), 4000, HZ * 4U * 3600U);
+    if (giant_port(g) >= 0)
+        play.dock_tick = sunrise(g, giant_port(g), 4000, HZ * 4U * 3600U);
     setup_system(g, play.home);
     play.dawn = sunrise(g, 0, 4000, rotation_period(&g->system.planets[g->ports[0].body]) * (uint32_t)HZ);
     play.relay_tick = orbital_port(g) >= 0 ?
@@ -783,6 +997,13 @@ void intro_start(Intro *in, Game *g, uint32_t seed) {
     play.station = orbital_port(g) >= 0 ? orbital_port(g) : 0;
     stage_world(g, play.dawn);
     play.ground = stage(g->ports[0].pos, g->ports[0].normal, sun_from(g, g->ports[0].pos));
+    {
+        /* Rendezvous stage: 1 km up in the rain, flying across the sunlight. */
+        const Planet *p = &g->system.planets[g->ports[0].body];
+        Vec d = rain_spot(g, g->ports[0].body), o = add(scale(p->center, FP, 1), radial(d, ((int64_t)p->radius + 1000) * FP));
+        play.rain = stage(o, d, cross14(d, sun_from(g, o)));
+        thread_cloud(g, p);
+    }
     play.climb = stage(g->ports[0].pos, g->ports[0].normal, rim_gap(g));
     {
         /* The city grid uses the port's own body-fixed frame; its blocks keep

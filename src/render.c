@@ -1737,16 +1737,17 @@ static void weather_overlay(void) {
     int x, y, i, lit = surface_light(&game->system, p, local) > 0;
     if (density) {
         cloud_fog(density, lit);
-        text(8, 32, 15, "IN CLOUD");
+        if (!cinema) text(8, 32, 15, "IN CLOUD");
     }
     if (rain) {
-        for (i = 0; i < (frame->enhanced ? 48 : 24); i++) {
+        for (i = 0; i < (frame->enhanced ? 48 : 24) * (cinema ? 2 : 1); i++) {
             uint32_t h = hash32(p->seed + (unsigned)i * 7919U);
             x = (int)(h % (unsigned)frame->w);
-            y = (int)(((h >> 16) + game->tick * (rain == 1 ? 9U : 2U)) % (unsigned)view_h);
+            /* The title sequence freezes world time; its rain runs on real time. */
+            y = (int)(((h >> 16) + (cinema ? game->ui_clock : game->tick) * (rain == 1 ? 9U : 2U)) % (unsigned)view_h);
             rect(x, y, rain == 1 ? 1 : 2, rain == 1 ? 7 : 2, lit ? 7 : 8);
         }
-        text(8, 44, 15, rain == 1 ? "RAIN" : "SNOW");
+        if (!cinema) text(8, 44, 15, rain == 1 ? "RAIN" : "SNOW");
     }
 }
 /* NPC hulls point along their velocity through the local air when inside an
@@ -1994,6 +1995,12 @@ static void world(void) {
     if (cinema) {
         npc_hulls();
         if (cinema->hero && !game->dead) commander_hull();
+        if (cinema->escort) {
+            const IntroHull *h = &cinema->ally;
+            Vec p = scale(h->pos, 1, FP);
+            ship_mesh(h->ship, p, cross(h->up, h->front), h->up, h->front, 1,
+                      unit(sub(game->system.star[0].center, p), 16384));
+        }
     }
     scenery_reserve = 1000;
     for (i = 0; i < port_count(game); i++)

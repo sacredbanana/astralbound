@@ -892,7 +892,7 @@ static void night_and_twilight_skies(void) {
 static void intro_frames(void) {
     static Game g, plain;
     static Intro in;
-    static const int seconds[] = {6, 18, 24, 31, 44, 58, 76, 85, 91, 100, 118, 121, 130, 152, 172};
+    static const int seconds[] = {6, 18, 24, 31, 40, 48, 54, 61, 70, 86, 97, 103, 112, 132, 140, 146, 160, 172, 190};
     Frame f = {320, 256, 1, NULL, {0}};
     uint8_t *reference;
     int mode, i;

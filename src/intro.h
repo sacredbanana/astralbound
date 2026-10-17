@@ -5,11 +5,13 @@
 /* The opening title sequence. It borrows the commander's Game as its stage:
    real systems, ports, hulls and effects, positioned by a fixed script rather
    than by physics. Ending or skipping leaves a freshly initialised Game. */
-#define INTRO_TICKS (HZ * 180)
+#define INTRO_TICKS (HZ * 198)
 #define INTRO_BEAMS 16
 #define INTRO_GLOWS 32
 typedef struct { Vec a, b; int colour; } IntroBeam; /* Q8 system positions */
 typedef struct { Vec p; int64_t radius; int core, halo; } IntroGlow; /* radius in metres */
+/* A directed hull with full attitude, for ships that bank (NPC hulls cannot). */
+typedef struct { Vec pos, front, up; int ship; } IntroHull; /* Q8 position, Q14 axes */
 typedef struct {
     int tick, running;
     uint32_t seed;
@@ -17,6 +19,8 @@ typedef struct {
     Vec eye; /* Q8 system position */
     int yaw, pitch, roll;
     int hero; /* draw the commander's hull at g->pos */
+    int escort; /* draw the ally hull */
+    IntroHull ally;
     int cockpit, guns; /* crosshair; gun lasers converging on it */
     int letterbox, fade, flash; /* fade/flash: ordered dither 0..16 */
     int beams, glows;

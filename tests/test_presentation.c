@@ -208,11 +208,25 @@ static void intro_tests(void) {
     SpaceAudio audio;
     int heard[SOUND_COUNT] = {0}, t, chunk = 7, jumped = 0;
     uint32_t home;
-    assert(INTRO_TICKS >= HZ * 175 && INTRO_TICKS <= HZ * 185);
+    assert(INTRO_TICKS >= HZ * 190 && INTRO_TICKS <= HZ * 200);
     game_init(&fresh, 0x53504143);
     home = fresh.system.seed;
     intro_start(&first, &g, 0x53504143);
     assert(first.running && g.cinematic && g.docked == -1 && g.ship == 3);
+    {
+        /* The escort and the rain: some ticks show the ally hull, and the
+           rendezvous is flown in rain under the cloud base. */
+        int escorted = 0, rain = 0, k;
+        intro_start(&second, &stage, 0x53504143);
+        for (k = 0; k < INTRO_TICKS - HZ; k += HZ / 2) {
+            intro_frame(&second, &stage, k - second.tick);
+            escorted += second.escort;
+            if (second.escort) assert(second.ally.ship == 5 && length(second.ally.front) > 16000);
+            rain |= precipitation(&stage.system.planets[stage.body],
+                scale(sub(second.eye, scale(stage.system.planets[stage.body].center, FP, 1)), 1, FP), stage.tick) == 1;
+        }
+        assert(escorted > 150 && rain);
+    }
     assert(!intro_skippable(&first));
     intro_start(&second, &stage, 0x53504143);
     audio_init(&audio, &g);

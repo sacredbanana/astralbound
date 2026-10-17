@@ -74,10 +74,12 @@ make navigation-test  # longer, full interplanetary transfer
 make preview
 ```
 
-Every launch opens with a three-minute title sequence: a Kestrel courier lifts off
-from Haven at dawn, is ambushed by raiders in orbit, jumps to a red giant and docks
-under police escort. It is staged with the real systems, ports, hulls, explosions
-and hyperspace effects (no prerecorded video), letterboxed, in ECS, AGA and RTG.
+Every launch opens with a 3 minute 18 second title sequence: a Kestrel courier lifts
+off from Haven at dawn, meets a Wayfarer escort in daylight rain under the clouds and
+climbs through them wing to wing, is ambushed by raiders in orbit, jumps with its escort
+to a ringed gas giant and docks under police protection. It is staged with the real
+systems, ports, hulls, weather, explosions and hyperspace effects (no prerecorded
+video), letterboxed, in ECS, AGA and RTG.
 Any key, mouse button, fire or controller button skips it (Escape too); `--nointro`
 or the `NOINTRO` tooltype disables it. Host preview flags that stage a scene
 (`--surface`, `--market` and the like) also skip it.

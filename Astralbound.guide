@@ -40,7 +40,7 @@
   AGA requires an AGA chipset. RTG needs CyberGraphX V41 or a
   Picasso96 setup with the compatible CyberGraphX API.
   Expansion RAM is needed; stock A500 performance is not established.
-  A three-minute title sequence plays first: see @{"Title Sequence" link intro}.
+  A title sequence plays first: see @{"Title Sequence" link intro}.
 
 @endnode
 
@@ -49,10 +49,12 @@
 @prev install
 @next flight
 
-  Each launch opens with a three-minute title sequence: a courier lifts
-  off from Haven at dawn, survives a raider ambush in orbit, jumps to a
-  red giant and docks under police escort. It is staged with the game's
-  own worlds, ports, hulls and effects, so it runs in ECS, AGA and RTG.
+  Each launch opens with a title sequence of about three minutes: a
+  courier lifts off from Haven at dawn, meets an escort in the rain and
+  climbs with it through the clouds, survives a raider ambush in orbit,
+  jumps with its escort to a ringed gas giant and docks under police
+  protection. It is staged with the game's own worlds, ports, hulls,
+  weather and effects, so it runs in ECS, AGA and RTG.
 
   Any key, mouse button, fire button or CD32 button skips it (Escape too).
   The game then starts exactly as it would without the sequence.
