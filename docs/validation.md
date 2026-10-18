@@ -1,3 +1,21 @@
+# Crunched boot ADF with music - 18 October 2026
+
+- `./package.sh` crunches Astralbound.000 for the OFS boot ADF with Cranker 0.72
+  (743,944 to 339,500 bytes). The freed space holds the space-flight (intro
+  fallback), docked and battle MODs (342,983 bytes). The disk uses 1593 of 1760
+  blocks, leaving about 83 KiB for a commander save. Planetary-flight and
+  game-over drawers are empty there; ZIP/LHA carry the complete music tree.
+- `tools/cranker.py` fetches the pinned Aminet archive (SHA-256 checked), builds
+  Cranker on the host, crunches, and unpacks with `cranker -u`. The unpacked code
+  (675,832 bytes, 11,599 relocations), data (840 bytes, 108 relocations) and
+  BSS (1,714,092 bytes) match the original. Only the GCC debug-only hunk is dropped.
+- Every ADF file was read back and byte-compared; the boot checksum passes.
+  `make package-test` covers the hunk checker and a crunch round trip.
+- The host round trip uses Cranker's C unpacker, not the 68k decrunch header.
+  An emulator boot of this disk (68k decrunch, music preload) is not yet
+  verified; the earlier NTSC emulator boot evidence applies to the previous
+  uncrunched disk.
+
 # Autopilot time-compression performance - 13 October 2026
 
 - Clear system-frame cruise uses bounded constant-acceleration intervals, up to

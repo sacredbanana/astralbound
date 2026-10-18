@@ -19,8 +19,9 @@ Tracks are chosen randomly on a situation change and at song end. The previous
 track in that folder is excluded when there is a choice; one track repeats.
 An empty/missing folder is silent; engine and effects still play. There is no
 placeholder music or fallback score. The intro uses space-flight music
-when its folder is empty. The single-floppy boot ADF omits MOD tracks
-because the complete music tree does not fit on it.
+when its folder is empty. The single-floppy boot ADF holds only the
+space-flight, docked and battle tracks because the complete music tree
+does not fit on it.
 
 Amiga: keep music beside the executable (PROGDIR:music). Host preview: music
 beside the executable, or the repository's music folder when launched there.

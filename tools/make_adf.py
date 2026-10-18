@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Unlicense
-"""Build a self-booting OS3 disk from original files, without distributing ROMs."""
+"""Build a self-booting OS3 disk from original files, without distributing ROMs.
+
+The disk holds a Cranker-crunched 68000 build and the music that fits beside it."""
 from pathlib import Path
 import os, shutil, subprocess, tempfile, hashlib
+import cranker
 root = Path(__file__).resolve().parents[1]
 xdftool = os.environ.get('XDFTOOL') or shutil.which('xdftool')
 if not xdftool:
@@ -13,9 +16,11 @@ if not xdftool:
 vasm = shutil.which('vasmm68k_mot') or '/opt/amiga/bin/vasmm68k_mot'
 boot = root/'build/astralbound-boot.bin'
 subprocess.run([vasm, '-m68000', '-Fbin', '-quiet', str(root/'release/boot.s'), '-o', str(boot)], check=True)
+crunched = root/'build/Astralbound.000.crunched'
+cranker.crunch(root/'dist/amiga/Astralbound.000', crunched)
 output = root/'dist/Astralbound-0.1-boot.adf'
 files = {
-    'Astralbound.000': root/'dist/amiga/Astralbound.000',
+    'Astralbound.000': crunched,
     'Astralbound.000.info': root/'release/Astralbound.000.info',
     'Astralbound.guide': root/'Astralbound.guide',
     'Astralbound.guide.info': root/'release/Astralbound.guide.info',
@@ -27,6 +32,12 @@ files = {
     'music/README.txt': root/'music/README.txt',
     's/startup-sequence': root/'release/startup-sequence',
 }
+# The complete music tree does not fit; space-flight also covers the intro
+# while music/intro is empty.
+for folder in ('space-flight', 'docked', 'battle'):
+    for track in sorted((root/'music'/folder).iterdir()):
+        if track.is_file() and not track.name.startswith('.'):
+            files[f'music/{folder}/{track.name}'] = track
 cmd = [xdftool, '-f', str(output), 'create', '+', 'format', 'Astralbound', 'DOS0', '+', 'boot', 'write', str(boot), '+', 'makedir', 's']
 cmd += ['+', 'makedir', 'music', '+', 'makedir', 'data']
 for folder in sorted(p for p in (root/'music').iterdir() if p.is_dir()):
@@ -34,8 +45,8 @@ for folder in sorted(p for p in (root/'music').iterdir() if p.is_dir()):
 for name, source in files.items(): cmd += ['+', 'write', str(source), name]
 subprocess.run(cmd, check=True)
 with tempfile.TemporaryDirectory(prefix='astralbound-adf-') as temp:
-    for name, source in files.items():
-        extracted = Path(temp)/source.name
+    for index, (name, source) in enumerate(files.items()):
+        extracted = Path(temp)/str(index)
         subprocess.run([xdftool, str(output), 'read', name, str(extracted)], check=True, stdout=subprocess.DEVNULL)
         assert extracted.read_bytes() == source.read_bytes(), name
 # All longword checksums in the 1024-byte boot block add to 0xffffffff,

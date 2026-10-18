@@ -655,7 +655,8 @@
   The original boot ADF starts ECS 320 x 200 with a user-supplied OS3 ROM.
   Tested with 2 MiB Chip and 8 MiB Fast; unexpanded A500s are not validated.
   Escape returns to the boot CLI. A writable ADF can hold a commander save.
-  The single boot floppy omits music tracks due to disk space limits;
-  install from ZIP/LHA for the complete music tree.
+  The boot floppy holds the space-flight, docked and battle tracks;
+  planetary flight and game over are silent there due to disk space.
+  Install from ZIP/LHA for the complete music tree.
 
 @endnode

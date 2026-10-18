@@ -81,7 +81,8 @@ Read Astralbound.guide for controls, station services and flight advice.
 
 The archive includes ProTracker MOD music in the music subdrawers.
 You can add more supported MOD files; see music/README.txt. The separate
-single-floppy boot ADF omits tracks due to disk space limits.
+single-floppy boot ADF holds only the space-flight, docked and battle
+tracks due to disk space limits.
 
 License and sources
 -------------------

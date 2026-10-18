@@ -572,7 +572,13 @@ when uploading to Aminet; packaging does not upload anything. The readme follows
 [Aminet's readme format](https://wiki.aminet.net/The_Readme_file) and is checked
 for required metadata, ASCII text, LF endings and lines of at most 78 characters.
 ADF generation needs amitools' `xdftool` (`XDFTOOL=/path/to/xdftool`) and vasm;
-`build/release-venv/bin/xdftool` is also recognized. On Workbench, open Install
+`build/release-venv/bin/xdftool` is also recognized. The ADF crunches
+Astralbound.000 with [Cranker](https://aminet.net/package/util/pack/cranker) 0.72:
+`tools/cranker.py` fetches the pinned Aminet archive, checks its SHA-256, builds it
+into `build/cranker/` (set `CRANKER=/path/to/cranker` to use another build) and
+checks that the crunched file unpacks to the original code, data and relocations.
+Cranker's GPLv2 cruncher is not distributed; only its public-domain decrunch
+header is inside the crunched executable. On Workbench, open Install
 using the system Installer (V42.12+), tick one or more CPU builds and choose a
 parent drawer (for example `Work:Games`). The installer creates
 `Work:Games/Astralbound`, copies the selected builds and all shared assets, and
@@ -591,8 +597,9 @@ The OFS ADF boots directly into Astralbound.000 in ECS 320 x 200 and can store a
 on a writable disk. It needs a user-supplied Kickstart 3.0+ and enough RAM for the
 expanded procedural world and depth buffer (2 MiB Chip plus 8 MiB Fast is the
 emulator-tested configuration). It is not an unexpanded A500 release. Escape returns
-to the boot CLI. The single floppy omits MOD tracks because the complete music
-tree does not fit; use the ZIP/LHA installation for music. No Workbench files or
+to the boot CLI. The floppy holds the space-flight (also used by the intro),
+docked and battle tracks; planetary-flight and game-over are silent because the
+complete music tree does not fit. Use the ZIP/LHA installation for all music. No Workbench files or
 licensed ROMs are distributed. Installer and
 boot evidence, timings and remaining physical QA are recorded in `docs/validation.md`.
 
