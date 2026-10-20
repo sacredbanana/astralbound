@@ -535,6 +535,7 @@ launch_again:
     highcolour=preferences.mode==VIDEO_RTG16; lowres=preferences.compact;
     audio_muted=!preferences.sound; show_intro=preferences.intro;
     render_graphics(&preferences.gfx);
+    render_renderer(preferences.renderer);
     if (!rtg && aga && !(GfxBase->ChipRevBits0 & GFXF_AA_LISA)) {
         puts("--aga requires AGA hardware.");
         close_all();

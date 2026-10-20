@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Isrc
 HEADERS = $(wildcard src/*.h src/*.inc) src/third_party/micromod/micromod.h
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/xfloat.c src/planet_view.c src/planet_field.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/xfloat.c src/planet_view.c src/planet_field.c src/planet_contours.c src/classic_raster.c src/render.c
 .PHONY: all test sanitize preview clean amiga
 all: build/astralbound
 build:
@@ -15,11 +15,16 @@ build/renderer-tests: $(CORE) $(HEADERS) tests/test_renderer.c src/astralbound.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(filter-out src/render.c,$(CORE)) tests/test_renderer.c -o $@
 build/presentation-tests: $(CORE) $(HEADERS) tests/test_presentation.c src/controller.h src/audio.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_presentation.c -o $@
+build/classic-tests: src/classic_raster.c src/classic_raster.h tests/test_classic.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) src/classic_raster.c tests/test_classic.c -o $@
+build/renderers-tests: $(CORE) $(HEADERS) tests/test_renderers.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_renderers.c -o $@
 build/planet-tests: $(CORE) $(HEADERS) tests/test_planet.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_planet.c -lm -o $@
 build/music-tests: $(CORE) $(HEADERS) tests/test_music.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_music.c -o $@
-test: build/planet-tests build/settings-tests build/galaxy-tests build/tests build/renderer-tests build/presentation-tests build/music-tests build/career-tests build/ui-tests build/parking-tests
+test: build/classic-tests build/renderers-tests build/planet-tests build/settings-tests build/galaxy-tests build/tests build/renderer-tests build/presentation-tests build/music-tests build/career-tests build/ui-tests build/parking-tests
+	./build/classic-tests
 	./build/planet-tests
 	./build/settings-tests
 	./build/galaxy-tests
@@ -29,8 +34,13 @@ test: build/planet-tests build/settings-tests build/galaxy-tests build/tests bui
 	./build/parking-tests
 	./build/presentation-tests
 	./build/renderer-tests
+	./build/renderers-tests
 	./build/tests
 sanitize: | build
+	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined src/classic_raster.c tests/test_classic.c -o build/classic-tests-sanitize
+	./build/classic-tests-sanitize
+	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_renderers.c -o build/renderers-tests-sanitize
+	./build/renderers-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_planet.c -lm -o build/planet-tests-sanitize
 	./build/planet-tests-sanitize
 	$(CC) $(CPPFLAGS) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined $(CORE) tests/test_settings.c -o build/settings-tests-sanitize
@@ -59,7 +69,7 @@ preview: build/astralbound
 amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
-	rm -f build/planet-tests build/planet-tests-sanitize build/planet-bench build/settings-tests build/settings-tests-sanitize build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
+	rm -f build/classic-tests build/classic-tests-sanitize build/renderers-tests build/renderers-tests-sanitize build/planet-tests build/planet-tests-sanitize build/planet-bench build/settings-tests build/settings-tests-sanitize build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
 	rm -f build/port-preview build/ground-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/parking-tests build/parking-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 build/intro-preview: $(CORE) $(HEADERS) tools/intro_preview.c | build

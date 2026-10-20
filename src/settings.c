@@ -6,6 +6,7 @@
 #include <limits.h>
 const char *quality_names[5] = {"LOW", "MEDIUM", "HIGH", "ULTRA", "CUSTOM"};
 const char *video_names[4] = {"ECS 32 COLOURS", "AGA 256 COLOURS", "RTG 8 BIT", "RTG 16 BIT"};
+const char *renderer_names[2] = {"ENHANCED", "CLASSIC"};
 #define OPT(member, title, hint, max, ...) {title, hint, offsetof(Graphics,member), max, {__VA_ARGS__}}
 const GraphicsOption graphics_options[GRAPHICS_OPTIONS] = {
     OPT(scale,"3D PIXEL SIZE","LARGER PIXELS SAVE FILL WORK. HUD STAYS SHARP.",3,"1X","2X","3X","4X"),
@@ -46,6 +47,13 @@ void settings_preset(Settings *s, int preset) {
 void settings_defaults(Settings *s, int amiga) {
     memset(s,0,sizeof(*s)); s->mode=amiga ? VIDEO_ECS : VIDEO_AGA;
     s->compact=amiga; s->intro=1; s->sound=1; s->rtg_size=1;
+    /* Machines without an FPU get the Classic renderer; the FPU builds
+       (020+881, 040, 060) and accelerated hosts default to Enhanced. */
+#ifdef ASTRALBOUND_FPU
+    s->renderer=RENDERER_ENHANCED;
+#else
+    s->renderer=amiga ? RENDERER_CLASSIC : RENDERER_ENHANCED;
+#endif
     settings_preset(s,amiga ? QUALITY_LOW : QUALITY_HIGH);
 }
 void graphics_change(Settings *s, int o, int direction) {
@@ -61,6 +69,7 @@ void settings_validate(Settings *s) {
     s->mode=bounded(s->mode,3,0); s->compact=bounded(s->compact,1,1);
     s->rtg_size=bounded(s->rtg_size,3,1); s->preset=bounded(s->preset,4,0);
     s->intro=bounded(s->intro,1,1); s->sound=bounded(s->sound,1,1); s->test_scene=bounded(s->test_scene,14,0);
+    s->renderer=bounded(s->renderer,1,0);
     for(i=0;i<GRAPHICS_OPTIONS;i++) *graphics_slot(&s->gfx,i)=bounded(graphics_value(&s->gfx,i),graphics_options[i].maximum,0);
     if(s->preset<QUALITY_CUSTOM) s->gfx=presets[s->preset];
 }
@@ -83,6 +92,7 @@ int settings_load(Settings *s, const char *path) {
         else if(!strcmp(key,"intro")) loaded.intro=(int)value;
         else if(!strcmp(key,"sound")) loaded.sound=(int)value;
         else if(!strcmp(key,"test_scene")) loaded.test_scene=(int)value;
+        else if(!strcmp(key,"renderer")) loaded.renderer=(int)value;
         else for(i=0;i<GRAPHICS_OPTIONS;i++) { char name[32]; snprintf(name,sizeof(name),"graphics_%d",i);
             if(!strcmp(key,name)) *graphics_slot(&loaded.gfx,i)=(int)value; }
     }
@@ -96,8 +106,8 @@ int settings_save(const Settings *settings, const char *path) {
     if(snprintf(temporary,sizeof(temporary),"%s.tmp",path)>=(int)sizeof(temporary) ||
        snprintf(backup,sizeof(backup),"%s.bak",path)>=(int)sizeof(backup)) return 0;
     file=fopen(temporary,"w"); if(!file) return 0;
-    fprintf(file,"ASTRALBOUND_SETTINGS 1\nmode %d\ncompact %d\nrtg_size %d\npreset %d\nintro %d\nsound %d\ntest_scene %d\n",
-            s.mode,s.compact,s.rtg_size,s.preset,s.intro,s.sound,s.test_scene);
+    fprintf(file,"ASTRALBOUND_SETTINGS 1\nmode %d\ncompact %d\nrtg_size %d\npreset %d\nintro %d\nsound %d\ntest_scene %d\nrenderer %d\n",
+            s.mode,s.compact,s.rtg_size,s.preset,s.intro,s.sound,s.test_scene,s.renderer);
     for(i=0;i<GRAPHICS_OPTIONS;i++) fprintf(file,"graphics_%d %d\n",i,graphics_value(&s.gfx,i));
     ok=!ferror(file); if(fclose(file)) ok=0;
     if(!ok) { remove(temporary); return 0; }

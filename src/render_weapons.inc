@@ -7,10 +7,12 @@ static Vec weapon_near(Vec a, Vec b) {
 /* Depth-tested laser, clipped to the view (Liang-Barsky, Q16 parameter):
    reciprocal depth is linear along the projected line. */
 static void weapon_beam(Vec start, Vec end, int colour, int rich) {
-    Vec a = camera(scale(start, 1, FP)), c = camera(scale(end, 1, FP));
+    Vec a, c;
     int64_t x0, y0, dx, dy, t0 = 0, t1 = 65536, edge[4][2];
     int n, i, k, thick;
     uint32_t da, dc;
+    if (cl_active) { cl_line_world(scale(start, 1, FP), scale(end, 1, FP), colour, rich); return; }
+    a = camera(scale(start, 1, FP)); c = camera(scale(end, 1, FP));
     if (a.z < 8 && c.z < 8) return;
     /* Conservative frustum rejection also bounds projection arithmetic when
        System Drive leaves a short-lived projectile far behind the camera. */

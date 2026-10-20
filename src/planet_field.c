@@ -102,6 +102,9 @@ static int detail_value(PlanetField *f, Vec n) {
     }
     return noise_blend(corner, fx, fy, fz);
 }
+int planet_field_region(const PlanetField *f, Vec n) {
+    return lattice_value(f->region, FIELD_REGION, n, REGION_SHIFT);
+}
 int planet_field_regional_albedo(PlanetField *f, Vec n, int material) {
     int a, b;
     if (material == 0 || material == 5) return 0;

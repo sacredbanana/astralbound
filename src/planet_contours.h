@@ -1,0 +1,29 @@
+/* SPDX-License-Identifier: Unlicense
+   Coastlines as closed loops of body-fixed directions: the sea-level
+   contour of planet_field's continent noise, the same coasts the landed
+   terrain has. Frontier: Elite II stored continents as polygons in its
+   model data; Astralbound derives them from the planet's seed, so a
+   renderer that fills polygons (the Classic renderer) draws real coasts.
+
+   Extraction is marching squares on the six cube faces. Crossings are keyed
+   by their 3D lattice edge, so loops stitch seamlessly across faces. */
+#ifndef ASTRALBOUND_PLANET_CONTOURS_H
+#define ASTRALBOUND_PLANET_CONTOURS_H
+#include "planet_field.h"
+#define CONTOUR_POINTS 4096
+#define CONTOUR_LOOPS 512
+typedef struct { int16_t x, y, z; } ContourPoint; /* unit direction, Q14 */
+typedef struct { uint16_t first, count; } ContourLoop;
+typedef struct {
+    uint32_t seed;
+    int resolution, kind, loops, points, truncated;
+    ContourLoop loop[CONTOUR_LOOPS];
+    ContourPoint point[CONTOUR_POINTS];
+} PlanetContours;
+/* Which contour: the coast (sea level), the highland edge where inland
+   rock begins to dominate, or the edge of dark regional albedo. */
+enum { CONTOUR_COAST, CONTOUR_HIGHLAND, CONTOUR_ALBEDO };
+/* Contour loops at `resolution` cells per cube-face edge (4 to 48). Coasts
+   and highlands exist only on ocean worlds. Returns the loop count. */
+int planet_contours_build(PlanetContours *c, PlanetField *f, int resolution, int kind);
+#endif

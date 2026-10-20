@@ -110,16 +110,18 @@ static double frame_ms(Frame *f, int frames) {
 }
 int main(int argc, char **argv) {
     const char *images = NULL;
-    int timing = 1, i, k, preset, mode;
+    int timing = 1, i, k, preset, mode, renderer = RENDERER_ENHANCED;
     static const struct { const char *name; int w, h, enhanced; } modes[] = {
         {"ecs", 320, 256, 0}, {"aga", 320, 256, 1}, {"rtg", 640, 480, 1}};
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--images") && i + 1 < argc) images = argv[++i];
         else if (!strcmp(argv[i], "--no-timing")) timing = 0;
+        else if (!strcmp(argv[i], "--classic")) renderer = RENDERER_CLASSIC;
     }
     if (images) {
         Settings s;
         settings_defaults(&s, 0); settings_preset(&s, QUALITY_HIGH); render_graphics(&s.gfx);
+        render_renderer(renderer);
         for (mode = 0; mode < 3; mode++) {
             Frame f = {modes[mode].w, modes[mode].h, modes[mode].enhanced, NULL, {0}};
             f.pixels = malloc((size_t)f.w * f.h);
@@ -135,7 +137,7 @@ int main(int argc, char **argv) {
         }
     }
     if (!timing) return 0;
-    puts("Host CPU renderer only, AGA 320x256, ms/frame (min of 3 runs of 8 frames).");
+    printf("Host CPU, %s renderer, AGA 320x256, ms/frame (min of 3 runs of 8 frames).\n", renderer_names[renderer]);
     printf("%-22s %8s %8s\n", "scene", "LOW", "HIGH");
     for (k = 0; k < FIXTURES; k++) {
         double best[2];
@@ -145,6 +147,7 @@ int main(int argc, char **argv) {
             int run;
             settings_defaults(&s, 0); settings_preset(&s, preset ? QUALITY_HIGH : QUALITY_LOW);
             render_graphics(&s.gfx);
+            render_renderer(renderer);
             f.pixels = malloc((size_t)f.w * f.h);
             if (!f.pixels || !render_init(&f)) return 1;
             place(&fixtures[k]);

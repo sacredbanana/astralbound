@@ -14,6 +14,17 @@
 #include "performance.h"
 #include "planet_view.h"
 #include "planet_field.h"
+#include "planet_contours.h"
+#include "classic_raster.h"
+/* Classic renderer hooks (render_classic.inc): while a Classic frame is
+   built, the shared scene code's triangles, hulls, streaks and beams go to
+   its painter's draw list instead of the depth-buffered rasteriser. */
+static int classic_mode, cl_active;
+static int64_t cl_bias;
+static int cl_emit;
+static void cl_triangle_world(Vec a, Vec b, Vec c, int colour);
+static void cl_ship(int ship, Vec origin, Vec right, Vec up, Vec front, Vec light);
+static void cl_line_world(Vec a, Vec b, int colour, int thick);
 typedef struct {
     int x[3], y[3];
     uint32_t inverse_z[3];
@@ -508,6 +519,7 @@ static void triangle_clip(Vec ca, Vec cb, Vec cc, Vec a, Vec b, Vec c, int color
     }
 }
 static void triangle(Vec a, Vec b, Vec c, int color) {
+    if (cl_active) { cl_triangle_world(a, b, c, color); return; }
     if (nt >= triangle_limit) return;
     triangle_clip(camera_poly(a), camera_poly(b), camera_poly(c), a, b, c, color);
 }
@@ -1248,6 +1260,7 @@ static void ship_loft(const ShipView *v, const ShipLoft *l) {
 /* Shared by the chase camera (unit 1, metres) and the shipyard preview. */
 static void ship_mesh(int ship, Vec origin, Vec right, Vec up, Vec front, int unit, Vec light) {
     const Planet *surface = terrain_surface;
+    if (cl_active) { cl_ship(ship, origin, right, up, front, light); return; }
     ShipView v;
     int i;
     if (!ship_view(&v, ship, origin, right, up, front, unit, light))
@@ -2208,6 +2221,7 @@ static void npc_ship(const Npc *n, int ship, Vec p) {
 typedef struct { Vec p; int radius, age, fire; uint32_t seed; } DestructionSprite;
 static DestructionSprite destruction_sprites[MAX_SMOKE + MAX_BLASTS * 15 + MAX_NPC + 1];
 static int sprite_count;
+static void cl_sprite(const DestructionSprite *s);
 static void destruction_sprite(Vec pos, int body, int radius, int age, int fire, uint32_t seed) {
     DestructionSprite *s;
     if (sprite_count >= (int)(sizeof(destruction_sprites) / sizeof(*destruction_sprites))) return;
@@ -2254,7 +2268,9 @@ static void destruction_disc(const DestructionSprite *s) {
     }
 }
 static void destruction_streak(Vec a, Vec b, int color) {
-    Vec ca = camera(scale(a, 1, FP)), cb = camera(scale(b, 1, FP));
+    Vec ca, cb;
+    if (cl_active) { cl_line_world(scale(a, 1, FP), scale(b, 1, FP), color, 0); return; }
+    ca = camera(scale(a, 1, FP)); cb = camera(scale(b, 1, FP));
     int x, y, xx, yy, count, i;
     uint32_t depth;
     if (ca.z < 8 || cb.z < 8 || ca.z > 200000) return;
@@ -2369,6 +2385,7 @@ static void destruction_effects(void) {
             destruction_streak(tail, head, t < HZ / 2 ? 31 : t < HZ ? 12 : 14);
         }
     }
+    if (cl_active) { for (i = 0; i < sprite_count; i++) cl_sprite(&destruction_sprites[i]); return; }
     qsort(destruction_sprites, (size_t)sprite_count, sizeof(*destruction_sprites), sprite_sort);
     for (i = 0; i < sprite_count; i++) destruction_disc(&destruction_sprites[i]);
 }
@@ -2427,8 +2444,10 @@ static void ground_markers(void) {
         }
     }
 }
-static void world(void) {
-    int i, b;
+/* Ships, ports, rocks, pods and wrecks: the scene both renderers share.
+   The Classic renderer receives the same geometry through its hooks. */
+static void world_objects(void) {
+    int i;
     /* Directed shots are composed around their hulls: emit them before
        terrain and port scenery can exhaust the triangle budget. */
     if (cinema) {
@@ -2447,7 +2466,13 @@ static void world(void) {
             length(sub(game->ports[i].pos, camera_position)) < 6000LL * FP)
             scenery_reserve = triangle_capacity / 2;
     port_light_count = 0;
-    for (i = 0; i < port_count(game); i++) port_geometry(i);
+    for (i = 0; i < port_count(game); i++) {
+        /* Classic: buildings draw after the ground they stand on, and each
+           port's later geometry (windows, markings) after its walls. */
+        cl_bias = 8 * 16; cl_emit = 0;
+        port_geometry(i);
+    }
+    cl_bias = 0;
     if (!cinema) npc_hulls();
     for (i = 0; i < ASTEROIDS; i++) {
         Vec p = scale(asteroid_position(game, i), 1, FP);
@@ -2471,8 +2496,12 @@ static void world(void) {
     for (i = 0; i < MAX_MISSILES; i++) if (game->projectiles[i].active)
         box(scale(game->projectiles[i].pos, 1, FP), vec(0, 16384, 0), 4, 8, 11);
     if (!cinema && (game->camera_mode == 2 || game->on_foot) && !game->dead) commander_hull();
-    if (!cinema) ground_markers();
+    if (!cinema) { cl_bias = 8 * 16; ground_markers(); cl_bias = 0; }
     destruction_geometry();
+}
+static void world(void) {
+    int b;
+    world_objects();
     /* Fill the remaining geometry capacity with scenery. Ports, contacts,
        weapons and wrecks must survive an aggressively reduced triangle cap. */
     stellar_discs();
@@ -3670,6 +3699,8 @@ static void flight_overlays(const Game *g, Frame *f) {
         sensors();
     }
 }
+#include "render_classic.inc"
+#include "render_classic_planet.inc"
 static void render_game_full(const Game *g, Frame *f) {
     int i;
     frame = f;
@@ -3757,10 +3788,15 @@ static void render_game_full(const Game *g, Frame *f) {
         }
     }
     if (g->page == FLIGHT) {
-        world();
-        if(graphics.weather) weather_overlay();
-        destruction_effects();
-        if(!cinema || performance_camera) weapon_effects();
+        if (classic_mode) {
+            classic_world();
+            if (graphics.weather) cl_weather();
+        } else {
+            world();
+            if(graphics.weather) weather_overlay();
+            destruction_effects();
+            if(!cinema || performance_camera) weapon_effects();
+        }
     }
     if (!cinema && !scene_only) flight_overlays(g,f);
     if (g->hyperspace && g->hyperspace <= HYPER_CHARGE)
@@ -3869,9 +3905,10 @@ void render_launcher(const Launcher *m, Frame *f) {
     text(8,34,7,buf);
     for(i=0;i<rows;i++) {
         launcher_row(m,i,name,sizeof(name),value,sizeof(value));
-        if(i==m->selected) rect(6,47+i*11,308,11,3);
-        text(9,49+i*11,i==m->selected ? 15 : 7,name);
-        if(value[0]) text(310-(int)strlen(value)*6,49+i*11,13,value);
+        /* LAUNCHER_ROW_TOP/PITCH: thirteen rows clear the message line. */
+        if(i==m->selected) rect(6,LAUNCHER_ROW_TOP-1+i*LAUNCHER_ROW_PITCH,308,LAUNCHER_ROW_PITCH,3);
+        text(9,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,i==m->selected ? 15 : 7,name);
+        if(value[0]) text(310-(int)strlen(value)*6,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,13,value);
     }
     if(m->page==1 && m->selected<6) {
         const char *hint=graphics_options[m->group*6+m->selected].help;

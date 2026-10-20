@@ -38,6 +38,9 @@ int planet_field_land(const PlanetField *f, Vec n, int mix[3]);
    interpolated between exact samples), so coasts stay sub-pixel smooth. */
 int planet_field_classify(const PlanetField *f, Vec n, int base_height, int mix[3]);
 int planet_field_material(const PlanetField *f, Vec n);
+/* The coarse regional reflectance noise alone, 0..4095 (the dominant term
+   of terrain_regional_albedo), for region outlines. */
+int planet_field_region(const PlanetField *f, Vec n);
 /* terrain_regional_albedo, exactly: broad reflectance -10..10. */
 int planet_field_regional_albedo(PlanetField *f, Vec n, int material);
 #endif

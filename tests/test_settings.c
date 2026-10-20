@@ -11,6 +11,13 @@ static void persistence(void) {
     Settings original,loaded; int i; FILE *file;
     const char *path="build/settings-test.cfg";
     settings_defaults(&original,1); assert(original.mode==VIDEO_ECS && original.preset==QUALITY_LOW && original.compact);
+#ifdef ASTRALBOUND_FPU
+    assert(original.renderer==RENDERER_ENHANCED); /* FPU builds default to Enhanced */
+#else
+    assert(original.renderer==RENDERER_CLASSIC);  /* plain 68k builds default to Classic */
+#endif
+    settings_defaults(&loaded,0); assert(loaded.renderer==RENDERER_ENHANCED);
+    original.renderer^=1; /* and the choice persists */
     original.test_scene=11; original.mode=VIDEO_RTG16; original.rtg_size=3; original.intro=original.sound=0;
     for(i=0;i<GRAPHICS_OPTIONS;i++) { graphics_change(&original,i,1); graphics_change(&original,i,1); }
     assert(settings_save(&original,path)); settings_defaults(&loaded,0); assert(settings_load(&loaded,path));
@@ -28,9 +35,14 @@ static void menus(void) {
     Settings s; Launcher m; int i;
     settings_defaults(&s,1); launcher_init(&m,&s,0,0);
     m.selected=1; launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.mode==VIDEO_ECS);
-    m.selected=4; launcher_key(&m,'\r'); assert(m.page==0); /* Presets gate Custom. */
-    m.selected=3; for(i=0;i<4;i++) launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.preset==QUALITY_CUSTOM);
-    m.selected=4; launcher_key(&m,'\r'); assert(m.page==1);
+    /* The renderer row toggles between Enhanced and Classic. */
+    m.selected=2; { int r=m.settings.renderer; launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.renderer==!r);
+        launcher_key(&m,LAUNCH_LEFT); assert(m.settings.renderer==r); }
+    { char name[32],value[32]; launcher_row(&m,2,name,sizeof(name),value,sizeof(value));
+      assert(!strcmp(name,"RENDERER") && !strcmp(value,renderer_names[m.settings.renderer])); }
+    m.selected=5; launcher_key(&m,'\r'); assert(m.page==0); /* Presets gate Custom. */
+    m.selected=4; for(i=0;i<4;i++) launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.preset==QUALITY_CUSTOM);
+    m.selected=5; launcher_key(&m,'\r'); assert(m.page==1);
     for(i=0;i<GRAPHICS_OPTIONS;i++) {
         int value=graphics_value(&m.settings.gfx,i);
         m.group=i/6; m.selected=i%6; launcher_key(&m,LAUNCH_RIGHT);
@@ -39,7 +51,7 @@ static void menus(void) {
     launcher_key(&m,27); assert(m.page==0);
     assert(launcher_pointer(&m,200,49,1)==LAUNCH_PLAY);
     assert(launcher_pointer(&m,200,49,1)==0); launcher_pointer(&m,200,49,0);
-    m.selected=5; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
+    m.selected=6; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
     launcher_key(&m,LAUNCH_LEFT); assert(m.test_scene==-1);
     puts("PASS capability filtering, Custom gating, every option and pointer edge activation");
 }

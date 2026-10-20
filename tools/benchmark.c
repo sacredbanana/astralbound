@@ -3,15 +3,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 static Game g;
-int main(void) {
+int main(int argc, char **argv) {
     Frame f={320,200,0,NULL,{0}};
-    Settings s; int preset,scene,i,j;
+    Settings s; int preset,scene,i,j,renderer=argc>1 && !strcmp(argv[1],"--classic") ? RENDERER_CLASSIC : RENDERER_ENHANCED;
     f.pixels=malloc(320*200); if(!f.pixels) return 1;
-    puts("Host CPU renderer only, ECS 320x200. Excludes C2P, sync, audio and physics.");
+    printf("Host CPU, %s renderer only, ECS 320x200. Excludes C2P, sync, audio and physics.\n", renderer_names[renderer]);
     puts("preset scene ms/frame indexed-hash");
     for(preset=0;preset<4;preset++) {
-        settings_defaults(&s,1); settings_preset(&s,preset); render_graphics(&s.gfx);
+        settings_defaults(&s,1); settings_preset(&s,preset); render_graphics(&s.gfx); render_renderer(renderer);
         if(!render_init(&f)) return 1;
         for(scene=0;scene<PERFORMANCE_SCENES;scene++) {
             clock_t start; uint32_t hash=2166136261U;
