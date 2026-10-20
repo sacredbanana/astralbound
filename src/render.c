@@ -24,6 +24,9 @@ typedef struct {
 } Tri;
 static Tri *triangles;
 static int triangle_capacity, triangle_limit;
+/* Draw order: triangle indices sorted on a depth key, with ping-pong space. */
+static int *triangle_order;
+static uint32_t *triangle_keys;
 static Graphics graphics = {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1};
 static int graphics_configured, scene_only, scaled_view_h, performance_camera, weather_status;
 static uint8_t *scaled_pixels;
@@ -197,21 +200,35 @@ static void line(int x, int y, int xx, int yy, int c) {
         }
     }
 }
-/* World-to-camera rotation (yaw, pitch, then roll) in the offset's unit. */
-static Vec view_rotate(Vec r) {
-    int sy = sini(camera_yaw), cy = cosi(camera_yaw), sp = sini(camera_pitch),
-        cp = cosi(camera_pitch);
-    int64_t x = (r.x * cy - r.z * sy) / 16384, z = (r.x * sy + r.z * cy) / 16384;
-    int64_t y = (r.y * cp - z * sp) / 16384;
-    int64_t depth = (r.y * sp + z * cp) / 16384;
-    if (camera_roll) {
-        int cr = cosi(camera_roll), sr = sini(camera_roll);
-        return vec((x * cr - y * sr) / 16384, (y * cr + x * sr) / 16384, depth);
-    }
-    return vec(x, y, depth);
-}
 static int64_t round_div(int64_t v, int64_t d) {
     return (v + (v < 0 ? -d / 2 : d / 2)) / d;
+}
+static int64_t floor_shift(int64_t v, int s) { return v >= 0 ? v >> s : ~(~v >> s); }
+/* World-to-camera rotation (yaw, pitch, then roll) folded into one Q14
+   matrix. It is rebuilt only when the camera turns, normally once a frame,
+   so vertices pay nine multiplies and no sine lookups. */
+static struct { int yaw, pitch, roll, valid; int64_t m[3][3]; } view_matrix;
+static void view_prepare(void) {
+    int64_t sy = sini(camera_yaw), cy = cosi(camera_yaw), sp = sini(camera_pitch),
+            cp = cosi(camera_pitch), sr = sini(camera_roll), cr = cosi(camera_roll);
+    /* Q28 rows after yaw and pitch; the roll mixes the first two in Q42. */
+    int64_t x[3] = {cy * 16384, 0, -sy * 16384}, y[3] = {-sp * sy, cp * 16384, -sp * cy},
+            depth[3] = {cp * sy, sp * 16384, cp * cy};
+    int i;
+    for (i = 0; i < 3; i++) {
+        view_matrix.m[0][i] = round_div(x[i] * cr - y[i] * sr, 1LL << 28);
+        view_matrix.m[1][i] = round_div(y[i] * cr + x[i] * sr, 1LL << 28);
+        view_matrix.m[2][i] = round_div(depth[i], 16384);
+    }
+    view_matrix.yaw = camera_yaw; view_matrix.pitch = camera_pitch; view_matrix.roll = camera_roll; view_matrix.valid = 1;
+}
+/* In the offset's unit. */
+static Vec view_rotate(Vec r) {
+    if (!view_matrix.valid || view_matrix.yaw != camera_yaw || view_matrix.pitch != camera_pitch || view_matrix.roll != camera_roll)
+        view_prepare();
+    return vec((view_matrix.m[0][0] * r.x + view_matrix.m[0][1] * r.y + view_matrix.m[0][2] * r.z) / 16384,
+               (view_matrix.m[1][0] * r.x + view_matrix.m[1][1] * r.y + view_matrix.m[1][2] * r.z) / 16384,
+               (view_matrix.m[2][0] * r.x + view_matrix.m[2][1] * r.y + view_matrix.m[2][2] * r.z) / 16384);
 }
 /* Camera space in metres. On foot, nearby points rotate their exact Q8
    offset and round only at the end, so the eye moves by less than a metre. */
@@ -300,6 +317,55 @@ static void target_marker_position(Vec p, int top, int *x, int *y) {
     *x = cx + (int)ox;
     *y = cy + (int)oy;
 }
+#ifndef ASTRALBOUND_FPU
+/* Seeds 2^24/(256.5 + i) for the reciprocal of a depth normalised so its
+   top bit is bit 31; i is the next eight bits. */
+static uint16_t reciprocal_seed[256];
+/* 1/z = y * 2^(shift - 63) for z > 0, y within a few parts in 2^32. Two
+   Newton steps from the table: each squares the relative error. */
+static uint32_t reciprocal(int64_t z, int *shift) {
+    uint64_t u = (uint64_t)z, y;
+    uint32_t m;
+    int s = 0, step;
+    if (!reciprocal_seed[0]) {
+        int i;
+        for (i = 0; i < 256; i++)
+            reciprocal_seed[i] = (uint16_t)((2U * 33554432U / (513U + 2U * i) + 1) / 2);
+    }
+    /* Distant depths drop low bits: under one part in 2^31. */
+    for (step = 16; step; step /= 2)
+        if (u >> (32 + step)) { u >>= step; s -= step; }
+    if (u >> 32) { u >>= 1; s--; }
+    m = (uint32_t)u;
+    for (step = 16; step; step /= 2)
+        if (m < 1U << (32 - step)) { m <<= step; s += step; }
+    y = (uint64_t)reciprocal_seed[(m >> 23) & 255] << 16;
+    for (step = 0; step < 2; step++) {
+        int64_t error = (int64_t)(0x8000000000000000ULL - (uint64_t)m * y);
+        y = (uint64_t)((int64_t)y + floor_shift((int64_t)y * floor_shift(error, 31), 32));
+    }
+    *shift = s;
+    return y > 0xFFFFFFFFU ? 0xFFFFFFFFU : (uint32_t)y;
+}
+/* v/z in Q28, sign kept. Clipping bounds |v| by about z; the clamp only
+   guards the fixed-point range. */
+static int32_t ratio(int64_t v, int64_t z, int shift, uint64_t y) {
+    uint64_t a = (uint64_t)(v < 0 ? -v : v);
+    int32_t q;
+    if (a > (uint64_t)z * 7)
+        a = (uint64_t)z * 7;
+    a = shift >= 0 ? a << shift : a >> -shift;
+    q = (int32_t)((a >> 3) * y >> 32);
+    return v < 0 ? -q : q;
+}
+/* Q28 ratio times scale, truncated toward zero like the division it
+   replaces. The reciprocal errs low, so a 2^-16 nudge keeps exact quotients:
+   a vertex clipped onto a side plane must still reach the screen edge. */
+static int project(int32_t ratio, int scale) {
+    int64_t v = ((int64_t)(ratio < 0 ? -ratio : ratio) * scale + 4096) >> 28;
+    return ratio < 0 ? -(int)v : (int)v;
+}
+#endif
 static void emit(Vec a, Vec b, Vec c, int color, int slope) {
     Tri *t;
     Vec v[3] = {a, b, c};
@@ -328,14 +394,19 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
         }
     }
 #else
+    /* One normalised reciprocal and multiplies replace up to six 64-bit
+       divisions per vertex, as the FPU branch above does in floating point. */
     for (i = 0; i < 3; i++) {
-        t->inverse_z[i] = (uint32_t)(1073741824LL * camera_unit / v[i].z);
-        t->x[i] = screen_coord(frame->w / 2 + proj_dx + v[i].x * (frame->w / 2) / v[i].z);
-        t->y[i] = screen_coord(view_h / 2 + proj_dy - v[i].y * (frame->w / 2) / v[i].z);
+        int shift;
+        uint64_t y = reciprocal(v[i].z, &shift), depth = y * (uint64_t)camera_unit;
+        int32_t px = ratio(v[i].x, v[i].z, shift, y), py = ratio(v[i].y, v[i].z, shift, y);
+        t->inverse_z[i] = 33 - shift < 64 ? (uint32_t)(depth >> (33 - shift)) : 0;
+        t->x[i] = screen_coord(frame->w / 2 + proj_dx + project(px, frame->w / 2));
+        t->y[i] = screen_coord(view_h / 2 + proj_dy - project(py, frame->w / 2));
         if (t->surface) {
-            t->surface_depth[i] = 274877906944LL * camera_unit / v[i].z;
-            t->surface_x[i] = frame->w * 128 + (int)(v[i].x * (frame->w * 128) / v[i].z);
-            t->surface_y[i] = (view_h / 2) * 256 - (int)(v[i].y * (frame->w * 128) / v[i].z);
+            t->surface_depth[i] = (int64_t)(shift <= 25 ? depth >> (25 - shift) : depth << (shift - 25));
+            t->surface_x[i] = frame->w * 128 + project(px, frame->w * 128);
+            t->surface_y[i] = (view_h / 2) * 256 - project(py, frame->w * 128);
         }
     }
 #endif
@@ -344,7 +415,7 @@ static void emit(Vec a, Vec b, Vec c, int color, int slope) {
         (t->y[0] < 0 && t->y[1] < 0 && t->y[2] < 0) ||
         (t->y[0] >= view_h && t->y[1] >= view_h && t->y[2] >= view_h))
         return;
-    t->z = (a.z + b.z + c.z) / 3 / camera_unit;
+    t->z = (a.z + b.z + c.z) / (3 * camera_unit);
     t->color = (uint8_t)color;
     nt++;
 }
@@ -408,13 +479,14 @@ static int terrain_face_slope(const Planet *p, Vec a, Vec b, Vec c) {
     return slope < -12 ? -12 : slope > 12 ? 12 : slope;
 }
 #endif
-static void triangle(Vec a, Vec b, Vec c, int color) {
+/* Clip a camera-space triangle; a, b and c are its world vertices, used
+   only to shade terrain. */
+static void triangle_clip(Vec ca, Vec cb, Vec cc, Vec a, Vec b, Vec c, int color) {
     Vec vertices[2][10];
-    if (nt >= triangle_limit) return;
     int plane, i, count = 3, current = 0;
-    vertices[0][0] = camera_poly(a);
-    vertices[0][1] = camera_poly(b);
-    vertices[0][2] = camera_poly(c);
+    vertices[0][0] = ca;
+    vertices[0][1] = cb;
+    vertices[0][2] = cc;
     for (plane = 0; plane < 5 && count >= 3; plane++) {
         Vec *in = vertices[current], *out = vertices[1 - current];
         int n = 0;
@@ -438,6 +510,10 @@ static void triangle(Vec a, Vec b, Vec c, int color) {
         for (i = 1; i + 1 < count; i++)
             emit(vertices[current][0], vertices[current][i], vertices[current][i + 1], color, slope);
     }
+}
+static void triangle(Vec a, Vec b, Vec c, int color) {
+    if (nt >= triangle_limit) return;
+    triangle_clip(camera_poly(a), camera_poly(b), camera_poly(c), a, b, c, color);
 }
 static int sort_tri(const void *a, const void *b) {
     const Tri *x = a, *y = b;
@@ -550,19 +626,110 @@ static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
     surface_uv(p, value, face, u, v);
 }
 #endif
+/* A triangle edge walked down the scanlines. x = x0 +/- floor(u*across/down)
+   with u the distance from the start vertex, exactly the truncating division
+   it replaces, but kept as quotient and remainder so a scanline one sample
+   further on costs adds instead of a DIVS. */
+typedef struct {
+    int x, y, lo, hi, last, forward, negative, stepping;
+    int32_t across, down, step_q, step_r, q, r;
+} Edge;
+static void edge_setup(Edge *e, int xi, int yi, int xj, int yj) {
+    e->x = xi; e->y = yi;
+    e->lo = yi < yj ? yi : yj; e->hi = yi < yj ? yj : yi;
+    e->forward = yj > yi; e->negative = xj < xi;
+    e->across = xj < xi ? xi - xj : xj - xi;
+    e->down = e->hi - e->lo;
+    e->stepping = 0; e->last = INT32_MIN;
+}
+/* Samples are scanlines, or Q8 rows for terrain (unit 256). */
+static int edge_x(Edge *e, int sample, int unit) {
+    if (e->last != INT32_MIN && sample - e->last == unit) {
+        if (!e->stepping) {
+            if (e->across < 0x7fffff) {
+                int32_t n = unit * e->across;
+                e->step_q = n / e->down;
+                e->step_r = n - e->step_q * e->down;
+            } else {
+                int64_t n = (int64_t)unit * e->across;
+                e->step_q = (int32_t)(n / e->down);
+                e->step_r = (int32_t)(n - (int64_t)e->step_q * e->down);
+            }
+            e->stepping = 1;
+        }
+        if (e->forward) {
+            e->q += e->step_q; e->r += e->step_r;
+            if (e->r >= e->down) { e->r -= e->down; e->q++; }
+        } else {
+            e->q -= e->step_q; e->r -= e->step_r;
+            if (e->r < 0) { e->r += e->down; e->q--; }
+        }
+    } else {
+        int32_t u = e->forward ? sample - e->y : e->y - sample;
+        /* Low-resolution facets normally fit exact 32-bit edge arithmetic;
+           reserve wide division for long clipped spans. */
+        if (e->across < 32768 && u < 32768) {
+            e->q = u * e->across / e->down;
+            e->r = u * e->across - e->q * e->down;
+        } else {
+            int64_t n = (int64_t)u * e->across;
+            e->q = (int32_t)(n / e->down);
+            e->r = (int32_t)(n - (int64_t)e->q * e->down);
+        }
+    }
+    e->last = sample;
+    return e->negative ? e->x - e->q : e->x + e->q;
+}
+/* The flat depth plane's whole part, (zx*dx + zy*dy) / area truncated, kept
+   as an exact floor quotient and remainder. The next scanline's span start
+   is usually a few pixels from the last, so it costs adds, not a 64-bit
+   division; shared edges still see bit-identical depths and tie as before. */
+typedef struct { int64_t zx, zy, area, q, r, xq, xr, yq, yr; int dx, dy, valid, stepping; } Plane;
+static void floor_divide(int64_t n, int64_t d, int64_t *q, int64_t *r) {
+    if (n >= INT32_MIN && n <= INT32_MAX && d <= INT32_MAX) {
+        int32_t q32 = (int32_t)n / (int32_t)d;
+        *q = q32; *r = (int32_t)n - q32 * (int32_t)d;
+    } else {
+        *q = n / d; *r = n - *q * d;
+    }
+    if (*r < 0) { *r += d; --*q; }
+}
+static void plane_setup(Plane *p, int64_t zx, int64_t zy, int64_t area) {
+    p->zx = area < 0 ? -zx : zx; p->zy = area < 0 ? -zy : zy; p->area = area < 0 ? -area : area;
+    p->q = p->r = p->xq = p->xr = p->yq = p->yr = 0;
+    p->dx = p->dy = p->valid = p->stepping = 0;
+}
+static int64_t plane_at(Plane *p, int dx, int dy) {
+    int step = dx - p->dx;
+    if (p->valid && dy - p->dy == 1 && step >= -8 && step <= 8) {
+        if (!p->stepping) {
+            floor_divide(p->zx, p->area, &p->xq, &p->xr);
+            floor_divide(p->zy, p->area, &p->yq, &p->yr);
+            p->stepping = 1;
+        }
+        p->q += p->yq + step * p->xq; p->r += p->yr + step * p->xr;
+        while (p->r >= p->area) { p->r -= p->area; p->q++; }
+        while (p->r < 0) { p->r += p->area; p->q--; }
+    } else
+        floor_divide(p->zx * dx + p->zy * dy, p->area, &p->q, &p->r);
+    p->dx = dx; p->dy = dy; p->valid = 1;
+    return p->q + (p->q < 0 && p->r); /* toward zero, like the division */
+}
 static void raster(const Tri *t) {
-    int y, miny = t->y[0], maxy = t->y[0], i;
+    int y, miny = t->y[0], maxy = t->y[0], i, unit = t->surface ? 256 : 1;
     int64_t ax = t->x[1] - t->x[0], ay = t->y[1] - t->y[0];
     int64_t bx = t->x[2] - t->x[0], by = t->y[2] - t->y[0];
     int64_t az = (int64_t)t->inverse_z[1] - t->inverse_z[0];
     int64_t bz = (int64_t)t->inverse_z[2] - t->inverse_z[0];
     int64_t area = ax * by - bx * ay;
     int64_t zx = az * by - bz * ay, zy = ax * bz - bx * az;
-    int64_t dz;
+    int64_t dz = 0, row = 0, row_step = 0;
     int64_t depth_x = 0, depth_y = 0;
+    Plane plane;
+    Edge edges[3];
     if (!area && !t->surface)
         return;
-    dz = t->surface ? 0 : zx * 256 / area;
+    plane_setup(&plane, zx, zy, area);
     if (t->surface) {
         int64_t ax = t->surface_x[1] - t->surface_x[0];
         int64_t ay = t->surface_y[1] - t->surface_y[0];
@@ -577,7 +744,8 @@ static void raster(const Tri *t) {
             depth_y = (ax * b - bx * a) * 256 / surface_area;
             dz = depth_x;
         }
-    }
+    } else
+        dz = zx * 256 / area;
     for (i = 1; i < 3; i++) {
         if (t->y[i] < miny)
             miny = t->y[i];
@@ -597,31 +765,28 @@ static void raster(const Tri *t) {
         miny = view_top;
     if (maxy >= view_h)
         maxy = view_h - 1;
-    for (y = miny; y <= maxy; y++) {
-        int xs[3], n = 0, j;
-        for (i = 0; i < 3; i++) {
-            j = (i + 1) % 3;
-            if(t->surface) {
-                int sy=y*256,yi=t->surface_y[i],yj=t->surface_y[j];
-                if(sy<terrain_y0) sy=terrain_y0;
-                if(sy>=terrain_y1) sy=terrain_y1-1;
-                if((yi<=sy && yj>sy) || (yj<=sy && yi>sy)) {
-                    int dx=t->surface_x[j]-t->surface_x[i],dy=sy-yi;
-                    /* Low-resolution facets normally fit exact 32-bit edge
-                       arithmetic; reserve wide division for long spans. */
-                    xs[n++]=t->surface_x[i]+(abs(dx)<32768 && abs(dy)<32768
-                        ? dy*dx/(yj-yi) : (int)((int64_t)dy*dx/(yj-yi)));
-                }
-            } else if ((t->y[i] <= y && t->y[j] > y) || (t->y[j] <= y && t->y[i] > y)) {
-                int dx = t->x[j] - t->x[i];
-                /* Clamped coordinates keep |y - y[i]| below 65536; a 32-bit
-                   product is exact unless a clipped edge spans 32768 pixels. */
-                xs[n] = t->x[i] + (abs(dx) < 32768
-                    ? (y - t->y[i]) * dx / (t->y[j] - t->y[i])
-                    : (int)((int64_t)(y - t->y[i]) * dx / (t->y[j] - t->y[i])));
-                n++;
-            }
+    for (i = 0; i < 3; i++) {
+        int j = (i + 1) % 3;
+        if (t->surface)
+            edge_setup(&edges[i], t->surface_x[i], t->surface_y[i], t->surface_x[j], t->surface_y[j]);
+        else
+            edge_setup(&edges[i], t->x[i], t->y[i], t->x[j], t->y[j]);
+    }
+    /* The terrain plane's row term advances by addition. */
+    if (t->surface) {
+        row = depth_y * ((int64_t)miny * 256 - t->surface_y[0]);
+        row_step = depth_y * 256;
+    }
+    for (y = miny; y <= maxy; y++, row += row_step) {
+        int xs[3], n = 0, sample = y;
+        if (t->surface) {
+            sample = y * 256;
+            if (sample < terrain_y0) sample = terrain_y0;
+            if (sample >= terrain_y1) sample = terrain_y1 - 1;
         }
+        for (i = 0; i < 3; i++)
+            if (edges[i].lo <= sample && sample < edges[i].hi)
+                xs[n++] = edge_x(&edges[i], sample, unit);
         if (n >= 2) {
             int l = xs[0] < xs[1] ? xs[0] : xs[1], r = xs[0] > xs[1] ? xs[0] : xs[1];
             int64_t z;
@@ -636,11 +801,8 @@ static void raster(const Tri *t) {
             /* Evaluate the triangle's depth plane at the actual pixel, not
                at a rounded scanline edge. This keeps shared faces coherent. */
             if (t->surface)
-                z = t->surface_depth[0] +
-                    (depth_x * (l * 256 - t->surface_x[0]) +
-                     depth_y * (y * 256 - t->surface_y[0])) / 256;
-            else z = ((int64_t)t->inverse_z[0] +
-                (zx * (l - t->x[0]) + zy * (y - t->y[0])) / area) * 256;
+                z = t->surface_depth[0] + (depth_x * (l * 256 - t->surface_x[0]) + row) / 256;
+            else z = ((int64_t)t->inverse_z[0] + plane_at(&plane, l - t->x[0], y - t->y[0])) * 256;
             if (r >= frame->w - view_right_inset)
                 r = frame->w - view_right_inset - 1;
             if (r >= l) {
@@ -796,19 +958,101 @@ static const ShipLoft ship_lofts[SHIPS][SHIP_LOFTS] = {
      {POD_PROFILE, TRIM_TONE, LOFT_MIRROR | LOFT_EXHAUST, 3, 13, {{4, -4, 3, 6}, {-12, -4, 3, 6}, {-14, -4, 2, 5}}},
      {BLADE_PROFILE, HULL_TONE, LOFT_MIRROR, 2, 9, {{0, -3, 5, 1}, {-8, -3, 5, 1}}},
      {BLADE_PROFILE, ACCENT_TONE, 0, 3, 0, {{-2, 10, 1, 0}, {-10, 14, 1, 5}, {-12, 14, 1, 5}}}}};
+/* Ships are drawn in their own camera-space basis, as Frontier did: the
+   origin takes the only 64-bit camera transform, then every model point is
+   origin + x*R + y*U + z*F with 16-bit coefficients and 32-bit sums.
+   Offsets are in sixteenths of a camera unit, the vertices' unit. */
 typedef struct {
-    Vec origin, right, up, front, eye, light; /* Q14 basis and light */
-    int unit; /* world units per metre */
-    const ShipSpec *spec;
+    Vec origin;          /* camera space, Q4 */
+    int16_t axis[3][3];  /* [model axis][camera axis]: Q4 per model unit << shift */
+    int shift, inside;   /* inside: the hull needs no clipping */
+    int32_t light[3];    /* camera-space Q14 */
 } ShipView;
+static void ship_extent(int ship, int *x, int *y, int *front, int *back);
+/* Sphere against the clip planes: -1 wholly outside one, 1 inside them all,
+   0 when it straddles and its triangles must be clipped. Plane normals are
+   rounded up, so either verdict is conservative. */
+static int sphere_clip(Vec centre, int64_t radius) {
+    int64_t half_w = frame->w / 2, top = view_h / 2, bottom = view_h - view_h / 2;
+    int64_t norm[5];
+    int plane, inside = 1;
+    norm[0] = 1; norm[1] = norm[2] = 3; /* 3/2 > sqrt(2), applied below */
+    norm[3] = (int64_t)isqrt64((uint64_t)(half_w * half_w + top * top)) + 1;
+    norm[4] = (int64_t)isqrt64((uint64_t)(half_w * half_w + bottom * bottom)) + 1;
+    for (plane = 0; plane < 5; plane++) {
+        int64_t d = clip_distance(centre, plane), reach = radius * norm[plane];
+        if (plane == 1 || plane == 2) reach /= 2;
+        if (d < -reach) return -1;
+        if (d < reach) inside = 0;
+    }
+    return inside;
+}
+typedef struct { int32_t off[3]; Vec cam; } ShipVertex;
+#define MUL16(a, b) ((int32_t)(int16_t)(a) * (int16_t)(b))
 static int64_t dot(Vec a, Vec b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
-/* Model coordinates are 256ths of the spec extents. */
-static Vec ship_point(const ShipView *v, int x, int y, int z) {
-    int64_t d = 16384LL * 256;
-    return add(v->origin,
-               add(scale(v->right, (int64_t)x * v->spec->width * v->unit, d),
-                   add(scale(v->up, (int64_t)y * v->spec->height * v->unit, d),
-                       scale(v->front, (int64_t)z * v->spec->depth * v->unit, d))));
+/* A direction cut to under 2^14 per component, so 32-bit dot products of
+   two such directions cannot overflow. */
+static void direction14(int64_t x, int64_t y, int64_t z, int32_t *out) {
+    uint64_t m = (uint64_t)(llabs(x) | llabs(y) | llabs(z));
+    int s = 0;
+    while (m >= 16384) { m >>= 1; s++; }
+    out[0] = (int32_t)floor_shift(x, s);
+    out[1] = (int32_t)floor_shift(y, s);
+    out[2] = (int32_t)floor_shift(z, s);
+}
+static int32_t dot32(const int32_t *a, const int32_t *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+/* Model coordinates are 256ths of the spec extents. Returns 0 when the
+   hull's bounding sphere lies wholly outside the view. */
+static int ship_view(ShipView *v, int ship, Vec origin, Vec right, Vec up, Vec front, int unit, Vec light) {
+    const ShipSpec *spec = &ship_specs[ship];
+    const Vec axes[3] = {right, up, front};
+    const int64_t size[3] = {spec->width, spec->height, spec->depth};
+    int64_t p[3][3], largest = 0, reach = 0, radius;
+    Vec d = sub(origin, scale(camera_position, 1, FP));
+    int a, c, t = 0, ex, ey, ez[2];
+    /* Keep the camera's sub-unit position for the origin; otherwise a slowly
+       moving chase camera shifts the whole hull in whole steps. */
+    if (llabs(d.x) < (1LL << 30) && llabs(d.y) < (1LL << 30) && llabs(d.z) < (1LL << 30)) {
+        Vec q = view_rotate(sub(scale(origin, FP, 1), camera_position));
+        v->origin = vec(round_div(q.x * camera_unit, 16), round_div(q.y * camera_unit, 16),
+                        round_div(q.z * camera_unit, 16));
+    } else
+        v->origin = scale(view_rotate(d), 16LL * camera_unit, 1);
+    /* Q22 camera axes times extents: offsets are coordinate * p >> 26. */
+    for (a = 0; a < 3; a++) {
+        Vec q = view_rotate(vec(axes[a].x * 256, axes[a].y * 256, axes[a].z * 256));
+        int64_t k = size[a] * unit * camera_unit;
+        p[a][0] = q.x * k; p[a][1] = q.y * k; p[a][2] = q.z * k;
+        for (c = 0; c < 3; c++)
+            if (llabs(p[a][c]) > largest) largest = llabs(p[a][c]);
+    }
+    /* Largest is below 2^38 for any spec, so the shift stays positive. */
+    while ((largest >> t) >= 32767) t++;
+    for (a = 0; a < 3; a++)
+        for (c = 0; c < 3; c++)
+            v->axis[a][c] = (int16_t)round_div(p[a][c], 1LL << t);
+    v->shift = 26 - t;
+    /* The sphere encloses the model's bounding box, measured with the same
+       coefficients as the vertices, then widened for their rounding to
+       whole camera units and the centre's. */
+    ship_extent(ship, &ex, &ey, &ez[1], &ez[0]);
+    for (c = 0; c < 8; c++) {
+        int x = (c & 1 ? ex : -ex) * 16, y = (c & 2 ? ey : -ey) * 16, z = ez[c >> 2] * 16;
+        int64_t corner = 0;
+        for (a = 0; a < 3; a++) {
+            int64_t o = MUL16(x, v->axis[0][a]) + MUL16(y, v->axis[1][a]) + MUL16(z, v->axis[2][a]);
+            corner += o * o;
+        }
+        if (corner > reach) reach = corner;
+    }
+    radius = ((int64_t)isqrt64((uint64_t)reach) >> v->shift) / 16 + 4;
+    v->inside = sphere_clip(vec(floor_shift(v->origin.x, 4), floor_shift(v->origin.y, 4),
+                                floor_shift(v->origin.z, 4)), radius);
+    if (v->inside < 0)
+        return 0;
+    light = view_rotate(light);
+    v->light[0] = (int32_t)light.x; v->light[1] = (int32_t)light.y; v->light[2] = (int32_t)light.z;
+    return 1;
 }
 static int ship_colour(int tone, int light) {
     static const uint8_t ecs_hull[9] = {1, 16, 19, 28, 29, 30, 20, 18, 31};
@@ -831,63 +1075,102 @@ static int ship_colour(int tone, int light) {
     }
 }
 /* Faces are oriented away from their loft's axis, so profiles and caps need
-   no hand-kept winding; back faces are dropped before clipping. */
-static void ship_face(const ShipView *v, Vec a, Vec b, Vec c, Vec inside, int tone) {
-    Vec e1 = sub(b, a), e2 = sub(c, a), mid, n;
-    int64_t d;
-    n = vec(e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x);
-    if (!n.x && !n.y && !n.z)
+   no hand-kept winding; back faces are dropped before clipping. Normals use
+   the Q4 offsets, cut to 14-bit directions for 32-bit dot products. */
+static void ship_face(const ShipView *v, const ShipVertex *a, const ShipVertex *b,
+                      const ShipVertex *c, const int32_t *inside, int tone) {
+    int64_t e1[3], e2[3], cross[3];
+    int32_t n[3], mid[3], out[3], eye[3];
+    int i, d, length;
+    for (i = 0; i < 3; i++) {
+        e1[i] = b->off[i] - a->off[i];
+        e2[i] = c->off[i] - a->off[i];
+        mid[i] = (a->off[i] + b->off[i] + c->off[i]) / 3;
+    }
+    cross[0] = e1[1] * e2[2] - e1[2] * e2[1];
+    cross[1] = e1[2] * e2[0] - e1[0] * e2[2];
+    cross[2] = e1[0] * e2[1] - e1[1] * e2[0];
+    if (!cross[0] && !cross[1] && !cross[2])
         return;
-    mid = scale(add(a, add(b, c)), 1, 3);
-    if (dot(n, sub(mid, inside)) < 0)
-        n = scale(n, -1, 1);
-    if (dot(n, sub(mid, v->eye)) >= 0)
+    direction14(cross[0], cross[1], cross[2], n);
+    direction14(mid[0] - inside[0], mid[1] - inside[1], mid[2] - inside[2], out);
+    if (dot32(n, out) < 0)
+        for (i = 0; i < 3; i++) n[i] = -n[i];
+    /* The eye is the camera-space origin. */
+    direction14(v->origin.x + mid[0], v->origin.y + mid[1], v->origin.z + mid[2], eye);
+    if (dot32(n, eye) >= 0)
         return;
-    d = dot(unit(n, 16384), v->light) / 16384;
-    triangle(a, b, c, ship_colour(tone, d > 0 ? 3 + (int)(d * 12 / 16384) : 3 + (int)(d * 2 / 16384)));
+    length = (int)isqrt64((uint64_t)dot32(n, n));
+    d = dot32(n, v->light) / length;
+    tone = ship_colour(tone, d > 0 ? 3 + d * 12 / 16384 : 3 + d * 2 / 16384);
+    if (v->inside)
+        emit(a->cam, b->cam, c->cam, tone, 0);
+    else
+        triangle_clip(a->cam, b->cam, c->cam, a->cam, b->cam, c->cam, tone);
 }
-static void ship_loft(const ShipView *v, const ShipLoft *l, int side) {
+/* The x term is kept apart so a mirrored loft only flips its sign. */
+static void ship_loft(const ShipView *v, const ShipLoft *l) {
     const int8_t (*profile)[2] = ship_profile[l->profile];
-    Vec ring[4][8], axis[4], centre = vec(0, 0, 0);
-    int s, p, n = ship_profile_points[l->profile], x = l->x * side * 16, last = l->count - 1;
+    int32_t across[4][9][3], along[4][9][3], axis[4][3], centre[3], inside[3];
+    ShipVertex ring[4][8];
+    int s, p, i, side, n = ship_profile_points[l->profile], last = l->count - 1;
+    /* Point n of each station is its axis point. */
     for (s = 0; s < l->count; s++) {
         const ShipStation *st = &l->s[s];
-        axis[s] = ship_point(v, x, st->y * 16, st->z * 16);
-        centre = add(centre, axis[s]);
-        for (p = 0; p < n; p++)
-            ring[s][p] = ship_point(v, x + profile[p][0] * side * st->w,
-                                    st->y * 16 + profile[p][1] * st->h, st->z * 16);
-    }
-    centre = scale(centre, 1, l->count);
-    for (s = 0; s < last; s++) {
-        Vec inside = scale(add(axis[s], axis[s + 1]), 1, 2);
-        for (p = 0; p < n; p++) {
-            int q = (p + 1) % n;
-            ship_face(v, ring[s][p], ring[s][q], ring[s + 1][q], inside, l->tone);
-            ship_face(v, ring[s][p], ring[s + 1][q], ring[s + 1][p], inside, l->tone);
+        for (p = 0; p <= n; p++) {
+            int x = l->x * 16 + (p < n ? profile[p][0] * st->w : 0);
+            int y = st->y * 16 + (p < n ? profile[p][1] * st->h : 0), z = st->z * 16;
+            for (i = 0; i < 3; i++) {
+                across[s][p][i] = MUL16(x, v->axis[0][i]);
+                along[s][p][i] = MUL16(y, v->axis[1][i]) + MUL16(z, v->axis[2][i]);
+            }
         }
     }
-    for (p = 1; p + 1 < n; p++) {
-        ship_face(v, ring[0][0], ring[0][p], ring[0][p + 1], centre, l->tone);
-        ship_face(v, ring[last][0], ring[last][p], ring[last][p + 1], centre,
-                  l->flags & LOFT_EXHAUST ? GLOW_TONE : l->tone);
+    for (side = 1; side >= (l->flags & LOFT_MIRROR ? -1 : 1); side -= 2) {
+        centre[0] = centre[1] = centre[2] = 0;
+        for (s = 0; s < l->count; s++) {
+            for (p = 0; p <= n; p++) {
+                int32_t *off = p < n ? ring[s][p].off : axis[s];
+                for (i = 0; i < 3; i++)
+                    off[i] = (int32_t)floor_shift(side > 0 ? along[s][p][i] + across[s][p][i]
+                                                           : along[s][p][i] - across[s][p][i], v->shift);
+                if (p < n)
+                    ring[s][p].cam = vec(floor_shift(v->origin.x + off[0] + 8, 4),
+                                         floor_shift(v->origin.y + off[1] + 8, 4),
+                                         floor_shift(v->origin.z + off[2] + 8, 4));
+            }
+            for (i = 0; i < 3; i++) centre[i] += axis[s][i];
+        }
+        for (i = 0; i < 3; i++) centre[i] /= l->count;
+        for (s = 0; s < last; s++) {
+            for (i = 0; i < 3; i++) inside[i] = (axis[s][i] + axis[s + 1][i]) / 2;
+            for (p = 0; p < n; p++) {
+                int q = (p + 1) % n;
+                ship_face(v, &ring[s][p], &ring[s][q], &ring[s + 1][q], inside, l->tone);
+                ship_face(v, &ring[s][p], &ring[s + 1][q], &ring[s + 1][p], inside, l->tone);
+            }
+        }
+        for (p = 1; p + 1 < n; p++) {
+            ship_face(v, &ring[0][0], &ring[0][p], &ring[0][p + 1], centre, l->tone);
+            ship_face(v, &ring[last][0], &ring[last][p], &ring[last][p + 1], centre,
+                      l->flags & LOFT_EXHAUST ? GLOW_TONE : l->tone);
+        }
     }
 }
 /* Shared by the chase camera (unit 1, metres) and the shipyard preview. */
 static void ship_mesh(int ship, Vec origin, Vec right, Vec up, Vec front, int unit, Vec light) {
+    const Planet *surface = terrain_surface;
     ShipView v;
     int i;
-    v.origin = origin; v.right = right; v.up = up; v.front = front;
-    v.eye = scale(camera_position, 1, FP); v.light = light;
-    v.unit = unit; v.spec = &ship_specs[ship];
+    if (!ship_view(&v, ship, origin, right, up, front, unit, light))
+        return;
+    terrain_surface = NULL;
     for (i = 0; i < (graphics.ships ? SHIP_LOFTS : 1); i++) {
         const ShipLoft *l = &ship_lofts[ship][i];
-        if (!l->count)
-            continue;
-        ship_loft(&v, l, 1);
-        if (l->flags & LOFT_MIRROR)
-            ship_loft(&v, l, -1);
+        if (l->count)
+            ship_loft(&v, l);
     }
+    terrain_surface = surface;
 }
 /* Model extents in sixteenths: widest |x|, tallest |y| and the z span. */
 static void ship_extent(int ship, int *x, int *y, int *front, int *back) {
@@ -904,13 +1187,44 @@ static void ship_extent(int ship, int *x, int *y, int *front, int *back) {
         }
     }
 }
+/* Order-preserving 30-bit depth key: exact metres below 2^24, then 24
+   significant bits, ample for nearest-first drawing. */
+static uint32_t depth_key(int64_t z) {
+    uint64_t u = z > 0 ? (uint64_t)z : 0;
+    uint32_t e = 0, step;
+    if (u < (1U << 24))
+        return (uint32_t)u;
+    for (step = 32; step; step /= 2)
+        if (u >> (24 + step)) { u >>= step; e += step; }
+    return ((e + 1) << 24) | (uint32_t)(u >> 1);
+}
+/* Nearest first. A stable byte-wise radix sort of indices replaces a qsort
+   that swapped whole triangles: four passes of adds, and none for bytes all
+   keys share. Equal depths draw in reverse emission order, so ports, hulls
+   and markers, emitted before terrain, win depth ties with the ground. */
 static void draw_triangles(void) {
-    int i;
-    qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
+    int i, pass, *order = triangle_order, *spare = triangle_order + triangle_capacity;
+    if (nt < 32) {
+        qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
+        for (i = 0; i < nt; i++) order[i] = i;
+    } else {
+        for (i = 0; i < nt; i++) {
+            triangle_keys[i] = depth_key(triangles[i].z);
+            order[i] = nt - 1 - i;
+        }
+        for (pass = 0; pass < 32; pass += 8) {
+            int count[256] = {0}, start = 0, *swap;
+            for (i = 0; i < nt; i++) count[triangle_keys[i] >> pass & 255]++;
+            if (count[triangle_keys[0] >> pass & 255] == nt) continue;
+            for (i = 0; i < 256; i++) { int n = count[i]; count[i] = start; start += n; }
+            for (i = 0; i < nt; i++) spare[count[triangle_keys[order[i]] >> pass & 255]++] = order[i];
+            swap = order; order = spare; spare = swap;
+        }
+    }
     for (i = 0; i < nt; i++) {
         if (platform_pump && i % 32 == 0)
             platform_pump();
-        raster(&triangles[i]);
+        raster(&triangles[order[i]]);
     }
 }
 static int material_color(const Planet *planet, Vec local, int material) {
@@ -2879,6 +3193,8 @@ static void gui(void) {
 }
 void render_shutdown(void) {
     free(triangles); triangles=NULL; triangle_capacity=triangle_limit=0;
+    free(triangle_order); triangle_order=NULL;
+    free(triangle_keys); triangle_keys=NULL;
     free(scaled_pixels); scaled_pixels=NULL; scaled_capacity=0;
     free(depth_buffer);
     depth_buffer = 0;
@@ -2941,10 +3257,19 @@ int render_init(Frame *f) {
     depth_buffer = buffer;
     depth_capacity = count;
     {
-        Tri *list=realloc(triangles,(size_t)(512 << graphics.triangles)*sizeof(Tri));
+        size_t capacity=(size_t)512 << graphics.triangles;
+        Tri *list=realloc(triangles,capacity*sizeof(Tri));
+        int *order;
+        uint32_t *keys;
         uint8_t *pixels;
         if(!list) return 0;
-        triangles=list; triangle_limit=triangle_capacity=512 << graphics.triangles;
+        triangles=list;
+        order=realloc(triangle_order,capacity*2*sizeof(*order));
+        if(!order) return 0;
+        triangle_order=order;
+        keys=realloc(triangle_keys,capacity*sizeof(*keys));
+        if(!keys) return 0;
+        triangle_keys=keys; triangle_limit=triangle_capacity=(int)capacity;
         pixels=realloc(scaled_pixels,count);
         if(!pixels) return 0;
         scaled_pixels=pixels; scaled_capacity=count;
