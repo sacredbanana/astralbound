@@ -1,40 +1,17 @@
 /* SPDX-License-Identifier: Unlicense
    Coherent, immutable terrain sampled by both collision and rendering. */
 #include "astralbound.h"
+#include "noise.h"
 #include <stdlib.h>
-static int mix(int a, int b, int f) {
-    return a + (b - a) * f / 4096;
-}
-static int smooth(int f) {
-    return (int)((int64_t)f * f * (12288 - 2 * f) / (4096LL * 4096));
-}
-static int sample(uint32_t seed, int x, int y, int z) {
-    return (int)(hash32(seed ^ hash32((unsigned)x) ^ hash32((unsigned)y + 173U) ^
-                        hash32((unsigned)z + 7919U)) &
-                 4095);
-}
-static int noise(uint32_t seed, Vec q, int shift) {
-    int x = (int)(q.x + 65536) >> shift, y = (int)(q.y + 65536) >> shift,
-        z = (int)(q.z + 65536) >> shift;
-    int mask = (1 << shift) - 1;
-    int fx = smooth((int)((q.x + 65536) & mask) * 4096 / (1 << shift)),
-        fy = smooth((int)((q.y + 65536) & mask) * 4096 / (1 << shift)),
-        fz = smooth((int)((q.z + 65536) & mask) * 4096 / (1 << shift));
-    int a = mix(sample(seed, x, y, z), sample(seed, x + 1, y, z), fx),
-        b = mix(sample(seed, x, y + 1, z), sample(seed, x + 1, y + 1, z), fx),
-        c = mix(sample(seed, x, y, z + 1), sample(seed, x + 1, y, z + 1), fx),
-        d = mix(sample(seed, x, y + 1, z + 1), sample(seed, x + 1, y + 1, z + 1), fx);
-    return mix(mix(a, b, fy), mix(c, d, fy), fz);
-}
 /* Metre-space geology keeps mountain slopes visible on large planets and
    small moons alike. Intersecting coherent fields form ranges, winding cuts,
    isolated cones/calderas and crater bowls without longitude/cube-face seams. */
 static int landform_height(const Planet *p, Vec n, Vec q) {
-    int continent = noise(p->seed, n, 14);
-    int region = noise(p->seed ^ 0x52414e47U, q, 16);
-    int fold = noise(p->seed ^ 0x464f4c44U, q, 14) - 2048;
-    int crossfield = noise(p->seed ^ 0x43524f53U, q, 14) - 2048;
-    int hills = noise(p->seed ^ 0x48494c4cU, q, 12);
+    int continent = noise_value(p->seed, n, 14);
+    int region = noise_value(p->seed ^ 0x52414e47U, q, 16);
+    int fold = noise_value(p->seed ^ 0x464f4c44U, q, 14) - 2048;
+    int crossfield = noise_value(p->seed ^ 0x43524f53U, q, 14) - 2048;
+    int hills = noise_value(p->seed ^ 0x48494c4cU, q, 12);
     int ridge = 2048 - abs(fold);
     int mountain = ridge * ridge / 2048;
     int cut = abs(crossfield), valley = cut < 400 ? (400-cut) : 0;
@@ -101,7 +78,7 @@ int terrain_elevation(const Planet *p, Vec relative) {
     d2 = length(sub(q, pad)); d = d1 < d2 ? d1 : d2;
     /* Metre-accurate, smooth pad transitions avoid quantized rings/cliffs. */
     if (d < 1000) h = 0;
-    else if (d < 3000) h = h * smooth((int)(d-1000)*4096/2000) / 4096;
+    else if (d < 3000) h = h * noise_smooth((int)(d-1000)*4096/2000) / 4096;
     return h;
 }
 /* Collision follows the renderer's fixed 256 m cube-face triangles. Sampling
@@ -168,8 +145,8 @@ int terrain_regional_albedo(const Planet *p, Vec fixed_direction, int material) 
     Vec n = unit(fixed_direction, 65536);
     int a, b;
     if (material == 0 || material == 5) return 0;
-    a = noise(p->seed ^ 0x434f4e54U, n, 13) - 2048;
-    b = noise(p->seed ^ 0x4445504fU, n, 11) - 2048;
+    a = noise_value(p->seed ^ 0x434f4e54U, n, 13) - 2048;
+    b = noise_value(p->seed ^ 0x4445504fU, n, 11) - 2048;
     return a / 600 + b / 1000;
 }
 /* Geological reflectance in spherical body-space metres. Sampling a 3-D
@@ -178,9 +155,9 @@ int terrain_regional_albedo(const Planet *p, Vec fixed_direction, int material) 
 int terrain_albedo(const Planet *p, Vec fixed_direction, int material) {
     if (material == 5) return 0;
     Vec q = radial(fixed_direction, p->radius);
-    int broad = noise(p->seed ^ 0x52454749U, q, 10) - 2048;
-    int weather = noise(p->seed ^ 0x57454154U, q, 8) - 2048;
-    int fine = noise(p->seed ^ 0x534f494cU, q, 6) - 2048;
+    int broad = noise_value(p->seed ^ 0x52454749U, q, 10) - 2048;
+    int weather = noise_value(p->seed ^ 0x57454154U, q, 8) - 2048;
+    int fine = noise_value(p->seed ^ 0x534f494cU, q, 6) - 2048;
     int detail = broad / 480 + weather / 640 + fine / 900;
     if (material == 0) {
         /* Broad depth/current variation beneath the filtered small waves. */
@@ -313,7 +290,7 @@ static int cloud_cover_fixed(const Planet *p, Vec fixed, uint32_t tick) {
     if (p->climate != TEMPERATE && p->climate != FROZEN && p->climate != HYDROGEN &&
         p->climate != DENSE) return 0;
     n.x += drift; n.y -= drift / 2;
-    return noise(p->seed ^ 0x434c4f55U, n, 12);
+    return noise_value(p->seed ^ 0x434c4f55U, n, 12);
 }
 static int cloud_cover(const Planet *p, Vec local, uint32_t tick) {
     return cloud_cover_fixed(p, body_rotate(p, local, 1), tick);

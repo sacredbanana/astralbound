@@ -2,7 +2,7 @@ AMIGA_CC ?= m68k-amigaos-gcc
 # Run main on an Exec-managed stack; libnix startup/exit keep the original stack.
 AMIGA_LDFLAGS =
 STACK_OBJECTS = build/amiga/000/src/platform/amiga_stack.o build/amiga/000/src/platform/amiga_stack_swap.o
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/xfloat.c src/planet_view.c src/planet_field.c src/render.c
 SOURCES = $(CORE) src/platform/amiga.c
 CFLAGS = -Isrc -O2 -std=c99 -Wall -Wextra -Werror -noixemul -D__AMIGAOS3__ -Dmain=astralbound_main -MMD -MP
 ifeq ($(DEBUG),1)
