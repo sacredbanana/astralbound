@@ -12,6 +12,7 @@
 #define PLANET_FIELDS 4
 #define DISC_STARS 6
 #define DISC_SHADOWS 4
+#define BACKDROP_DROP 8 /* metres */
 static struct {
     PlanetField field;
     uint32_t key;
@@ -49,6 +50,7 @@ typedef struct {
     int occluder_star[DISC_SHADOWS], shadows, shadow_shift; /* occluder_star: light index */
     uint32_t depth_m;     /* inverse depth = den * depth_m >> depth_s */
     int depth_s, backdrop, block;
+    int64_t kappa_depth;  /* backdrop: cos^2 of the lowered depth sphere, Q28 */
 } Disc;
 typedef struct {
     int32_t n[3];      /* body-fixed normal, Q16 */
@@ -136,8 +138,19 @@ static int disc_setup(Disc *s, const Planet *p, int backdrop) {
         s->light[s->lights][0] = (int32_t)l.x; s->light[s->lights][1] = (int32_t)l.y;
         s->light[s->lights][2] = (int32_t)l.z; s->lights++;
     }
+    /* As a backdrop the sphere's depth comes from one BACKDROP_DROP below
+       the true surface. Terrain vertices are whole metres and their chords
+       sag below the sphere; near the ground a relative bias alone let the
+       sphere's ground win the depth test over real grass a metre above it.
+       The drop grows towards grazing views, where that sag matters most. */
+    s->kappa_depth = s->kappa;
+    if (backdrop) {
+        int64_t drop = BACKDROP_DROP * unit_m, ra = r - drop, aa = alt + drop;
+        s->kappa_depth = muldiv(muldiv(aa, ra + d, d), 1LL << 28, d);
+        if (s->kappa_depth >= 1LL << 28) s->kappa_depth = (1LL << 28) - 1;
+    }
     /* inverse depth = 2^30 unit_m den / (D kappa f), den in Q14 pixels. */
-    depth = xf_div(xf_fixed(unit_m, 44), xf_mul(xf_mul(xf_int(d), xf_int(s->kappa)), xf_int(proj.focal)));
+    depth = xf_div(xf_fixed(unit_m, 44), xf_mul(xf_mul(xf_int(d), xf_int(s->kappa_depth)), xf_int(proj.focal)));
     s->depth_m = (uint32_t)depth.m; s->depth_s = -depth.e;
     /* Eclipses: bodies that can cross the line from this one to a star. */
     {
@@ -231,7 +244,14 @@ static void disc_sample(const Disc *s, int x, int y, DiscSample *out) {
     }
     out->field = 0;
     {
-        uint64_t inv = (uint64_t)den * s->depth_m;
+        uint64_t inv;
+        if (s->backdrop) {
+            /* Depth on the lowered sphere; rays that miss it near the limb
+               take its point of closest approach. */
+            int64_t low = b * b - s->kappa_depth * sq;
+            den = b + (low > 0 ? disc_sqrt((uint64_t)low) : 0);
+        }
+        inv = (uint64_t)den * s->depth_m;
         inv = s->depth_s >= 0 ? (s->depth_s < 64 ? inv >> s->depth_s : 0)
                               : (-s->depth_s < 8 && !(inv >> (63 + s->depth_s)) ? inv << -s->depth_s : 0xFFFFFFFFU);
         if (inv > 0xFFFFFFFFU) inv = 0xFFFFFFFFU;
@@ -307,6 +327,30 @@ static int disc_colour(const Disc *s, const DiscSample *m, int x, int y) {
     shade = (shade / 6 + t) >> 4;
     return disc_ecs[material] + (shade > 2 ? 2 : shade);
 }
+/* Terrain triangles leave occasional one-pixel cracks where neighbouring
+   tiles and LOD levels meet after rounding. Behind the ground the sphere
+   would show through them as a line of its own colour. A sphere pixel
+   between two clearly nearer neighbours, left and right or above and below,
+   is such a crack: take the neighbour's colour and depth instead. Pixels
+   beyond the terrain, or at its silhouette, never have terrain both sides. */
+static int disc_crack(const Disc *s, uint8_t *pixels, uint32_t *depths, int x, int y, uint32_t depth) {
+    uint32_t near = depth + (depth >> 8);
+    int w = frame->w, up = y > s->view.proj.top, down = y + 1 < s->view.proj.bottom;
+    (void)s;
+    if (x > s->view.proj.left && x + 1 < s->view.proj.right && depths[x - 1] > near && depths[x + 1] > near) {
+        pixels[x] = pixels[x - 1];
+        depths[x] = depths[x - 1];
+        return 1;
+    }
+    /* Missing rows at the view's edge count as terrain: a crack along the
+       bottom row has nothing below it. */
+    if ((!up || depths[x - w] > near) && (!down || depths[x + w] > near) && (up || down)) {
+        pixels[x] = up ? pixels[x - w] : pixels[x + w];
+        depths[x] = up ? depths[x - w] : depths[x + w];
+        return 1;
+    }
+    return 0;
+}
 static void disc_draw(const Disc *s) {
     int y;
     if (s->view.kind == PLANET_POINT) {
@@ -359,6 +403,7 @@ static void disc_draw(const Disc *s) {
                     else { disc_sample(s, i, y, &m); if (m.depth >= depths[i]) disc_field(s, &m); }
                 } else { disc_step(&step, &m); if (i == end) m = b; }
                 if (m.depth < depths[i]) continue;
+                if (s->backdrop && disc_crack(s, pixels, depths, i, y, m.depth)) continue;
                 depths[i] = m.depth;
                 pixels[i] = (uint8_t)disc_colour(s, &m, i, y);
             }
