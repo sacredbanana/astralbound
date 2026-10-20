@@ -97,6 +97,7 @@ environment-preview: build/environment-preview
 build/terrain-detail-preview: $(CORE) $(HEADERS) tools/terrain_detail_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/terrain_detail_preview.c -o $@
 terrain-detail-preview: build/terrain-detail-preview
+	mkdir -p build/evidence
 	./build/terrain-detail-preview
 
 .PHONY: surface-preview
