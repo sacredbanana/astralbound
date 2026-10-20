@@ -58,23 +58,6 @@ static int fine_camera, near_plane = 8;
    from the frame centre and rasterisation is scissored to the view rectangle.
    All zero (the full frame) except while an inset is being drawn. */
 static int proj_dx, proj_dy, view_left, view_top, view_right_inset;
-/* Q4 coordinates retain fractional ray hits between fixed mesh vertices. */
-#ifndef ASTRALBOUND_FPU
-static Vec camera_to_local(const Planet *p, Vec v) {
-    int sy = sini(camera_yaw), cy = cosi(camera_yaw);
-    int sp = sini(camera_pitch), cp = cosi(camera_pitch);
-    if (camera_roll) {
-        int cr = cosi(camera_roll), sr = sini(camera_roll);
-        v = vec((v.x * cr + v.y * sr) / 16384,
-                (v.y * cr - v.x * sr) / 16384, v.z);
-    }
-    int64_t y = (v.y * cp + v.z * sp) / 16384;
-    int64_t z = (v.z * cp - v.y * sp) / 16384;
-    Vec world = vec((v.x * cy + z * sy) / 16384, y, (z * cy - v.x * sy) / 16384);
-    return body_rotate(p, add(world, sub(scale(camera_position, 1, FP / 16), scale(p->center, 16, 1))), 1);
-}
-#endif
-
 static void (*platform_pump)(void);
 static uint32_t plane_low[256], plane_high[256];
 static int tables_ready;
@@ -222,10 +205,13 @@ static void view_prepare(void) {
     }
     view_matrix.yaw = camera_yaw; view_matrix.pitch = camera_pitch; view_matrix.roll = camera_roll; view_matrix.valid = 1;
 }
-/* In the offset's unit. */
-static Vec view_rotate(Vec r) {
+static void view_current(void) {
     if (!view_matrix.valid || view_matrix.yaw != camera_yaw || view_matrix.pitch != camera_pitch || view_matrix.roll != camera_roll)
         view_prepare();
+}
+/* In the offset's unit. */
+static Vec view_rotate(Vec r) {
+    view_current();
     return vec((view_matrix.m[0][0] * r.x + view_matrix.m[0][1] * r.y + view_matrix.m[0][2] * r.z) / 16384,
                (view_matrix.m[1][0] * r.x + view_matrix.m[1][1] * r.y + view_matrix.m[1][2] * r.z) / 16384,
                (view_matrix.m[2][0] * r.x + view_matrix.m[2][1] * r.y + view_matrix.m[2][2] * r.z) / 16384);
@@ -324,8 +310,8 @@ static uint16_t reciprocal_seed[256];
 /* 1/z = y * 2^(shift - 63) for z > 0, y within a few parts in 2^32. Two
    Newton steps from the table: each squares the relative error. */
 static uint32_t reciprocal(int64_t z, int *shift) {
-    uint64_t u = (uint64_t)z, y;
-    uint32_t m;
+    uint64_t u = (uint64_t)z;
+    uint32_t m, y;
     int s = 0, step;
     if (!reciprocal_seed[0]) {
         int i;
@@ -339,13 +325,17 @@ static uint32_t reciprocal(int64_t z, int *shift) {
     m = (uint32_t)u;
     for (step = 16; step; step /= 2)
         if (m < 1U << (32 - step)) { m <<= step; s += step; }
-    y = (uint64_t)reciprocal_seed[(m >> 23) & 255] << 16;
+    /* Over every mantissa y stays below 2^32 and error >> 31 below 2^24, so
+       a step is two 32x32->64 multiplies (one MULU.L each on 020+), with
+       the signed correction floored exactly as a 64-bit shift would. */
+    y = (uint32_t)reciprocal_seed[(m >> 23) & 255] << 16;
     for (step = 0; step < 2; step++) {
-        int64_t error = (int64_t)(0x8000000000000000ULL - (uint64_t)m * y);
-        y = (uint64_t)((int64_t)y + floor_shift((int64_t)y * floor_shift(error, 31), 32));
+        int32_t error = (int32_t)floor_shift((int64_t)(0x8000000000000000ULL - (uint64_t)m * y), 31);
+        uint64_t p = (uint64_t)y * (uint32_t)(error < 0 ? -error : error);
+        y = error < 0 ? y - (uint32_t)((p - 1) >> 32) - 1 : y + (uint32_t)(p >> 32);
     }
     *shift = s;
-    return y > 0xFFFFFFFFU ? 0xFFFFFFFFU : (uint32_t)y;
+    return y;
 }
 /* v/z in Q28, sign kept. Clipping bounds |v| by about z; the clamp only
    guards the fixed-point range. */
@@ -355,7 +345,7 @@ static int32_t ratio(int64_t v, int64_t z, int shift, uint64_t y) {
     if (a > (uint64_t)z * 7)
         a = (uint64_t)z * 7;
     a = shift >= 0 ? a << shift : a >> -shift;
-    q = (int32_t)((a >> 3) * y >> 32);
+    q = (int32_t)((uint64_t)(uint32_t)(a >> 3) * (uint32_t)y >> 32);
     return v < 0 ? -q : q;
 }
 /* Q28 ratio times scale, truncated toward zero like the division it
@@ -616,14 +606,106 @@ static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
     *v = (int)((axis == 2 ? q[1] : q[2]) * s);
 }
 #else
+/* The same fold in fixed point: the transposed view matrix (camera to world)
+   times the inverse body spin, Q30, with the body-fixed Q4 camera offset.
+   The two screen columns are prescaled by 1/(w/2), so a pixel's ray costs
+   one depth reciprocal and multiplies instead of nine 64-bit divisions. */
+static struct {
+    const Planet *planet;
+    Vec camera, center;
+    int yaw, pitch, roll, half;
+    int32_t spin_sin, spin_cos;
+    int32_t m[3][3], mx[3], my[3];
+    int64_t t[3];
+} ray;
+static void ray_prepare(const Planet *p) {
+    int64_t sn = -(int64_t)p->spin_sin, cs = p->spin_cos;
+    Vec offset = body_rotate(p, sub(scale(camera_position, 1, FP / 16), scale(p->center, 16, 1)), 1);
+    int i;
+    view_current();
+    if (!sn && !cs) cs = 1LL << 30;
+    for (i = 0; i < 3; i++) {
+        /* Column i is camera axis i (view row i) spun into the body frame. */
+        int64_t x = view_matrix.m[i][0], y = view_matrix.m[i][1];
+        ray.m[0][i] = (int32_t)round_div(x * cs - y * sn, 16384);
+        ray.m[1][i] = (int32_t)round_div(x * sn + y * cs, 16384);
+        ray.m[2][i] = (int32_t)(view_matrix.m[i][2] * 65536);
+    }
+    ray.half = frame->w / 2;
+    for (i = 0; i < 3; i++) {
+        ray.mx[i] = (int32_t)round_div(ray.m[i][0], ray.half);
+        ray.my[i] = (int32_t)round_div(ray.m[i][1], ray.half);
+    }
+    ray.t[0] = offset.x; ray.t[1] = offset.y; ray.t[2] = offset.z;
+    ray.planet = p; ray.camera = camera_position; ray.center = p->center;
+    ray.yaw = camera_yaw; ray.pitch = camera_pitch; ray.roll = camera_roll;
+    ray.spin_sin = p->spin_sin; ray.spin_cos = p->spin_cos;
+}
+static void ray_current(const Planet *p) {
+    if (ray.planet != p || ray.yaw != camera_yaw || ray.pitch != camera_pitch ||
+        ray.roll != camera_roll || ray.spin_sin != p->spin_sin || ray.spin_cos != p->spin_cos ||
+        ray.half != frame->w / 2 || ray.camera.x != camera_position.x ||
+        ray.camera.y != camera_position.y || ray.camera.z != camera_position.z ||
+        ray.center.x != p->center.x || ray.center.y != p->center.y || ray.center.z != p->center.z)
+        ray_prepare(p);
+}
+/* Q4 camera-space point to Q4 body-fixed planet coordinates. */
+static void ray_local(const Planet *p, Vec v, int64_t q[3]) {
+    int i;
+    ray_current(p);
+    for (i = 0; i < 3; i++)
+        q[i] = ray.t[i] + floor_shift(ray.m[i][0] * v.x + ray.m[i][1] * v.y + ray.m[i][2] * v.z + (1 << 29), 30);
+}
+/* |a| * y >> shift with a's sign; |a| below 2^32 keeps the product in range. */
+static int64_t ray_scale(int64_t a, uint32_t y, int shift) {
+    uint64_t m = (uint64_t)(uint32_t)(a < 0 ? -a : a) * y;
+    m = shift < 64 ? m >> shift : 0;
+    return a < 0 ? -(int64_t)m : (int64_t)m;
+}
 static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
                            int *face, int *u, int *v) {
-    int64_t z = depth > 0 ? 4398046511104LL / depth : 1;
-    Vec point = vec((x - frame->w / 2) * z / (frame->w / 2),
-                    (view_h / 2 - y) * z / (frame->w / 2), z);
-    Vec local = camera_to_local(p, point);
-    int64_t value[3] = {local.x, local.y, local.z};
-    surface_uv(p, value, face, u, v);
+    int64_t q[3], dominant;
+    int i, axis = 0, shift, step, gs = 0;
+    uint32_t r;
+    uint64_t g;
+    ray_current(p);
+    if (depth > 0) {
+        /* Q4 depth 2^42/depth = r * 2^(shift - 21); with the Q30 direction
+           the hit is direction * r >> (51 - shift). */
+        int dx = x - ray.half, dy = view_h / 2 - y;
+        r = reciprocal(depth, &shift);
+        for (i = 0; i < 3; i++)
+            q[i] = ray.t[i] + ray_scale((int64_t)ray.m[i][2] + ray.mx[i] * dx + ray.my[i] * dy, r, 51 - shift);
+    } else ray_local(p, vec(0, 0, 1), q); /* the old z = 1 fallback: the camera */
+    dominant = llabs(q[0]);
+    if (llabs(q[1]) > dominant) { axis = 1; dominant = llabs(q[1]); }
+    if (llabs(q[2]) > dominant) { axis = 2; dominant = llabs(q[2]); }
+    *face = axis * 2 + (q[axis] < 0);
+    if (!dominant) { *u = *v = 0; return; }
+    /* q * radius / dominant, truncated exactly as surface_uv does, from one
+       reciprocal: the other components normalise by dominant's shift (below
+       2^32), multiply by radius * r cut to a 32-bit mantissa, and the
+       estimate (low by at most one) is corrected from the remainder. */
+    r = reciprocal(dominant, &shift);
+    g = (uint64_t)(uint32_t)p->radius * r;
+    for (step = 16; step; step /= 2)
+        if (g >> (32 + step)) { g >>= step; gs += step; }
+    if (g >> 32) { g >>= 1; gs++; }
+    for (i = 0; i < 2; i++) {
+        int64_t c = i == 0 ? (axis == 0 ? q[1] : q[0]) : (axis == 2 ? q[1] : q[2]);
+        uint64_t a = (uint64_t)(c < 0 ? -c : c);
+        uint32_t m;
+        a = shift >= 0 ? a << shift : a >> -shift;
+        m = (uint32_t)((uint64_t)(uint32_t)a * (uint32_t)g >> (63 - gs));
+        if (shift >= 0) { /* exact operands: anything beyond 2^28 m is not terrain */
+            uint32_t d = (uint32_t)(dominant << shift);
+            uint64_t n = (uint64_t)(uint32_t)a * (uint32_t)p->radius, k = (uint64_t)m * d;
+            if (k > n) m--;
+            else if (n - k >= d) m++;
+        }
+        if (i == 0) *u = c < 0 ? -(int)m : (int)m;
+        else *v = c < 0 ? -(int)m : (int)m;
+    }
 }
 #endif
 /* A triangle edge walked down the scanlines. x = x0 +/- floor(u*across/down)

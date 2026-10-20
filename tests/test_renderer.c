@@ -855,7 +855,11 @@ static void rolled_camera(void) {
                 local = vec(fpu_int64(q[0]), fpu_int64(q[1]), fpu_int64(q[2]));
             }
 #else
-            local = camera_to_local(&g.system.planets[g.body], scale(v, 16, 1));
+            {
+                int64_t q[3];
+                ray_local(&g.system.planets[g.body], scale(v, 16, 1), q);
+                local = vec(q[0], q[1], q[2]);
+            }
 #endif
             expected = body_rotate(&g.system.planets[g.body],
                 sub(add(scale(g.pos, 1, FP / 16), vec(16000,0,32000)),
