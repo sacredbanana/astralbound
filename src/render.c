@@ -482,8 +482,17 @@ static void triangle_clip(Vec ca, Vec cb, Vec cc, Vec a, Vec b, Vec c, int color
             int64_t dp = clip_distance(p, plane), dq = clip_distance(q, plane);
             if (dp >= 0)
                 out[n++] = p;
-            if ((dp >= 0) != (dq >= 0))
-                out[n++] = add(p, scale(sub(q, p), dp, dp - dq));
+            /* Interpolate from the edge's lexicographically first end, so
+               the triangle on the other side of a shared edge, which walks
+               it the opposite way, clips it to the bit-identical vertex.
+               Rounding from either end opened hairline cracks along
+               clipped terrain edges. */
+            if ((dp >= 0) != (dq >= 0)) {
+                if (q.x < p.x || (q.x == p.x && (q.y < p.y || (q.y == p.y && q.z < p.z))))
+                    out[n++] = add(q, scale(sub(p, q), dq, dq - dp));
+                else
+                    out[n++] = add(p, scale(sub(q, p), dp, dp - dq));
+            }
         }
         count = n;
         current = 1 - current;
