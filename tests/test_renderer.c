@@ -453,6 +453,14 @@ static void environment_rendering(void) {
     free(f.pixels); render_shutdown();
     puts("PASS procedural flora geometry and visible cloud entry/exit fog");
 }
+/* A planet as world() draws it: the analytic sphere (immediately, with
+   backdrop depth near the ground) plus the terrain triangles it queues. */
+static void planet_scene(int body) {
+    const Planet *p = &game->system.planets[body];
+    int64_t altitude = length(sub(scale(viewer(), 1, FP), p->center)) - p->radius;
+    planet_disc(body, body == game->body && altitude < PATCH_ALTITUDE && p->type != GAS_GIANT);
+    planet_mesh(body);
+}
 static int same_ground_material(int actual, int expected, int enhanced) {
     int base=enhanced ? expected/16*16 : expected>=28 ? 28 :
              expected>=25 ? 25 : expected>=16 ? 16 : 8;
@@ -473,7 +481,7 @@ static void terrain_angles(void) {
     f.pixels = calloc((size_t)f.w * f.h, 1);
     assert(f.pixels && render_init(&f));
     game = &g; frame = &f; view_h = 200; camera_position = g.pos;
-    cache_globes();
+   
     for (enhanced = 0; enhanced < 2; enhanced++) {
         f.enhanced = enhanced;
         for (angle = 0; angle < 1024; angle += 32) {
@@ -481,7 +489,7 @@ static void terrain_angles(void) {
             nt = 0;
             memset(f.pixels, 0, (size_t)f.w * f.h);
             memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
-            planet_mesh(0);
+            planet_scene(0);
             for (i = 0; i < nt; i++) raster(&triangles[i]);
             for (i = 0; i < 5; i++) {
                 Vec point = terrain_vertex(p, local, vec(16384,0,0), vec(0,0,16384),
@@ -528,7 +536,7 @@ static void terrain_flight_colors(void) {
     f.pixels = calloc((size_t)f.w * f.h, 1);
     assert(f.pixels && render_init(&f));
     game = &g; frame = &f; view_h = 200;
-    cache_globes();
+   
     for (enhanced = 0; enhanced < 2; enhanced++) {
         f.enhanced = enhanced;
         for (target = 0; target < 3; target++) {
@@ -546,7 +554,7 @@ static void terrain_flight_colors(void) {
                     nt = 0;
                     memset(f.pixels, 0, (size_t)f.w * f.h);
                     memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
-                    planet_mesh(0);
+                    planet_scene(0);
                     qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
                     for (i = 0; i < nt; i++) raster(&triangles[i]);
                     if (!same_ground_material(f.pixels[(view_h/2)*f.w + f.w/2],expected,enhanced))
@@ -581,10 +589,10 @@ static void orbital_ground_materials(void) {
     f.pixels = calloc((size_t)f.w * f.h, 1);
     assert(f.pixels && render_init(&f));
     game = &g; frame = &f; view_h = 200;
-    cache_globes();
+   
     for (enhanced = 0; enhanced < 2; enhanced++) {
         f.enhanced = enhanced;
-        cache_globes();
+       
         for (site = 0; site < 2; site++)
             for (altitude = 0; altitude < 3; altitude++) {
                 Vec ground = add(p->center, sites[site]);
@@ -597,7 +605,7 @@ static void orbital_ground_materials(void) {
                 nt = 0;
                 memset(f.pixels, 0, (size_t)f.w * f.h);
                 memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
-                planet_mesh(0);
+                planet_scene(0);
                 qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
                 for (i = 0; i < nt; i++) raster(&triangles[i]);
                 if (!same_ground_material(f.pixels[(view_h/2)*f.w + f.w/2], expected, enhanced))
@@ -629,7 +637,7 @@ static void terrain_smooth_motion(void) {
     assert(terrain_material(p, vec(shore - 1, ground, z)) == 0);
     f.pixels = calloc((size_t)f.w * f.h, 1);
     assert(f.pixels && render_init(&f));
-    game = &g; frame = &f; view_h = 200; cache_globes();
+    game = &g; frame = &f; view_h = 200;
     camera_yaw = 0; camera_pitch = -256;
     for (enhanced = 0; enhanced < 2; enhanced++) {
         f.enhanced = enhanced; last = -1; moved = 0;
@@ -639,7 +647,7 @@ static void terrain_smooth_motion(void) {
             camera_position = g.pos; nt = 0;
             memset(f.pixels, 0, (size_t)f.w * f.h);
             memset(depth_buffer, 0, depth_capacity * sizeof(*depth_buffer));
-            planet_mesh(0);
+            planet_scene(0);
             qsort(triangles, (size_t)nt, sizeof(Tri), sort_tri);
             for (i = 0; i < nt; i++) raster(&triangles[i]);
             for (i = 0; i < f.w; i++) {
@@ -711,14 +719,14 @@ static void terrain_fixed_geometry(void) {
     }
     assert(biggest > 0);
     f.pixels = calloc((size_t)f.w*f.h,1); assert(f.pixels && render_init(&f));
-    game=&g; frame=&f; view_h=200; cache_globes(); camera_yaw=0; camera_pitch=-256;
+    game=&g; frame=&f; view_h=200; camera_yaw=0; camera_pitch=-256;
     for (u = jump_u-5; u <= jump_u+5; u++) {
         int i;
         int64_t height;
         g.pos=scale(add(p->center,vec(u,p->radius+5260LL,0)),FP,1);
         camera_position=g.pos; nt=0;
         memset(depth_buffer,0,depth_capacity*sizeof(*depth_buffer));
-        planet_mesh(0); qsort(triangles,(size_t)nt,sizeof(Tri),sort_tri);
+        planet_scene(0); qsort(triangles,(size_t)nt,sizeof(Tri),sort_tri);
         for (i=0;i<nt;i++) raster(&triangles[i]);
         assert(depth_buffer[100*320+160] > 0);
         height = 5260 - 1073741824LL / depth_buffer[100*320+160];
@@ -734,7 +742,7 @@ static void close_ground_detail(void) {
     int64_t last=0;
     game_init(&g,0x53504143); g.docked=-1; p=&g.system.planets[0];
     f.pixels=calloc(320*256,1); assert(f.pixels && render_init(&f));
-    game=&g; frame=&f; view_h=200; cache_globes();
+    game=&g; frame=&f; view_h=200;
     for (mode=0;mode<2;mode++) {
         f.enhanced=mode; memset(seen,0,sizeof(seen)); changed=0;
         /* Straddle HAVEN's level grass pad and the natural ground east of it. */
@@ -767,7 +775,7 @@ static void close_ground_detail(void) {
             g.pos=scale(add(p->center,vec(u,p->radius+h+120LL,0)),FP,1);
             camera_position=g.pos; nt=0;
             memset(depth_buffer,0,depth_capacity*sizeof(*depth_buffer));
-            planet_mesh(0); qsort(triangles,(size_t)nt,sizeof(Tri),sort_tri);
+            planet_scene(0); qsort(triangles,(size_t)nt,sizeof(Tri),sort_tri);
             for(i=0;i<nt;i++) raster(&triangles[i]);
             assert(depth_buffer[100*320+160]>0);
             visible=h+120-1073741824LL/depth_buffer[100*320+160];

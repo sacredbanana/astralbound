@@ -12,6 +12,8 @@
 #include "settings.h"
 #include "launcher.h"
 #include "performance.h"
+#include "planet_view.h"
+#include "planet_field.h"
 typedef struct {
     int x[3], y[3];
     uint32_t inverse_z[3];
@@ -61,11 +63,6 @@ static int proj_dx, proj_dy, view_left, view_top, view_right_inset;
 static void (*platform_pump)(void);
 static uint32_t plane_low[256], plane_high[256];
 static int tables_ready;
-static Vec globe_vertices[GENERATED_PLANETS][17][33];
-static uint32_t globe_keys[GENERATED_PLANETS];
-static int globe_valid[GENERATED_PLANETS];
-
-static int globe_enhanced;
 
 void render_set_pump(void (*pump)(void)) {
     platform_pump = pump;
@@ -303,7 +300,6 @@ static void target_marker_position(Vec p, int top, int *x, int *y) {
     *x = cx + (int)ox;
     *y = cy + (int)oy;
 }
-#ifndef ASTRALBOUND_FPU
 /* Seeds 2^24/(256.5 + i) for the reciprocal of a depth normalised so its
    top bit is bit 31; i is the next eight bits. */
 static uint16_t reciprocal_seed[256];
@@ -337,6 +333,7 @@ static uint32_t reciprocal(int64_t z, int *shift) {
     *shift = s;
     return y;
 }
+#ifndef ASTRALBOUND_FPU
 /* v/z in Q28, sign kept. Clipping bounds |v| by about z; the clamp only
    guards the fixed-point range. */
 static int32_t ratio(int64_t v, int64_t z, int shift, uint64_t y) {
@@ -1543,52 +1540,6 @@ static int ground_shade(int shade, uint8_t sample) {
     if (shade>14) shade=14;
     return frame->enhanced ? ground_aga[material]+shade : ground_ecs[material]+shade/6;
 }
-static int ground_tone(const Planet *p, Vec local, uint8_t sample) {
-    int material = sample & 7, color = material_color(p, local, material);
-    return ground_shade(frame->enhanced ? color-ground_aga[material] :
-                        (color-ground_ecs[material])*6, sample);
-}
-/* Each facet takes its sample at its own centroid. A shared corner sample
-   shifted the whole globe by half a facet, so a port 300 km out to sea drew
-   on a green facet whose corner touched a distant coast. The 32, 16 and 8
-   longitude meshes each keep their own facet samples. */
-#define GLOBE_FACETS (2 * (512 + 128 + 32))
-static uint8_t globe_samples[GENERATED_PLANETS][GLOBE_FACETS];
-static int globe_facet(int row, int column, int step, int upper) {
-    int offset = step == 1 ? 0 : step == 2 ? 512 : 640;
-    return (offset + row / step * (32 / step) + column / step) * 2 + upper;
-}
-static void cache_globes(void) {
-    if(globe_enhanced!=frame->enhanced) memset(globe_valid,0,sizeof(globe_valid));
-    globe_enhanced=frame->enhanced;
-}
-static int cache_globe(int body) {
-    int x,y,step,slot=body%GENERATED_PLANETS;
-    Planet fixed=game->system.planets[body]; const Planet *p=&fixed;
-    if(globe_valid[slot] && globe_keys[slot]==p->seed) return slot;
-    set_rotation(&fixed,0);
-    int minimum=graphics_configured ? (4 >> graphics.planets) : 1;
-    for(y=0;y<=16;y+=minimum) {
-        if(platform_pump) platform_pump();
-        for(x=0;x<=32;x+=minimum) {
-            Vec dir=forward(x*32,y*32-256);
-            globe_vertices[slot][y][x]=radial(dir,p->radius+terrain_height(p,dir));
-        }
-    }
-    for(step=minimum;step<=4;step*=2)
-        for(y=0;y<16;y+=step) {
-            if(platform_pump) platform_pump();
-            for(x=0;x<32;x+=step) {
-                /* Triangles (a,b,c2) and (a,c2,d) of the quad drawn below. */
-                globe_samples[slot][globe_facet(y,x,step,0)]=ground_sample(p,
-                    forward(x*32+step*64/3,y*32+step*32/3-256));
-                globe_samples[slot][globe_facet(y,x,step,1)]=ground_sample(p,
-                    forward(x*32+step*32/3,y*32+step*64/3-256));
-            }
-        }
-    globe_keys[slot]=p->seed; globe_valid[slot]=1;
-    return slot;
-}
 /* Geometry clipmaps use a fixed body-space lattice. Camera motion chooses
    visible cells, but never relocates the terrain samples. Outer vertices
    continuously converge on the next level's triangles before cells retire. */
@@ -1789,17 +1740,21 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
         inner_u0 = u0; inner_v0 = v0; inner_u1 = u1; inner_v1 = v1;
     }
 }
+#define PATCH_ALTITUDE 200000
 static void planet_mesh(int body) {
     const Planet *p = &game->system.planets[body];
     Vec cam_local = sub(scale(viewer(), 1, FP), p->center);
-    int slot, radius = p->radius, x, y, lons = graphics_configured ? 8 << graphics.planets : frame->enhanced ? 32 : 16, lats = lons / 2;
+    int radius = p->radius;
     static const int steps[] = {16384,4096,1024,256,128};
     int fine_step=steps[graphics.terrain];
     int64_t distance = length(cam_local), altitude = distance - radius;
-    /* Within a radius of the surface, globe facets span far more of the view
-       than the coasts they summarise; a coarse clipmap carries the ground. */
+    /* Below PATCH_ALTITUDE a coarse clipmap adds what the analytic sphere
+       cannot: relief on the horizon and the kilometre-scale inlets, ranges
+       and forests that planet_field only blends. Its facets are about an
+       eighth of the altitude, so above this they would be coarser than the
+       sphere's own per-pixel coastlines. */
     int patch = body == game->body && altitude >= TERRAIN_DETAIL_ALTITUDE &&
-                altitude < radius && p->type != GAS_GIANT;
+                altitude < PATCH_ALTITUDE && p->type != GAS_GIANT;
     terrain_surface = body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE ? p : NULL;
     if (terrain_surface && fine_step > TERRAIN_FINE_STEP) {
         /* Keep the physical 256 m lattice around low flight and cities.
@@ -1810,56 +1765,12 @@ static void planet_mesh(int body) {
     }
     if (terrain_surface) surface_lod_prepare(p, altitude);
     {
+        /* The sphere itself is drawn analytically (planet_disc); only the
+           relief near the ship is geometry. */
         Vec c = camera(p->center);
-        if (c.z + radius < 8) {
+        if (c.z + radius < 8 || (!terrain_surface && !patch)) {
             terrain_surface = NULL;
             return;
-        }
-        if(p->catalog && c.z>0) {
-            /* Hundreds of distant moons are unresolved. Cull before building
-               terrain samples, keeping Sol within the original cache budget. */
-            if((int64_t)radius*frame->w<c.z*2) { terrain_surface=NULL; return; }
-            if(llabs(c.x)>(c.z+radius)*2 || llabs(c.y)>(c.z+radius)*2) { terrain_surface=NULL; return; }
-        }
-        if (distance > radius * 80LL) {
-            lons = 8;
-            lats = 4;
-        }
-        {
-            int step = 32 / lons;
-            slot=cache_globe(body);
-            for (y = 0; y < lats; y++)
-                for (x = 0; x < lons; x++) {
-                    int row = y * step, column = x * step;
-                    Vec a = add(p->center, body_rotate(p, globe_vertices[slot][row][column], 0)),
-                        b = add(p->center, body_rotate(p, globe_vertices[slot][row][column + step], 0));
-                    Vec c2 = add(p->center, body_rotate(p, globe_vertices[slot][row + step][column + step], 0)),
-                        d = add(p->center, body_rotate(p, globe_vertices[slot][row + step][column], 0));
-                    uint8_t upper = globe_samples[slot][globe_facet(row,column,step,0)];
-                    uint8_t lower = globe_samples[slot][globe_facet(row,column,step,1)];
-                    Vec upper_local = sub(scale(add(a,add(b,c2)),1,3),p->center);
-                    Vec lower_local = sub(scale(add(a,add(c2,d)),1,3),p->center);
-                    int upper_color, lower_color;
-                    if (terrain_surface) {
-                        upper_color = material_color(p, upper_local, upper & 7);
-                        lower_color = material_color(p, lower_local, lower & 7);
-                    } else {
-                        upper_color = ground_tone(p, upper_local, upper);
-                        lower_color = ground_tone(p, lower_local, lower);
-                    }
-                    if (terrain_surface || patch) {
-                        /* The patch's facets sag less than these chords, and
-                           the inset keeps the globe below every mountain. */
-                        int inset = terrain_surface ? radius * 19 / 20 :
-                                    radius - radius / 64 - TERRAIN_MAX_HEIGHT;
-                        a = add(p->center,radial(sub(a,p->center),inset));
-                        b = add(p->center,radial(sub(b,p->center),inset));
-                        c2 = add(p->center,radial(sub(c2,p->center),inset));
-                        d = add(p->center,radial(sub(d,p->center),inset));
-                    }
-                    triangle(a, b, c2, upper_color);
-                    triangle(a, c2, d, lower_color);
-                }
         }
     }
     if (body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE)
@@ -2453,6 +2364,8 @@ static void destruction_effects(void) {
     for (i = 0; i < sprite_count; i++) destruction_disc(&destruction_sprites[i]);
 }
 
+#include "render_planet.inc"
+
 #include "render_weapons.inc"
 
 #include "render_ports.inc"
@@ -2553,7 +2466,6 @@ static void world(void) {
     destruction_geometry();
     /* Fill the remaining geometry capacity with scenery. Ports, contacts,
        weapons and wrecks must survive an aggressively reduced triangle cap. */
-    cache_globes();
     stellar_discs();
     for (b = 0; b < game->system.count; b++) {
         planet_mesh(b);
@@ -2563,6 +2475,11 @@ static void world(void) {
     forests();
     cloud_deck();
     draw_triangles();
+    for (b = 0; b < game->system.count; b++) {
+        const Planet *p = &game->system.planets[b];
+        int64_t altitude = length(sub(scale(viewer(), 1, FP), p->center)) - p->radius;
+        planet_disc(b, b == game->body && altitude < PATCH_ALTITUDE && p->type != GAS_GIANT);
+    }
     if(graphics.lights) port_draw_lights();
 }
 static void panel(const char *title) {
@@ -3282,7 +3199,6 @@ void render_shutdown(void) {
     depth_buffer = 0;
     depth_capacity = 0;
     terrain_surface = NULL;
-    memset(globe_valid,0,sizeof(globe_valid));
     memset(surface_cache, 0, sizeof(surface_cache));
 }
 void render_palette(Frame *f) {
@@ -3860,7 +3776,6 @@ static void enlarge(const Frame *source, Frame *destination, int height) {
 }
 void render_graphics(const Graphics *g) {
     graphics=*g; graphics_configured=1;
-    memset(globe_valid,0,sizeof(globe_valid));
     memset(surface_cache,0,sizeof(surface_cache)); lod_altitude=-1;
 }
 void render_game(const Game *g, Frame *f) {
