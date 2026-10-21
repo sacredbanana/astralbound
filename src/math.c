@@ -28,8 +28,8 @@ uint64_t isqrt64(uint64_t n) {
     return r;
 }
 #else
-uint64_t isqrt64(uint64_t n) {
-    uint64_t r = 0, b = (uint64_t)1 << 62;
+static uint32_t isqrt32(uint32_t n) {
+    uint32_t r = 0, b = 1U << 30;
     while (b > n)
         b >>= 2;
     while (b) {
@@ -40,6 +40,34 @@ uint64_t isqrt64(uint64_t n) {
             r >>= 1;
         b >>= 2;
     }
+    return r;
+}
+/* The floor root is unique, so any route to it is bit-identical: 32-bit
+   digit-by-digit below 2^32; above, the root of the top 32 bits, one Newton
+   step and an exact correction. 64-bit shift-subtract loops cost the 68k
+   thousands of cycles. */
+uint64_t isqrt64(uint64_t n) {
+    uint32_t high = (uint32_t)(n >> 32), r;
+    int k;
+    if (!high) return isqrt32((uint32_t)n);
+    k = (33 - __builtin_clz(high)) / 2; /* n >> 2k holds 31 or 32 bits */
+    r = isqrt32((uint32_t)(n >> (2 * k))) << k;
+    {
+        uint64_t q;
+#if defined(__mc68020__) || defined(__mc68030__) || defined(__mc68040__)
+        if (high < r) { /* DIVU.L: the quotient fits 32 bits */
+            uint32_t hi = high, lo = (uint32_t)n;
+            __asm__("divu.l %2,%0:%1" : "+d"(hi), "+d"(lo) : "d"(r) : "cc");
+            q = lo;
+        } else
+#endif
+            q = n / r;
+        r = (uint32_t)(((uint64_t)r + q) / 2 > 0xffffffffU ? 0xffffffffU : ((uint64_t)r + q) / 2);
+    }
+    while ((uint64_t)r * r > n)
+        r--;
+    while (r < 0xffffffffU && (uint64_t)(r + 1) * (r + 1) <= n)
+        r++;
     return r;
 }
 #endif
@@ -53,6 +81,34 @@ Vec add(Vec a, Vec b) {
 Vec sub(Vec a, Vec b) {
     return vec(a.x - b.x, a.y - b.y, a.z - b.z);
 }
+#if defined(__mc68020__) || defined(__mc68030__) || defined(__mc68040__)
+/* DIVS.L <ea>,Dr:Dq divides a 64-bit value by a 32-bit one in a single
+   instruction, truncating toward zero as C does, when the quotient fits 32
+   bits. The 68060 traps it, and the 68000 lacks it. */
+#define NATIVE_DIVIDE 1
+/* a n / d truncated, all three in 32 bits: one MULS.L and one DIVS.L. */
+static int native_muldiv(int32_t a, int32_t n, int32_t d, int32_t *q) {
+    int64_t p = (int64_t)a * n;
+    uint64_t magnitude = p < 0 ? 0 - (uint64_t)p : (uint64_t)p;
+    uint32_t divisor = d < 0 ? 0 - (uint32_t)d : (uint32_t)d;
+    int32_t high = (int32_t)(uint32_t)((uint64_t)p >> 32), low = (int32_t)(uint32_t)p;
+    if (!divisor || magnitude >= (uint64_t)divisor << 31) return 0;
+    __asm__("divs.l %2,%0:%1" : "+d"(high), "+d"(low) : "d"(d) : "cc");
+    *q = low;
+    return 1;
+}
+static int fits32(int64_t v) { return v >= -INT32_MAX && v <= INT32_MAX; }
+static int native_divide(int64_t value, int64_t d, int64_t *q) {
+    uint64_t magnitude = value < 0 ? 0 - (uint64_t)value : (uint64_t)value;
+    uint64_t divisor = d < 0 ? 0 - (uint64_t)d : (uint64_t)d;
+    int32_t high, low;
+    if (d < INT32_MIN || d > INT32_MAX || !divisor || magnitude >= divisor << 31) return 0;
+    high = (int32_t)(uint32_t)((uint64_t)value >> 32); low = (int32_t)(uint32_t)value;
+    __asm__("divs.l %2,%0:%1" : "+d"(high), "+d"(low) : "d"((int32_t)d) : "cc");
+    *q = low;
+    return 1;
+}
+#endif
 /* Common fixed-point divisors compile to shifts on 68k, preserving signed
    truncation toward zero. General 64-bit division is reserved for other ratios. */
 static int64_t divide(int64_t value, int64_t d) {
@@ -72,39 +128,28 @@ static int64_t divide(int64_t value, int64_t d) {
     case (1LL << 30):
         return value / (1LL << 30);
     default:
+#ifdef NATIVE_DIVIDE
+        {
+            int64_t q;
+            if (native_divide(value, d, &q)) return q;
+        }
+#endif
         return value / d;
     }
 }
+/* Significant bits (1 for zero): a leading-zero count, BFFFO on 020+. */
 static int bits(uint64_t x) {
-    uint32_t word = (uint32_t)x;
-    int count = 0;
-    if (x >> 32) {
-        word = (uint32_t)(x >> 32);
-        count = 32;
-    }
-    if (word >> 16) {
-        word >>= 16;
-        count += 16;
-    }
-    if (word >> 8) {
-        word >>= 8;
-        count += 8;
-    }
-    if (word >> 4) {
-        word >>= 4;
-        count += 4;
-    }
-    if (word >> 2) {
-        word >>= 2;
-        count += 2;
-    }
-    if (word >> 1)
-        count++;
-    return count + 1;
+    uint32_t high = (uint32_t)(x >> 32), low = (uint32_t)x;
+    if (high) return 64 - __builtin_clz(high);
+    return low ? 32 - __builtin_clz(low) : 1;
 }
 /* Multiply/divide without overflowing intermediate astronomical coordinates.
    Fast path covers ordinary local physics and all terrain work. */
 int64_t muldiv(int64_t a, int64_t n, int64_t d) {
+#ifdef NATIVE_DIVIDE
+    int32_t native;
+    if (fits32(a) && fits32(n) && fits32(d) && native_muldiv((int32_t)a, (int32_t)n, (int32_t)d, &native)) return native;
+#endif
     uint64_t u = a < 0 ? (uint64_t)(-(a + 1)) + 1 : (uint64_t)a;
     uint64_t v = n < 0 ? (uint64_t)(-(n + 1)) + 1 : (uint64_t)n;
     uint64_t den = d < 0 ? (uint64_t)(-(d + 1)) + 1 : (uint64_t)d;
@@ -116,8 +161,12 @@ int64_t muldiv(int64_t a, int64_t n, int64_t d) {
         return 0;
     if (n == 1)
         return divide(a, d);
-    if (bits(u) + bits(v) <= 63)
+    if (bits(u) + bits(v) <= 63) {
+        /* Both factors in 32 bits: a widening MULS.L, not a libgcc call. */
+        if (u <= INT32_MAX && v <= INT32_MAX)
+            return divide((int64_t)(int32_t)a * (int32_t)n, d);
         return divide(a * n, d);
+    }
     q = u / den;
     rem = u % den;
     for (bit = (uint64_t)1 << 63; bit; bit >>= 1) {
@@ -140,6 +189,16 @@ int64_t muldiv(int64_t a, int64_t n, int64_t d) {
     return negative ? -(int64_t)q : (int64_t)q;
 }
 Vec scale(Vec a, int64_t n, int64_t d) {
+#ifdef NATIVE_DIVIDE
+    /* Local geometry fits 32 bits: three native products and quotients
+       instead of three general 64-bit calls, with identical truncation. */
+    if (fits32(a.x) && fits32(a.y) && fits32(a.z) && fits32(n) && fits32(d)) {
+        int32_t x, y, z;
+        if (native_muldiv((int32_t)a.x, (int32_t)n, (int32_t)d, &x) && native_muldiv((int32_t)a.y, (int32_t)n, (int32_t)d, &y) &&
+            native_muldiv((int32_t)a.z, (int32_t)n, (int32_t)d, &z))
+            return vec(x, y, z);
+    }
+#endif
     return vec(muldiv(a.x, n, d), muldiv(a.y, n, d), muldiv(a.z, n, d));
 }
 /* Scale before squaring, keeping lengths safe across the supported local frame. */
@@ -152,7 +211,9 @@ int64_t length(Vec a) {
         a.z /= 2;
         shift++;
     }
-    return (int64_t)isqrt64((uint64_t)(a.x * a.x + a.y * a.y + a.z * a.z)) << shift;
+    /* Components now fit 31 bits: three widening MULS.L, not libgcc calls. */
+    return (int64_t)isqrt64((uint64_t)((int64_t)(int32_t)a.x * (int32_t)a.x + (int64_t)(int32_t)a.y * (int32_t)a.y +
+                                       (int64_t)(int32_t)a.z * (int32_t)a.z)) << shift;
 }
 Vec unit(Vec a, int64_t magnitude) {
     int64_t l = length(a);

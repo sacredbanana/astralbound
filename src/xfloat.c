@@ -2,16 +2,24 @@
    per frame and per scanline, and inlined copies cost the 68000 build tens of
    kilobytes of code. */
 #include "xfloat.h"
+/* One leading-zero count (BFFFO on a 68020 or later) and a single shift,
+   done on 32-bit halves: variable 64-bit shifts are libgcc calls on 68k. */
+static int xf_top(uint32_t v) { return 31 - __builtin_clz(v); }
 XFloat xf_make(int64_t m, int e) {
     XFloat r;
-    uint64_t a = (uint64_t)(m < 0 ? -m : m);
-    int step;
-    if (!a) return XF_ZERO;
-    for (step = 32; step; step /= 2)
-        if (a >> (29 + step)) { a >>= step; e += step; }
-    for (step = 16; step; step /= 2)
-        if (a < 1ULL << (30 - step)) { a <<= step; e -= step; }
-    r.m = m < 0 ? -(int32_t)a : (int32_t)a;
+    uint64_t a = m < 0 ? 0 - (uint64_t)m : (uint64_t)m;
+    uint32_t hi = (uint32_t)(a >> 32), lo = (uint32_t)a, v;
+    int top, s;
+    if (hi) {
+        top = 32 + xf_top(hi); s = top - 29;
+        v = s >= 32 ? hi >> (s - 32) : lo >> s | hi << (32 - s);
+        e += s;
+    } else if (lo) {
+        top = xf_top(lo);
+        if (top >= 29) { v = lo >> (top - 29); e += top - 29; }
+        else { v = lo << (29 - top); e -= 29 - top; }
+    } else return XF_ZERO;
+    r.m = m < 0 ? -(int32_t)v : (int32_t)v;
     r.e = e;
     return r;
 }
@@ -25,8 +33,10 @@ XFloat xf_add(XFloat a, XFloat b) {
     if (a.e < b.e) { XFloat t = a; a = b; b = t; }
     d = a.e - b.e;
     if (d > 60) return a;
-    /* 31 guard bits keep the smaller term's contribution exact enough. */
-    return xf_make(xf_up(a.m, 31) + xf_down(xf_up(b.m, 31), d), a.e - 31);
+    /* 31 guard bits keep the smaller term's contribution exact enough:
+       b * 2^(31 - d), exact for d <= 31 and floored beyond, in 32 bits. */
+    return xf_make(xf_up(a.m, 31) + (d <= 31 ? xf_up(b.m, 31 - d) : (int64_t)(b.m >= 0 ? b.m >> (d - 31) : ~(~b.m >> (d - 31)))),
+                   a.e - 31);
 }
 XFloat xf_sub(XFloat a, XFloat b) { return xf_add(a, xf_neg(b)); }
 XFloat xf_div(XFloat a, XFloat b) {

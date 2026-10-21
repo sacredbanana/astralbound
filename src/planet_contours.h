@@ -13,7 +13,10 @@
 #define CONTOUR_POINTS 4096
 #define CONTOUR_LOOPS 512
 typedef struct { int16_t x, y, z; } ContourPoint; /* unit direction, Q14 */
-typedef struct { uint16_t first, count; } ContourLoop;
+/* A loop's points, and the cap holding them all: centre direction (Q14)
+   and the cosine of its angular radius (Q14), so a renderer can drop loops
+   on the far side of the planet with one dot product. */
+typedef struct { uint16_t first, count; int16_t cx, cy, cz, cosr; } ContourLoop;
 typedef struct {
     uint32_t seed;
     int resolution, kind, loops, points, truncated;

@@ -2,32 +2,57 @@
 #include "classic_raster.h"
 #include <string.h>
 #define CL_LIMIT 16000 /* crossings clamp here; far beyond any surface */
-static int16_t clamp16(int64_t v) { return (int16_t)(v < -CL_LIMIT ? -CL_LIMIT : v > CL_LIMIT ? CL_LIMIT : v); }
-/* First pixel at or right of a Q24 x: the pixel whose sample point the
-   crossing passes. */
-static int ceil24(int64_t x) {
-    int64_t v = x >= 0 ? (x + 0xFFFFFF) >> 24 : -((-x) >> 24);
-    return clamp16(v);
-}
-/* An edge's rows and x per row by a DDA: one 64-bit division per edge and
-   one 64-bit addition per row (two instructions on a 68k). A 24-bit
-   fraction keeps the drift over a full screen below 2^-16 px, so edges
-   shared by two polygons always round the same way. Rows sampled:
-   y1 <= 16 y < y2 (Q4). */
-typedef struct { int y0, y1; int64_t x, step; } ClEdge;
-static int edge_setup(ClEdge *e, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int height) {
-    int64_t dy;
-    if (y1 > y2) { int32_t t = x1; x1 = x2; x2 = t; t = y1; y1 = y2; y2 = t; }
-    dy = (int64_t)y2 - y1;
+/* An edge's rows and crossing pixels by an exact integer DDA, as Frontier's
+   span renderer stepped its edges: one 32-bit division per edge and, per
+   row, an addition, a subtraction and a carry. The crossing at row y is
+   ceil(N / D) with N = x1 dy + (16 y - y1) dx and D = 16 dy, kept as
+   x D - e with 0 <= e < D, so the arithmetic is the exact rational one and
+   an edge shared by two polygons crosses the same pixels for both. Rows
+   sampled: y1 <= 16 y < y2 (Q4). */
+#define CL_EDGE_LIMIT (1 << 24) /* Q4: a million pixels; projection clamps far inside */
+typedef struct { int y0, y1; int32_t x, q, r, d, e; } ClEdge;
+static int32_t edge_bound(int32_t v) { return v < -CL_EDGE_LIMIT ? -CL_EDGE_LIMIT : v > CL_EDGE_LIMIT ? CL_EDGE_LIMIT : v; }
+/* floor(a / b) for b > 0. */
+static int32_t floor_div32(int32_t a, int32_t b) { int32_t q = a / b; return q - (a % b < 0); }
+static int edge_setup(ClEdge *e, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int top, int height) {
+    int32_t dx, dy, t;
+    int64_t n;
+    x1 = edge_bound(x1); y1 = edge_bound(y1); x2 = edge_bound(x2); y2 = edge_bound(y2);
+    if (y1 > y2) { int32_t s = x1; x1 = x2; x2 = s; s = y1; y1 = y2; y2 = s; }
+    dy = y2 - y1;
     if (!dy) return 0;
     e->y0 = y1 >= 0 ? (y1 + 15) >> 4 : -((-y1) >> 4);
     e->y1 = y2 >= 0 ? (y2 + 15) >> 4 : -((-y2) >> 4); /* exclusive */
-    if (e->y0 < 0) e->y0 = 0;
+    if (e->y0 < top) e->y0 = top;
     if (e->y1 > height) e->y1 = height;
     if (e->y0 >= e->y1) return 0;
-    e->step = ((int64_t)(x2 - x1) << 24) / dy; /* Q24 pixels per row: 16 Q4 units */
-    e->x = ((int64_t)x1 << 20) + (((int64_t)e->y0 * 16 - y1) * ((int64_t)(x2 - x1) << 20)) / dy;
+    dx = x2 - x1;
+    e->d = 16 * dy;
+    e->q = floor_div32(dx, dy);
+    e->r = 16 * (dx - e->q * dy);
+    t = 16 * e->y0 - y1;
+    if (x1 > -23170 && x1 < 23170 && dx > -23170 && dx < 23170 && dy < 23170 && t < 23170) {
+        /* On-screen edges: 16 x 16-bit products (MULS.W) under 2^29 each. */
+        int32_t m = (int32_t)(int16_t)x1 * (int16_t)dy + (int32_t)(int16_t)t * (int16_t)dx;
+        e->x = m >= 0 ? (m + e->d - 1) / e->d : -((-m) / e->d);
+        e->e = e->x * e->d - m;
+        return 1;
+    }
+    n = (int64_t)x1 * dy + (int64_t)t * dx;
+    if (n > -(1 << 30) && n < (1 << 30)) {
+        int32_t m = (int32_t)n;
+        e->x = m >= 0 ? (m + e->d - 1) / e->d : -((-m) / e->d);
+    } else e->x = (int32_t)(n >= 0 ? (n + e->d - 1) / e->d : -((-n) / e->d));
+    e->e = (int32_t)((int64_t)e->x * e->d - n);
     return 1;
+}
+/* The crossing pixel of the current row, then advance a row. */
+static int16_t edge_step(ClEdge *e) {
+    int32_t x = e->x;
+    e->x += e->q;
+    e->e -= e->r;
+    if (e->e < 0) { e->e += e->d; e->x++; }
+    return (int16_t)(x < -CL_LIMIT ? -CL_LIMIT : x > CL_LIMIT ? CL_LIMIT : x);
 }
 void cl_spans_init(ClSpans *s, ClRow *rows, int height) {
     int y;
@@ -37,12 +62,12 @@ void cl_spans_init(ClSpans *s, ClRow *rows, int height) {
 void cl_spans_edge(ClSpans *s, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
     ClEdge e;
     int y;
-    if (!edge_setup(&e, x1, y1, x2, y2, s->height)) return;
+    if (!edge_setup(&e, x1, y1, x2, y2, 0, s->height)) return;
     if (e.y0 < s->top) s->top = e.y0;
     if (e.y1 > s->bottom) s->bottom = e.y1;
-    for (y = e.y0; y < e.y1; y++, e.x += e.step) {
+    for (y = e.y0; y < e.y1; y++) {
         ClRow *r = &s->rows[y];
-        int16_t x = (int16_t)ceil24(e.x);
+        int16_t x = edge_step(&e);
         int i = r->n;
         if (i >= CL_ROW_CROSSINGS) continue;
         while (i > 0 && r->x[i - 1] > x) { r->x[i] = r->x[i - 1]; i--; }
@@ -56,6 +81,56 @@ void cl_spans_polygon(ClSpans *s, const int32_t *xy, int n) {
         int j = i + 1 == n ? 0 : i + 1;
         cl_spans_edge(s, xy[i * 2], xy[i * 2 + 1], xy[j * 2], xy[j * 2 + 1]);
     }
+}
+/* A convex polygon straight to the surface: the two chains from the top
+   vertex to the bottom one are stepped together and each row filled as
+   one run, with no crossing table. The crossings are the edge DDA's, so
+   coverage is exactly the even-odd fill's. Returns 0, drawing nothing,
+   when the vertices are not y-monotone both ways round (rounding can fold
+   a sliver), leaving the general filler to it. */
+static int chain_next(int n, int i, int dir) { i += dir; return i < 0 ? n - 1 : i >= n ? 0 : i; }
+int cl_convex_fill(const ClSurface *f, const int32_t *xy, int n, int colour) {
+    int top = 0, bottom = 0, i, k, y, end;
+    int at[2], to[2], dir[2] = {1, -1};
+    ClEdge e[2];
+    if (n < 3 || n > 16) return 0;
+    for (i = 1; i < n; i++) {
+        if (xy[i * 2 + 1] < xy[top * 2 + 1]) top = i;
+        if (xy[i * 2 + 1] > xy[bottom * 2 + 1]) bottom = i;
+    }
+    /* Both chains must descend monotonically from top to bottom. */
+    for (k = 0; k < 2; k++) {
+        int j = top;
+        while (j != bottom) {
+            int nx = chain_next(n, j, dir[k]);
+            if (xy[nx * 2 + 1] < xy[j * 2 + 1]) return 0;
+            j = nx;
+        }
+    }
+    y = xy[top * 2 + 1] >= 0 ? (xy[top * 2 + 1] + 15) >> 4 : -((-xy[top * 2 + 1]) >> 4);
+    end = xy[bottom * 2 + 1] >= 0 ? (xy[bottom * 2 + 1] + 15) >> 4 : -((-xy[bottom * 2 + 1]) >> 4);
+    if (y < f->top) y = f->top;
+    if (end > f->bottom) end = f->bottom;
+    for (k = 0; k < 2; k++) { at[k] = top; to[k] = top; e[k].y1 = y; }
+    for (; y < end; y++) {
+        int x[2], a, b;
+        for (k = 0; k < 2; k++) {
+            /* Advance to the edge whose rows hold y. */
+            while (e[k].y1 <= y) {
+                at[k] = to[k];
+                if (at[k] == bottom) return 1;
+                to[k] = chain_next(n, at[k], dir[k]);
+                if (!edge_setup(&e[k], xy[at[k] * 2], xy[at[k] * 2 + 1], xy[to[k] * 2], xy[to[k] * 2 + 1], y, f->bottom))
+                    e[k].y1 = y; /* flat or above the view: next edge */
+            }
+            x[k] = edge_step(&e[k]);
+        }
+        a = x[0] < x[1] ? x[0] : x[1]; b = x[0] < x[1] ? x[1] : x[0];
+        if (a < f->left) a = f->left;
+        if (b > f->right) b = f->right;
+        if (a < b) memset(f->pixels + (size_t)y * f->pitch + a, colour, (size_t)(b - a));
+    }
+    return 1;
 }
 /* Frontier's cubic forward differencing: the power-basis coefficients are
    prescaled by the step size h = 2^-k, so each step is three additions.
@@ -77,16 +152,17 @@ void cl_spans_bezier(ClSpans *s, const int32_t p[4][2]) {
     extent >>= 4; /* pixels */
     k = extent < 8 ? 2 : extent < 50 ? 3 : extent < 300 ? 4 : 5;
     steps = 1 << k;
-    x = (int64_t)p[0][0] << 16; y = (int64_t)p[0][1] << 16;
-    d3x = 6 * (cx << (16 - 3 * k)); d3y = 6 * (cy << (16 - 3 * k));
-    d2x = d3x + 2 * (bx << (16 - 2 * k)); d2y = d3y + 2 * (by << (16 - 2 * k));
-    d1x = (ax << (16 - k)) + (bx << (16 - 2 * k)) + (cx << (16 - 3 * k));
-    d1y = (ay << (16 - k)) + (by << (16 - 2 * k)) + (cy << (16 - 3 * k));
+    /* Multiplications by powers of two: shifting negatives is undefined. */
+    x = (int64_t)p[0][0] * 65536; y = (int64_t)p[0][1] * 65536;
+    d3x = 6 * (cx * ((int64_t)1 << (16 - 3 * k))); d3y = 6 * (cy * ((int64_t)1 << (16 - 3 * k)));
+    d2x = d3x + 2 * (bx * ((int64_t)1 << (16 - 2 * k))); d2y = d3y + 2 * (by * ((int64_t)1 << (16 - 2 * k)));
+    d1x = ax * ((int64_t)1 << (16 - k)) + bx * ((int64_t)1 << (16 - 2 * k)) + cx * ((int64_t)1 << (16 - 3 * k));
+    d1y = ay * ((int64_t)1 << (16 - k)) + by * ((int64_t)1 << (16 - 2 * k)) + cy * ((int64_t)1 << (16 - 3 * k));
     for (i = 0; i < steps; i++) {
         int64_t nx = x + d1x, ny = y + d1y;
         /* The last step lands exactly on the end point, so curves joined
            end to end share vertices and leave no parity gaps. */
-        if (i + 1 == steps) { nx = (int64_t)p[3][0] << 16; ny = (int64_t)p[3][1] << 16; }
+        if (i + 1 == steps) { nx = (int64_t)p[3][0] * 65536; ny = (int64_t)p[3][1] * 65536; }
         cl_spans_edge(s, (int32_t)((x + 32768) >> 16), (int32_t)((y + 32768) >> 16),
                       (int32_t)((nx + 32768) >> 16), (int32_t)((ny + 32768) >> 16));
         x = nx; y = ny;
@@ -131,12 +207,10 @@ void cl_body_begin(ClBody *b, int top, int bottom) {
 void cl_body_edge(ClBody *b, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t mask) {
     ClEdge e;
     int y;
-    if (!edge_setup(&e, x1, y1, x2, y2, b->height)) return;
-    if (e.y0 < b->top) { e.x += e.step * (b->top - e.y0); e.y0 = b->top; }
-    if (e.y1 > b->bottom) e.y1 = b->bottom;
-    for (y = e.y0; y < e.y1; y++, e.x += e.step) {
+    if (!edge_setup(&e, x1, y1, x2, y2, b->top, b->bottom)) return;
+    for (y = e.y0; y < e.y1; y++) {
         ClBodyRow *r = &b->rows[y];
-        int16_t x = (int16_t)ceil24(e.x);
+        int16_t x = edge_step(&e);
         int i = r->n;
         if (i >= CL_BODY_CROSSINGS) continue;
         while (i > 0 && r->c[i - 1].x > x) { r->c[i] = r->c[i - 1]; i--; }

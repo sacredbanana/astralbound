@@ -179,17 +179,67 @@ static void cl_body_turn(const ClBodyInfo *b, const ContourPoint *p, int16_t *m)
     for (k = 0; k < 3; k++)
         m[k] = (int16_t)(((int32_t)b->m[k][0] * p->x + (int32_t)b->m[k][1] * p->y + (int32_t)b->m[k][2] * p->z) >> 14);
 }
-static void cl_body_contours(const ClBodyInfo *b, const PlanetContours *c, unsigned mask) {
+/* Contour loops, Frontier's surface polygons. A loop whose bounding cap
+   misses the visible cap has no visible edge and is skipped whole. Within
+   a loop, visibility is a three-multiply dot with the view direction
+   turned into the body frame; only points on a visible edge are turned
+   into camera space (nine multiplies) and projected. */
+static void cl_contour_loop(const ClBodyInfo *b, const ContourPoint *pt, int count, const int16_t *view_body,
+                            unsigned mask) {
     static int16_t m[CONTOUR_POINTS][3];
-    int l, i;
+    static int32_t px[CONTOUR_POINTS], py[CONTOUR_POINTS];
+    /* Per point: bit 0 on the visible cap, bit 1 turned, bit 2 projected
+       (seen: on the cap and projectable), bit 3 projection tried. */
+    static uint8_t state[CONTOUR_POINTS];
+    int i, any = 0;
+    for (i = 0; i < count; i++) {
+        int32_t margin = -(((int32_t)pt[i].x * view_body[0] + (int32_t)pt[i].y * view_body[1] + (int32_t)pt[i].z * view_body[2]) >> 14);
+        state[i] = (uint8_t)(margin > b->rd);
+        any |= margin > b->rd - 2048;
+    }
+    if (!any) return;
+    for (i = 0; i < count; i++) {
+        int j = i + 1 == count ? 0 : i + 1, k, seen[2];
+        if (!((state[i] | state[j]) & 1)) continue;
+        for (k = 0; k < 2; k++) {
+            int q = k ? j : i;
+            if (!(state[q] & 2)) { cl_body_turn(b, &pt[q], m[q]); state[q] |= 2; }
+            if ((state[q] & 9) == 1) state[q] |= (uint8_t)(8 | (cl_body_project(b, m[q], &px[q], &py[q]) ? 4 : 0));
+            seen[k] = (state[q] & 4) != 0;
+        }
+        if (seen[0] && seen[1]) cl_body_arc(b, m[i], m[j], px[i], py[i], px[j], py[j], mask, 0);
+        else if (seen[0] != seen[1]) {
+            int16_t limb[3];
+            int32_t lx, ly;
+            int a = seen[0] ? i : j, h = seen[0] ? j : i;
+            cl_body_limb(b, m[a], m[h], limb);
+            if (cl_body_project(b, limb, &lx, &ly)) {
+                if (seen[0]) cl_body_arc(b, m[i], limb, px[i], py[i], lx, ly, mask, 0);
+                else cl_body_arc(b, limb, m[j], lx, ly, px[j], py[j], mask, 0);
+                /* Rows above the limb point cross the closing path. */
+                if (cl_left_limb(b, lx, ly)) cl_body_toggle(&cl_body, ly >= 0 ? (ly + 15) >> 4 : 0, (uint16_t)mask);
+            }
+        }
+    }
+}
+static void cl_body_contours(const ClBodyInfo *b, const PlanetContours *c, unsigned mask) {
+    int l, k;
+    int32_t sa = (int32_t)cl_isqrt((uint32_t)(268435456 - (int32_t)b->rd * b->rd));
+    int16_t view_body[3];
+    /* The view direction in the body frame: the transpose applied to ch. */
+    for (k = 0; k < 3; k++)
+        view_body[k] = (int16_t)(((int32_t)b->m[0][k] * b->ch[0] + (int32_t)b->m[1][k] * b->ch[1] + (int32_t)b->m[2][k] * b->ch[2]) >> 14);
     for (l = 0; l < c->loops; l++) {
         const ContourLoop *loop = &c->loop[l];
-        int any = 0;
-        for (i = 0; i < loop->count; i++) {
-            cl_body_turn(b, &c->point[loop->first + i], m[i]);
-            any |= -cl_dot14(m[i], b->ch) > b->rd - 2048;
+        if (loop->cosr >= 0) {
+            /* Caps meet when the angle between their centres is below the
+               sum of their radii: cos(a + b) = ca cb - sa sb. */
+            int32_t sb = (int32_t)cl_isqrt((uint32_t)(268435456 - (int32_t)loop->cosr * loop->cosr));
+            int32_t reach = ((int32_t)b->rd * loop->cosr - sa * sb) >> 14;
+            int32_t centre = ((int32_t)loop->cx * view_body[0] + (int32_t)loop->cy * view_body[1] + (int32_t)loop->cz * view_body[2]) >> 14;
+            if (-centre <= reach - 2048) continue;
         }
-        if (any) cl_body_loop(b, (const int16_t (*)[3])m, loop->count, mask);
+        cl_contour_loop(b, &c->point[loop->first], loop->count, view_body, mask);
     }
 }
 /* Feature mask at a camera-space normal: land, rock and dark regions from
@@ -319,33 +369,124 @@ static int cl_body_setup(ClBodyInfo *b, int body) {
     }
     return 1;
 }
-/* Rows of the disc's limb into cl_first/cl_last. */
+/* Rows of the disc's limb into cl_first/cl_last, in pixels as
+   planet_row_pixels rounds them. The silhouette is convex, so the chord
+   between two rows' exact spans lies inside it: planet_row (xfloat, about
+   a millisecond on a 68030) runs only where bisection finds the chord more
+   than three eighths of a pixel off the outline, and the rows between
+   follow the chord. A disc needs a few dozen exact rows, not one per row. */
+#define CL_ROW_SLACK 96 /* Q8 */
+static void cl_row_store(const PlanetView *v, int y, int32_t x0, int32_t x1) {
+    int a = x0 >= 0 ? (x0 + 255) >> 8 : -((-x0) >> 8), z = x1 >= 0 ? x1 >> 8 : -((-x1 + 255) >> 8);
+    if (a < v->proj.left) a = v->proj.left;
+    if (z >= v->proj.right) z = v->proj.right - 1;
+    if (a > z) { cl_first[y] = 1; cl_last[y] = 0; }
+    else { cl_first[y] = (int16_t)a; cl_last[y] = (int16_t)z; }
+}
+static int32_t cl_row_lerp(int32_t a, int32_t b, int t, int n) { return a + (int32_t)((int64_t)(b - a) * t / n); }
+static void cl_rows_between(const PlanetView *v, int ya, int32_t a0, int32_t a1, int yb, int32_t b0, int32_t b1) {
+    int ym = (ya + yb) / 2, y;
+    int32_t m0, m1;
+    if (yb - ya < 2) return;
+    if (!planet_row(v, ym, &m0, &m1)) {
+        /* Not convex after all (degenerate view): every row exactly. */
+        for (y = ya + 1; y < yb; y++) {
+            if (planet_row(v, y, &m0, &m1)) cl_row_store(v, y, m0, m1);
+            else { cl_first[y] = 1; cl_last[y] = 0; }
+        }
+        return;
+    }
+    cl_row_store(v, ym, m0, m1);
+    if (yb - ya <= 32 && labs(m0 - cl_row_lerp(a0, b0, ym - ya, yb - ya)) <= CL_ROW_SLACK &&
+        labs(m1 - cl_row_lerp(a1, b1, ym - ya, yb - ya)) <= CL_ROW_SLACK) {
+        for (y = ya + 1; y < ym; y++) cl_row_store(v, y, cl_row_lerp(a0, m0, y - ya, ym - ya), cl_row_lerp(a1, m1, y - ya, ym - ya));
+        for (y = ym + 1; y < yb; y++) cl_row_store(v, y, cl_row_lerp(m0, b0, y - ym, yb - ym), cl_row_lerp(m1, b1, y - ym, yb - ym));
+        return;
+    }
+    cl_rows_between(v, ya, a0, a1, ym, m0, m1);
+    cl_rows_between(v, ym, m0, m1, yb, b0, b1);
+}
 static void cl_body_rows_of(const PlanetView *v) {
-    int y;
-    for (y = v->top; y < v->bottom; y++) {
-        int a, z;
-        if (planet_row_pixels(v, y, &a, &z)) { cl_first[y] = (int16_t)a; cl_last[y] = (int16_t)z; }
-        else { cl_first[y] = 1; cl_last[y] = 0; }
+    int y, top = v->top, bottom = v->bottom - 1;
+    int32_t t0 = 0, t1 = 0, b0 = 0, b1 = 0;
+    for (y = v->top; y < v->bottom; y++) { cl_first[y] = 1; cl_last[y] = 0; }
+    while (top <= bottom && !planet_row(v, top, &t0, &t1)) top++;
+    while (bottom > top && !planet_row(v, bottom, &b0, &b1)) bottom--;
+    if (top > bottom) return;
+    cl_row_store(v, top, t0, t1);
+    if (bottom == top) return;
+    cl_row_store(v, bottom, b0, b1);
+    cl_rows_between(v, top, t0, t1, bottom, b0, b1);
+}
+/* The halo's thickness in pixels where the disc's edge is on screen: both
+   outlines are convex and the halo's holds the disc's, so its first row
+   above the disc's top (or below its bottom) is a binary search, or, for a
+   disc filling the view's height, its span on the middle row. */
+static int cl_halo_thickness(const ClBodyInfo *b, const PlanetView *halo) {
+    int y, top = -1, bottom = -1, lo, hi;
+    int32_t a, z;
+    for (y = b->view.top; y < b->view.bottom; y++) if (cl_first[y] <= cl_last[y]) { if (top < 0) top = y; bottom = y; }
+    if (top < 0) return 0;
+    /* A whole disc on screen: the angular radii's difference, to a pixel. */
+    if (top > cl.surface.top && bottom < cl.surface.bottom - 1 && b->view.centre_x > cl.surface.left * 256 &&
+        b->view.centre_x < cl.surface.right * 256 && halo->radius_px - b->view.radius_px < 64 * 256)
+        return (halo->radius_px - b->view.radius_px + 128) >> 8;
+    if (top > cl.surface.top) {
+        lo = cl.surface.top; hi = top; /* row hi is in the halo */
+        if (planet_row(halo, lo, &a, &z)) return top - lo;
+        while (hi - lo > 1) { int mid = (lo + hi) / 2; if (planet_row(halo, mid, &a, &z)) hi = mid; else lo = mid; }
+        return top - hi;
+    }
+    if (bottom < cl.surface.bottom - 1) {
+        lo = bottom; hi = cl.surface.bottom - 1; /* row lo is in the halo */
+        if (planet_row(halo, hi, &a, &z)) return hi - bottom;
+        while (hi - lo > 1) { int mid = (lo + hi) / 2; if (planet_row(halo, mid, &a, &z)) lo = mid; else hi = mid; }
+        return lo - bottom;
+    }
+    {
+        int first, last, t = 0;
+        y = (top + bottom) / 2;
+        if (!planet_row_pixels(halo, y, &first, &last)) return 0;
+        if (cl_first[y] > cl.surface.left) t = cl_first[y] - first;
+        if (cl_last[y] < cl.surface.right - 1 && last - cl_last[y] > t) t = last - cl_last[y];
+        return t;
     }
 }
-/* The atmosphere: Frontier's halo bands, here one annulus out to a sphere
-   a few percent larger, in the climate's sky colour. */
+/* The atmosphere: Frontier's halo bands, here a dithered band round the
+   limb in the climate's sky colour. The band is the disc's own rows grown
+   by the halo's thickness in pixels, which planet_view's extents of the
+   larger sphere give once, rather than a second conic per row. */
 static void cl_atmosphere(const ClBodyInfo *b, const Planet *p) {
     PlanetView halo;
     Projection proj = b->view.proj;
     int64_t thick = b->radius / 40, r2, d;
     Vec c = vec(b->c[0], b->c[1], b->c[2]);
-    int y, colour;
+    int y, colour, t, top, bottom;
     if (p->climate == VACUUM || b->view.radius_px < 4 * 256) return;
     if (p->atmosphere * b->q4 * 16 / 16 > thick) thick = (int64_t)p->atmosphere * 16 / b->q4;
     r2 = b->radius + thick;
     d = length(c);
     if (planet_view(&halo, &proj, c, r2, d - r2) != PLANET_DISC) return;
+    t = cl_halo_thickness(b, &halo);
+    if (t < 1) t = 1;
+    if (t > 48) t = 48;
     colour = frame->enhanced ? sky_tint[p->climate].day + 14 : ecs_glow[sky_tint[p->climate].warm][1];
-    for (y = halo.top; y < halo.bottom; y++) {
-        int a, z, x;
+    top = b->view.top - t; bottom = b->view.bottom + t;
+    if (top < cl.surface.top) top = cl.surface.top;
+    if (bottom > cl.surface.bottom) bottom = cl.surface.bottom;
+    for (y = top; y < bottom; y++) {
+        int a = INT32_MAX, z = INT32_MIN, k, x;
         uint8_t *line;
-        if (y < cl.surface.top || y >= cl.surface.bottom || !planet_row_pixels(&halo, y, &a, &z)) continue;
+        /* The rows within t of this one, widened by t. */
+        for (k = y - t; k <= y + t; k++) {
+            if (k < b->view.top || k >= b->view.bottom || cl_first[k] > cl_last[k]) continue;
+            if (cl_first[k] < a) a = cl_first[k];
+            if (cl_last[k] > z) z = cl_last[k];
+        }
+        if (a > z) continue;
+        a -= t; z += t;
+        if (a < cl.surface.left) a = cl.surface.left;
+        if (z >= cl.surface.right) z = cl.surface.right - 1;
         line = frame->pixels + (size_t)y * frame->w;
         for (x = a; x <= z; x++) {
             if (y >= b->view.top && y < b->view.bottom && x >= cl_first[y] && x <= cl_last[y]) { x = cl_last[y]; continue; }
@@ -355,7 +496,7 @@ static void cl_atmosphere(const ClBodyInfo *b, const Planet *p) {
 }
 static void cl_draw_planet(ClBodyInfo *b) {
     const Planet *p = &game->system.planets[b->body];
-    int k, light_axis[3];
+    int k, light_axis[3], segments;
     if (b->view.kind == PLANET_POINT) {
         int x = b->view.centre_x >> 8, y = b->view.centre_y >> 8;
         cl_pixel(&cl.surface, x, y, cl_body_colour(b, CLB_LIGHT * 7));
@@ -367,24 +508,33 @@ static void cl_draw_planet(ClBodyInfo *b) {
     cl_body_begin(&cl_body, b->view.top, b->view.bottom);
     /* Light caps round the sub-solar point. */
     for (k = 0; k < 3; k++) light_axis[k] = b->light[k];
+    /* Circles as round as the disc needs: a segment every few pixels. */
+    segments = (int)(b->view.radius_px >> 8);
+    if (segments < 16) segments = 16;
+    if (segments > 48) segments = 48;
     for (k = 0; k < CL_LIGHT_CAPS; k++) {
         int16_t a[3] = {(int16_t)light_axis[0], (int16_t)light_axis[1], (int16_t)light_axis[2]};
-        cl_body_circle(b, a, cl_light_cos[k], CLB_LIGHT << k, 48);
+        cl_body_circle(b, a, cl_light_cos[k], CLB_LIGHT << k, segments);
     }
     if (p->type == GAS_GIANT) {
         int16_t pole[3] = {b->m[0][2], b->m[1][2], b->m[2][2]};
-        for (k = 0; k < CL_GAS_BANDS; k++) cl_body_circle(b, pole, -14336 + k * 4096, CLB_BAND << k, 48);
+        for (k = 0; k < CL_GAS_BANDS; k++) cl_body_circle(b, pole, -14336 + k * 4096, CLB_BAND << k, segments);
     } else {
         int16_t north[3] = {b->m[0][2], b->m[1][2], b->m[2][2]};
         int16_t south[3] = {(int16_t)-b->m[0][2], (int16_t)-b->m[1][2], (int16_t)-b->m[2][2]};
-        int slot = cl_contour_slot(p);
         if (p->type != ICE) {
-            cl_body_circle(b, north, 14000, CLB_ICE, 32);
-            cl_body_circle(b, south, 14000, CLB_ICE, 32);
+            cl_body_circle(b, north, 14000, CLB_ICE, segments * 2 / 3);
+            cl_body_circle(b, south, 14000, CLB_ICE, segments * 2 / 3);
         }
-        cl_body_contours(b, &cl_contours[slot].coast, CLB_LAND);
-        cl_body_contours(b, &cl_contours[slot].highland, CLB_ROCK);
-        cl_body_contours(b, &cl_contours[slot].dark, CLB_DARK);
+        /* Under six pixels Frontier drew a plain shaded disc: no surface
+           features, and none in the bottom mask, so parity holds. */
+        if (b->view.radius_px < 6 * 256) b->bottom_mask &= ~(unsigned)(CLB_LAND | CLB_ROCK | CLB_DARK);
+        else {
+            int slot = cl_contour_slot(p);
+            cl_body_contours(b, &cl_contours[slot].coast, CLB_LAND);
+            cl_body_contours(b, &cl_contours[slot].highland, CLB_ROCK);
+            cl_body_contours(b, &cl_contours[slot].dark, CLB_DARK);
+        }
     }
     cl_body_draw(&cl_body, &cl.surface, cl_first, cl_last, b->bottom_mask, cl_body_colour, b);
 }
@@ -487,10 +637,13 @@ static int cl_tile_vertex(const int16_t (*bm)[3], Vec cam_fixed4, Vec fixed, ClV
         v->z = ((int32_t)bm[2][0] * x + (int32_t)bm[2][1] * y + (int32_t)bm[2][2] * z) >> 14;
         return 1;
     }
-    if (llabs(ox) > (1LL << 31) || llabs(oy) > (1LL << 31) || llabs(oz) > (1LL << 31)) return 0;
-    v->x = (int32_t)((bm[0][0] * ox + bm[0][1] * oy + bm[0][2] * oz) >> 14);
-    v->y = (int32_t)((bm[1][0] * ox + bm[1][1] * oy + bm[1][2] * oz) >> 14);
-    v->z = (int32_t)((bm[2][0] * ox + bm[2][1] * oy + bm[2][2] * oz) >> 14);
+    if (llabs(ox) >= (1LL << 31) || llabs(oy) >= (1LL << 31) || llabs(oz) >= (1LL << 31)) return 0;
+    {
+        int32_t a = (int32_t)ox, b = (int32_t)oy, c = (int32_t)oz;
+        v->x = (int32_t)(((int64_t)bm[0][0] * a + (int64_t)bm[0][1] * b + (int64_t)bm[0][2] * c) >> 14);
+        v->y = (int32_t)(((int64_t)bm[1][0] * a + (int64_t)bm[1][1] * b + (int64_t)bm[1][2] * c) >> 14);
+        v->z = (int32_t)(((int64_t)bm[2][0] * a + (int64_t)bm[2][1] * b + (int64_t)bm[2][2] * c) >> 14);
+    }
     return 1;
 }
 static void cl_terrain(void) {

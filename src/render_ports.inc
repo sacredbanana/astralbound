@@ -6,7 +6,22 @@ typedef struct { Vec p; uint8_t color, radius; } PortLight;
 #define PORT_LIGHT_MAX 256
 static PortLight port_lights[PORT_LIGHT_MAX];
 static int port_light_count;
+/* One axis term, axis (Q14) times a metre offset over 16384, truncated as
+   muldiv truncates: with the axis and offset in 16 bits the product fits
+   30, so it is one MULS.W and a shift instead of a general 64-bit scale. */
+static int32_t port_term(int64_t axis, int v) {
+    int32_t p = (int32_t)(int16_t)axis * (int16_t)v;
+    return p >= 0 ? p >> 14 : -((-p) >> 14);
+}
+static int port_small(int64_t v) { return v >= -32767 && v <= 32767; }
 static Vec port_point(const PortFrame *s, int x, int y, int z) {
+    if (port_small(x) && port_small(y) && port_small(z) &&
+        port_small(s->right.x) && port_small(s->right.y) && port_small(s->right.z) &&
+        port_small(s->up.x) && port_small(s->up.y) && port_small(s->up.z) &&
+        port_small(s->front.x) && port_small(s->front.y) && port_small(s->front.z))
+        return vec(s->p.x + port_term(s->right.x, x) + port_term(s->up.x, y) + port_term(s->front.x, z),
+                   s->p.y + port_term(s->right.y, x) + port_term(s->up.y, y) + port_term(s->front.y, z),
+                   s->p.z + port_term(s->right.z, x) + port_term(s->up.z, y) + port_term(s->front.z, z));
     return add(s->p, add(scale(s->right, x, 16384),
                         add(scale(s->up, y, 16384), scale(s->front, z, 16384))));
 }
@@ -17,6 +32,13 @@ static void port_block(const PortFrame *s, int x, int y, int z,
                        int w, int h, int d, int color) {
     Vec v[8];
     int j;
+    /* Classic, as Frontier's model LOD: a block under about 1.5 pixels
+       across is not drawn at all. */
+    if (cl_port_px) {
+        int size = w > h ? w : h;
+        if (d > size) size = d;
+        if (size * 2 * cl_port_px < 384) return;
+    }
     for (j = 0; j < 8; j++)
         v[j] = port_point(s, x + ((j & 1) ? w : -w), y + ((j & 4) ? h : 0),
                           z + ((j & 2) ? d : -d));
@@ -223,12 +245,18 @@ static void port_surface(const Port *port, PortFrame s, uint32_t seed, int detai
     }
 }
 static void port_orbital(const Port *port, PortFrame s, uint32_t seed, int detail, int target) {
-    int j, variant=(int)(seed%3),radius=210+variant*25;
+    int j, variant=(int)(seed%3),radius=210+variant*25, step=1;
     Vec right=s.right,front=s.front;
     s.right=add(scale(right,cosi(port->rotation),16384),scale(front,sini(port->rotation),16384));
     s.front=sub(scale(front,cosi(port->rotation),16384),scale(right,sini(port->rotation),16384));
-    for(j=0;j<16;j++) {
-        int a=j*64,b=(j+1)*64;
+    /* Classic: a ring under 30 pixels across keeps eight segments, under
+       12 four. Modules sit on every fourth segment either way. */
+    if(cl_port_px) {
+        int32_t across=radius*2*cl_port_px>>8;
+        step=across<12 ? 4 : across<30 ? 2 : 1;
+    }
+    for(j=0;j<16;j+=step) {
+        int a=j*64,b=(j+step)*64;
         PortFrame segment=s;
         Vec da=add(scale(s.right,cosi(a),16384),scale(s.front,sini(a),16384));
         Vec db=add(scale(s.right,cosi(b),16384),scale(s.front,sini(b),16384));
@@ -269,8 +297,8 @@ static void port_orbital(const Port *port, PortFrame s, uint32_t seed, int detai
     if(variant==1) {
         /* A second habitation deck gives the relay class a distinct profile.
            Its supports and ring stay outside the central docking bore. */
-        for(j=0;j<16;j++) {
-            int a=j*64,b=(j+1)*64;
+        for(j=0;j<16;j+=step) {
+            int a=j*64,b=(j+step)*64;
             Vec ai=port_point(&s,cosi(a)*(radius-55)/16384,-150,sini(a)*(radius-55)/16384);
             Vec ao=port_point(&s,cosi(a)*(radius+10)/16384,-150,sini(a)*(radius+10)/16384);
             Vec bi=port_point(&s,cosi(b)*(radius-55)/16384,-150,sini(b)*(radius-55)/16384);
@@ -324,6 +352,9 @@ static void port_geometry(int i) {
     s.right=unit(cross(s.up,ref),16384);
     if(!length(s.right)) s.right=unit(cross(s.up,vec(0,16384,0)),16384);
     s.front=cross(s.right,s.up);
+    /* At least 1: zero means Enhanced, which builds every part. */
+    cl_port_px = cl_active ? (int32_t)((int64_t)frame->w / 2 * 256 / (distance > 1 ? distance : 1)) | 1 : 0;
     if(port->surface) port_surface(port,s,seed,graphics.ports==2 && distance<6000);
     else port_orbital(port,s,seed,graphics.ports>0 && distance<(graphics.ports==2 ? 9000 : 3000),i==game->target);
+    cl_port_px = 0;
 }

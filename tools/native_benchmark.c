@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Unlicense; timings belong to this machine/config. */
 #include "astralbound.h"
+#include "performance.h"
+#include "settings.h"
 #include <exec/memory.h>
 #include <devices/timer.h>
 #include <proto/exec.h>
@@ -21,7 +23,7 @@ int main(void) {
     UBYTE *planar = NULL;
     struct EClockVal ec;
     ULONG rate;
-    int i, depth, height, scene;
+    int i, depth, height;
     uint64_t begin, duration;
     uint32_t hash;
     int result = 1;
@@ -42,25 +44,35 @@ int main(void) {
         printf("C2P 320x%d depth %d to Chip: %lu us/frame hash %08lx\n", height, depth,
                (unsigned long)(duration * 1000000 / rate / 16), (unsigned long)hash);
     }
-    g.docked = -1;
-    /* Orbit, low surface flight and 12 km flight, where distant terrain
-       pixels each cover a whole 256 m material tile. */
-    for (scene = 0; scene < 3; scene++) {
-        static const char *names[] = {"orbit", "surface", "high terrain"};
-        static const long long altitude[] = {35000, 220, 12000};
-        g.pos = add(scale(g.system.planets[0].center, FP, 1),
-                    vec(0, (g.system.planets[0].radius + altitude[scene] +
-                            (scene ? 0 : g.system.planets[0].atmosphere)) * FP,
-                        (scene ? -900LL : -60000LL) * FP));
-        g.pitch = scene ? -35 : -70;
-        render_game(&g, &f);
-        begin = timer();
-        for (i = 0; i < 16; i++) render_game(&g, &f);
-        duration = timer() - begin;
-        hash = 2166136261U;
-        for (i = 0; i < f.w * f.h; i++) hash = (hash ^ f.pixels[i]) * 16777619U;
-        printf("%s render: %lu us/frame hash %08lx\n", names[scene],
-               (unsigned long)(duration * 1000000 / rate / 16), (unsigned long)hash);
+    /* Both renderers at the Low preset, on six game scenes that span
+       orbit, terrain, cities, stations, weather and combat. */
+    {
+        static const int scenes[] = {0, 1, 4, 5, 6, 9};
+        Settings settings;
+        int renderer, k;
+        settings_defaults(&settings, 1);
+        settings_preset(&settings, QUALITY_LOW);
+        render_graphics(&settings.gfx);
+        for (renderer = 0; renderer < 2; renderer++) {
+            uint64_t total = 0;
+            render_renderer(renderer);
+            for (k = 0; k < 6; k++) {
+                performance_scene(&g, scenes[k]);
+                render_performance_scene(&g, &f);
+                begin = timer();
+                for (i = 0; i < 2; i++) render_performance_scene(&g, &f);
+                duration = (timer() - begin) / 2;
+                total += duration;
+                hash = 2166136261U;
+                for (i = 0; i < f.w * f.h; i++) hash = (hash ^ f.pixels[i]) * 16777619U;
+                printf("%s %-18s %7lu us/frame (%lu.%02lu fps) hash %08lx\n", renderer_names[renderer],
+                       performance_names[scenes[k]], (unsigned long)(duration * 1000000 / rate),
+                       (unsigned long)(rate * 100 / (duration ? duration : 1) / 100),
+                       (unsigned long)(rate * 100 / (duration ? duration : 1) % 100), (unsigned long)hash);
+                fflush(stdout);
+            }
+            printf("%s total over six scenes: %lu us\n", renderer_names[renderer], (unsigned long)(total * 1000000 / rate));
+        }
     }
     result = 0;
 done:

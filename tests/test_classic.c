@@ -3,6 +3,7 @@
    polygon coverage, Bezier edges, discs and planet body spans with
    features that wrap behind the limb. */
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,6 +60,40 @@ static void polygons(void) {
             }
     }
     printf("PASS even-odd polygons: %d samples of 3000 random polygons exact (%d ties skipped)\n", checked, ties);
+}
+/* The direct filler against the crossing table on random polygons, and on
+   convex ones built round a centre: identical pixels wherever it accepts
+   a polygon, and it accepts every convex one. */
+static uint8_t second[W * H];
+static void convex(void) {
+    ClSpans s;
+    ClSurface f = {pixels, W, 0, 0, W, H}, g = {second, W, 0, 0, W, H};
+    int t, i, accepted = 0, convex_ok = 0;
+    cl_spans_init(&s, rows, H);
+    for (t = 0; t < 6000; t++) {
+        int32_t p[32];
+        int n = 3 + rnd(t & 1 ? 6 : 13);
+        if (t & 1) for (i = 0; i < n; i++) { p[i * 2] = rnd(W * 16 + 400) - 200; p[i * 2 + 1] = rnd(H * 16 + 400) - 200; }
+        else {
+            /* Convex: points at increasing angles round a centre. */
+            int cx = rnd(W * 16), cy = rnd(H * 16), r = 16 + rnd(W * 12), a = rnd(1024);
+            for (i = 0; i < n; i++) {
+                double ang = ((a + i * 1024 / n + rnd(1024 / n / 2 + 1)) & 1023) * 6.283185307179586 / 1024;
+                p[i * 2] = cx + (int32_t)floor(cos(ang) * r);
+                p[i * 2 + 1] = cy + (int32_t)floor(sin(ang) * r);
+            }
+        }
+        memset(pixels, 0, sizeof(pixels)); memset(second, 0, sizeof(second));
+        cl_spans_polygon(&s, p, n);
+        cl_spans_fill(&s, &f, 1);
+        if (!cl_convex_fill(&g, p, n, 1)) { assert(t & 1); continue; }
+        accepted++; convex_ok += !(t & 1);
+        if (memcmp(pixels, second, sizeof(pixels))) {
+            fprintf(stderr, "polygon %d (n %d) differs between fillers\n", t, n);
+            assert(0);
+        }
+    }
+    printf("PASS direct convex filler matches the crossing table on %d polygons (%d convex)\n", accepted, convex_ok);
 }
 static void curves(void) {
     ClSpans s;
@@ -167,6 +202,7 @@ static void body_spans(void) {
 }
 int main(void) {
     polygons();
+    convex();
     curves();
     discs();
     body_spans();

@@ -25,16 +25,24 @@ static struct {
     int16_t m[3][3];        /* world to camera, Q14 */
     Vec cam4;               /* camera position, Q4 metres */
     int cx, cy, focal;
+    int32_t guard_y;        /* vertical guard slope, Q16: G view_h / w */
     ClSurface surface;
 } cl;
+/* The per-frame vertex cache (see cl_triangle_world). */
+#define CL_VERTEX_CACHE 512
+static struct { Vec w; ClV v; int32_t x, y; uint16_t frame; uint8_t ok, outcode; } cl_vertex[CL_VERTEX_CACHE];
+static uint16_t cl_vertex_frame = 1;
 #define CL_NEAR (4 * 16)    /* near plane, Q4: 4 m */
 #define CL_GUARD 3          /* guard band: three half-widths each side */
 static void cl_view(void) {
     int i, j;
+    /* A new camera: every cached vertex transform is stale. */
+    if (!++cl_vertex_frame) { memset(cl_vertex, 0, sizeof(cl_vertex)); cl_vertex_frame = 1; }
     view_rotate(vec(0, 0, 0)); /* make sure the cached view matrix is current */
     for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) cl.m[i][j] = (int16_t)view_matrix.m[i][j];
     cl.cam4 = vec(floor_shift(camera_position.x, 4), floor_shift(camera_position.y, 4), floor_shift(camera_position.z, 4));
     cl.cx = frame->w / 2 + proj_dx; cl.cy = view_h / 2 + proj_dy; cl.focal = frame->w / 2;
+    cl.guard_y = (int32_t)(((int64_t)CL_GUARD * view_h << 16) / (frame->w ? frame->w : 1));
     cl.surface.pixels = frame->pixels; cl.surface.pitch = frame->w;
     cl.surface.left = view_left; cl.surface.top = view_top;
     cl.surface.right = frame->w - view_right_inset; cl.surface.bottom = view_h;
@@ -51,9 +59,11 @@ static int cl_rotate(int64_t ox, int64_t oy, int64_t oz, ClV *v) {
     }
     if (llabs(ox) >= (1LL << 31) || llabs(oy) >= (1LL << 31) || llabs(oz) >= (1LL << 31)) return 0;
     {
-        int64_t x = (cl.m[0][0] * ox + cl.m[0][1] * oy + cl.m[0][2] * oz) >> 14;
-        int64_t y = (cl.m[1][0] * ox + cl.m[1][1] * oy + cl.m[1][2] * oz) >> 14;
-        int64_t z = (cl.m[2][0] * ox + cl.m[2][1] * oy + cl.m[2][2] * oz) >> 14;
+        /* 16 x 32-bit products: widening MULS.L, not 64-bit library calls. */
+        int32_t a = (int32_t)ox, b = (int32_t)oy, c = (int32_t)oz;
+        int64_t x = ((int64_t)cl.m[0][0] * a + (int64_t)cl.m[0][1] * b + (int64_t)cl.m[0][2] * c) >> 14;
+        int64_t y = ((int64_t)cl.m[1][0] * a + (int64_t)cl.m[1][1] * b + (int64_t)cl.m[1][2] * c) >> 14;
+        int64_t z = ((int64_t)cl.m[2][0] * a + (int64_t)cl.m[2][1] * b + (int64_t)cl.m[2][2] * c) >> 14;
         if (llabs(x) >= (1LL << 31) || llabs(y) >= (1LL << 31) || llabs(z) >= (1LL << 31)) return 0;
         v->x = (int32_t)x; v->y = (int32_t)y; v->z = (int32_t)z;
     }
@@ -71,8 +81,8 @@ static int cl_project(const ClV *v, int32_t *px, int32_t *py) {
     int s = 0;
     int64_t x, y;
     if (z < CL_NEAR) return 0;
-    while (z >= (1 << 15)) { z >>= 1; s++; }
-    while (z < (1 << 14)) { z <<= 1; s--; }
+    s = 17 - __builtin_clz((uint32_t)z); /* top bit to bit 14: one BFFFO */
+    z = s >= 0 ? z >> s : z << -s;
     r = (int32_t)(0x40000000 / z);                  /* 2^15..2^16 */
     rf = r * cl.focal;                              /* below 2^26 */
     x = (int64_t)v->x * rf; y = (int64_t)v->y * rf;
@@ -88,9 +98,11 @@ static int cl_project(const ClV *v, int32_t *px, int32_t *py) {
     return 1;
 }
 /* Clip planes: near, then left/right/top/bottom of a guard band three
-   half-widths wide, so projected vertices stay small and edges straight. */
+   half-widths wide, so projected vertices stay small and edges straight.
+   Q4 camera coordinates stay below 2^31, so each test is a 32 x 16-bit
+   product and a compare; only the band's vertical slope needs a shift. */
 static int64_t cl_plane(const ClV *v, int plane) {
-    int64_t z = v->z, hh = (int64_t)CL_GUARD * z * view_h / (frame->w ? frame->w : 1);
+    int64_t z = v->z, hh = ((int64_t)v->z * cl.guard_y) >> 16;
     switch (plane) {
     case 0: return z - CL_NEAR;
     case 1: return CL_GUARD * z + v->x;   /* x >= -G z: G half-widths left */
@@ -99,13 +111,24 @@ static int64_t cl_plane(const ClV *v, int plane) {
     default: return hh + v->y;
     }
 }
-/* Sutherland-Hodgman in camera space. Crossings interpolate from the
+/* The planes a vertex lies outside of, one bit each. */
+static unsigned cl_outcode(const ClV *v) {
+    int64_t z = v->z, g = CL_GUARD * z, hh = ((int64_t)v->z * cl.guard_y) >> 16;
+    return (unsigned)(z < CL_NEAR) | (unsigned)(g + v->x < 0) << 1 | (unsigned)(g - v->x < 0) << 2 |
+           (unsigned)(hh - v->y < 0) << 3 | (unsigned)(hh + v->y < 0) << 4;
+}
+/* Sutherland-Hodgman in camera space, only against the planes some vertex
+   is outside of; most polygons need none. Crossings interpolate from the
    lexicographically first end so polygons sharing an edge agree. */
 static int cl_clip(ClV *poly, int n, ClV *scratch) {
     int plane, i;
+    unsigned outside = 0;
     ClV *in = poly, *out = scratch;
+    for (i = 0; i < n; i++) outside |= cl_outcode(&poly[i]);
+    if (!outside) return n;
     for (plane = 0; plane < 5 && n >= 3; plane++) {
         int m = 0, any = 0;
+        if (!(outside >> plane & 1)) continue;
         for (i = 0; i < n; i++) if (cl_plane(&in[i], plane) < 0) { any = 1; break; }
         if (!any) continue;
         for (i = 0; i < n; i++) {
@@ -126,6 +149,9 @@ static int cl_clip(ClV *poly, int n, ClV *scratch) {
         }
         n = m;
         { ClV *t = in; in = out; out = t; }
+        /* Later planes see the clipped vertices. */
+        outside = 0;
+        for (i = 0; i < n; i++) outside |= cl_outcode(&in[i]);
     }
     if (in != poly) for (i = 0; i < n; i++) poly[i] = in[i];
     return n;
@@ -173,7 +199,9 @@ static void cl_polygon(ClV *v, int n, int colour, int64_t bias) {
     n = cl_clip(v, n, scratch);
     if (n < 3) return;
     for (i = 0; i < n; i++) zsum += v[i].z;
-    node = cl_node(cl_key(zsum / n - bias), CL_POLY, colour, n * 2);
+    /* The centroid depth: a native 32-bit division when the sum fits. */
+    zsum = zsum > -0x7fffffffLL && zsum < 0x7fffffffLL ? (int32_t)zsum / n : zsum / n;
+    node = cl_node(cl_key(zsum - bias), CL_POLY, colour, n * 2);
     if (!node) return;
     xy = cl_pool + node->data;
     for (i = 0; i < n; i++) if (!cl_project(&v[i], &xy[i * 2], &xy[i * 2 + 1])) { cl_count--; cl_used -= n * 2; return; }
@@ -206,6 +234,7 @@ static void cl_flush(void) {
         if (platform_pump && !(i & 63)) platform_pump();
         switch (n->kind) {
         case CL_POLY:
+            if (cl_convex_fill(&cl.surface, d, n->n, n->colour)) break;
             cl_spans_polygon(&cl_spans, d, n->n);
             cl_spans_fill(&cl_spans, &cl.surface, n->colour);
             break;
@@ -230,10 +259,46 @@ static void cl_flush(void) {
    is built. Each is its own node, sorted by centroid. cl_bias pulls a whole
    object forward (buildings over their own ground); cl_emit adds emission
    order, so decals drawn after their wall stay in front of it. */
+/* Shared vertices (a box corner serves four or five triangles) are
+   transformed once a frame, as Frontier transformed each model vertex
+   once: a direct-mapped cache from world point to camera point, outcode
+   and projection. A triangle inside the guard band then goes straight to
+   the draw list with no clipping. */
+typedef struct { ClV v; int32_t x, y; int ok, outcode; } ClVertex;
+static void cl_vertex_get(Vec w, ClVertex *out) {
+    unsigned h = ((uint32_t)w.x * 0x9e3779b1U ^ (uint32_t)w.y * 0x85ebca6bU ^ (uint32_t)w.z * 0xc2b2ae35U) >> 23;
+    if (cl_vertex[h].frame != cl_vertex_frame || cl_vertex[h].w.x != w.x || cl_vertex[h].w.y != w.y || cl_vertex[h].w.z != w.z) {
+        cl_vertex[h].frame = cl_vertex_frame; cl_vertex[h].w = w;
+        cl_vertex[h].ok = (uint8_t)cl_world(w, &cl_vertex[h].v);
+        cl_vertex[h].outcode = cl_vertex[h].ok ? (uint8_t)cl_outcode(&cl_vertex[h].v) : 0;
+        if (cl_vertex[h].ok && !cl_vertex[h].outcode && !cl_project(&cl_vertex[h].v, &cl_vertex[h].x, &cl_vertex[h].y))
+            cl_vertex[h].outcode = 1;
+    }
+    /* Copied out at once: the next vertex may take the same slot. */
+    out->v = cl_vertex[h].v; out->x = cl_vertex[h].x; out->y = cl_vertex[h].y;
+    out->ok = cl_vertex[h].ok; out->outcode = cl_vertex[h].outcode;
+}
 static void cl_triangle_world(Vec a, Vec b, Vec c, int colour) {
     ClV v[16];
-    if (!cl_world(a, &v[0]) || !cl_world(b, &v[1]) || !cl_world(c, &v[2])) return;
+    ClVertex t[3];
+    int i;
+    cl_vertex_get(a, &t[0]); cl_vertex_get(b, &t[1]); cl_vertex_get(c, &t[2]);
+    for (i = 0; i < 3; i++) if (!t[i].ok) return;
+    for (i = 0; i < 3; i++) v[i] = t[i].v;
     if (v[0].z < CL_NEAR && v[1].z < CL_NEAR && v[2].z < CL_NEAR) return;
+    if (!(t[0].outcode | t[1].outcode | t[2].outcode)) {
+        /* Inside the band: cl_polygon's work, already done per vertex. */
+        int64_t zsum = (int64_t)v[0].z + v[1].z + v[2].z;
+        ClNode *node;
+        int32_t *xy;
+        zsum = zsum < 0x7fffffffLL ? (int32_t)zsum / 3 : zsum / 3;
+        node = cl_node(cl_key(zsum - (cl_bias + cl_emit++ * 2)), CL_POLY, colour, 6);
+        if (!node) return;
+        xy = cl_pool + node->data;
+        for (i = 0; i < 3; i++) { xy[i * 2] = t[i].x; xy[i * 2 + 1] = t[i].y; }
+        node->n = 3;
+        return;
+    }
     cl_polygon(v, 3, colour, cl_bias + cl_emit++ * 2);
 }
 static uint32_t cl_isqrt(uint32_t n) {

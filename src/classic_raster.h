@@ -35,6 +35,10 @@ void cl_spans_edge(ClSpans *s, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
 void cl_spans_bezier(ClSpans *s, const int32_t p[4][2]);
 /* A closed polygon of n Q4 points. */
 void cl_spans_polygon(ClSpans *s, const int32_t *xy, int n);
+/* A convex polygon of n (3..16) Q4 points filled directly, exactly as
+   cl_spans_polygon and cl_spans_fill would; 0 (nothing drawn) if the
+   points are not y-monotone, for the general path. */
+int cl_convex_fill(const ClSurface *f, const int32_t *xy, int n, int colour);
 /* Fill the accumulated crossings in one colour and clear the table. */
 void cl_spans_fill(ClSpans *s, const ClSurface *f, int colour);
 /* Remap the covered pixels through a 256-entry table instead (shadows,

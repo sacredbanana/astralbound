@@ -16,7 +16,7 @@ build/renderer-tests: $(CORE) $(HEADERS) tests/test_renderer.c src/astralbound.h
 build/presentation-tests: $(CORE) $(HEADERS) tests/test_presentation.c src/controller.h src/audio.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_presentation.c -o $@
 build/classic-tests: src/classic_raster.c src/classic_raster.h tests/test_classic.c | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/classic_raster.c tests/test_classic.c -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) src/classic_raster.c tests/test_classic.c -o $@ -lm
 build/renderers-tests: $(CORE) $(HEADERS) tests/test_renderers.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_renderers.c -o $@
 build/planet-tests: $(CORE) $(HEADERS) tests/test_planet.c | build

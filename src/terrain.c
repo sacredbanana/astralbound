@@ -83,9 +83,39 @@ int terrain_elevation(const Planet *p, Vec relative) {
 }
 /* Collision follows the renderer's fixed 256 m cube-face triangles. Sampling
    the raw angular noise at a moving position quantizes hills near the pads. */
+/* Lattice corners, memoised. Ports, forests and ground markers sample the
+   same few dozen corners many times a frame, and each costs a dozen noise
+   octaves: a quarter-second a frame on a 68030. The memo is exact: an entry
+   holds the corner's full key and the point computed for it. */
+#define CORNER_CACHE 512
+static struct {
+    uint32_t seed;
+    int32_t radius, x, y;
+    int16_t type, catalog, face, valid;
+    Vec point;
+} corner_cache[CORNER_CACHE];
+static Vec corner_point(const Planet *p, int face, int x, int y) {
+    unsigned slot = (hash32((unsigned)x * 2654435761U ^ (unsigned)y * 40503U ^ (unsigned)face) ^ p->seed) & (CORNER_CACHE - 1);
+    int sign = face & 1 ? -p->radius : p->radius, axis = face / 2, e;
+    Planet fixed;
+    Vec d;
+    if (corner_cache[slot].valid && corner_cache[slot].seed == p->seed && corner_cache[slot].radius == p->radius &&
+        corner_cache[slot].type == (int16_t)p->type && corner_cache[slot].catalog == (int16_t)p->catalog &&
+        corner_cache[slot].face == face && corner_cache[slot].x == x && corner_cache[slot].y == y)
+        return corner_cache[slot].point;
+    /* The body-fixed frame: the same planet at rotation zero. */
+    fixed = *p;
+    set_rotation(&fixed, 0);
+    d = axis == 0 ? vec(sign,x,y) : axis == 1 ? vec(x,sign,y) : vec(x,y,sign);
+    e = terrain_elevation(&fixed, d); if (e < 0) e = 0;
+    corner_cache[slot].seed = p->seed; corner_cache[slot].radius = p->radius;
+    corner_cache[slot].type = (int16_t)p->type; corner_cache[slot].catalog = (int16_t)p->catalog;
+    corner_cache[slot].face = (int16_t)face; corner_cache[slot].x = x; corner_cache[slot].y = y;
+    corner_cache[slot].valid = 1;
+    return corner_cache[slot].point = radial(d, p->radius + e);
+}
 /* relative and the result share one unit: one = 1 for metres, FP for Q8. */
 static int64_t mesh_height(const Planet *p, Vec relative, int64_t one) {
-    Planet fixed = *p;
     Vec q = body_rotate(p, relative, 1), a, b, c, hit;
     int axis = 0, face, i;
     int64_t dominant = llabs(q.x), cell = 256 * one, u, v, u0, v0, du, dv, h;
@@ -99,14 +129,11 @@ static int64_t mesh_height(const Planet *p, Vec relative, int64_t one) {
     u0 = (u >= 0 ? u / cell : (u - cell + 1) / cell) * cell;
     v0 = (v >= 0 ? v / cell : (v - cell + 1) / cell) * cell;
     du = u - u0; dv = v - v0;
-    set_rotation(&fixed, 0);
     for (i = 0; i < 3; i++) {
         int x = (int)(u0 / one) + (i == 2 || (i == 1 && du >= dv) ? 256 : 0);
         int y = (int)(v0 / one) + (i == 2 || (i == 1 && du < dv) ? 256 : 0);
-        int sign = face & 1 ? -p->radius : p->radius, e;
-        Vec d = axis == 0 ? vec(sign,x,y) : axis == 1 ? vec(x,sign,y) : vec(x,y,sign);
-        e = terrain_elevation(&fixed, d); if (e < 0) e = 0;
-        points[i] = scale(radial(d, p->radius + e), one, 1);
+        points[i] = corner_point(p, face, x, y);
+        if (one != 1) points[i] = scale(points[i], one, 1);
     }
     a = points[0]; b = points[1]; c = points[2];
     hit = du >= dv ? add(a,add(scale(sub(b,a),du,cell),scale(sub(c,b),dv,cell))) :
@@ -204,7 +231,18 @@ int terrain_albedo(const Planet *p, Vec fixed_direction, int material) {
     return detail;
 }
 Vec terrain_vertex(const Planet *p, Vec anchor, Vec right, Vec front, int x, int y) {
-    Vec v = add(radial(anchor, p->radius), add(scale(right, x, 16384), scale(front, y, 16384)));
+    /* A port asks for dozens of vertices round one anchor: its point on the
+       datum sphere (two square roots and two scales) is remembered. */
+    static Vec last_anchor, last_base;
+    static int32_t last_radius;
+    static int last_valid;
+    Vec v;
+    if (!last_valid || last_radius != p->radius || last_anchor.x != anchor.x || last_anchor.y != anchor.y ||
+        last_anchor.z != anchor.z) {
+        last_anchor = anchor; last_radius = p->radius; last_valid = 1;
+        last_base = radial(anchor, p->radius);
+    }
+    v = add(last_base, add(scale(right, x, 16384), scale(front, y, 16384)));
     return add(p->center, radial(v, p->radius + terrain_height(p, v)));
 }
 int atmosphere_density(const Planet *p, int64_t altitude) {

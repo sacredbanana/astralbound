@@ -22,6 +22,9 @@
 static int classic_mode, cl_active;
 static int64_t cl_bias;
 static int cl_emit;
+/* Classic level of detail for the shared port generator: screen pixels
+   per metre at the port being built (Q8), 0 when not drawing Classic. */
+static int32_t cl_port_px;
 static void cl_triangle_world(Vec a, Vec b, Vec c, int colour);
 static void cl_ship(int ship, Vec origin, Vec right, Vec up, Vec front, Vec light);
 static void cl_line_world(Vec a, Vec b, int colour, int thick);
@@ -72,6 +75,10 @@ static int fine_camera, near_plane = 8;
    All zero (the full frame) except while an inset is being drawn. */
 static int proj_dx, proj_dy, view_left, view_top, view_right_inset;
 static void (*platform_pump)(void);
+#if defined(__mc68000__)
+/* A longword that may alias bytes and sit on a word boundary (68000 rules). */
+typedef uint32_t __attribute__((__may_alias__, __aligned__(2))) c2p_long;
+#endif
 static uint32_t plane_low[256], plane_high[256];
 static int tables_ready;
 
@@ -3811,7 +3818,18 @@ static void enlarge(const Frame *source, Frame *destination, int height) {
     for(y=0;y<height;y+=factor) {
         uint8_t *out=destination->pixels+(size_t)y*destination->w;
         const uint8_t *in=source->pixels+(size_t)(y/factor)*source->w;
-        for(x=0;x<destination->w;x+=factor) {
+        /* Doubling, the common case: on the big-endian 68k two source
+           pixels a, b become one longword store a a b b. */
+        if(factor==2 && !(destination->w&3) && !((uintptr_t)out&1)) {
+            int n=destination->w/4;
+#if defined(__mc68000__)
+            c2p_long *o=(c2p_long *)out;
+            while(n--) { uint32_t a=in[0], b=in[1]; in+=2; *o++=(a*0x0101u)<<16|b*0x0101u; }
+#else
+            uint8_t *o=out;
+            while(n--) { o[0]=o[1]=in[0]; o[2]=o[3]=in[1]; o+=4; in+=2; }
+#endif
+        } else for(x=0;x<destination->w;x+=factor) {
             uint8_t c=*in++;
             for(k=0;k<factor && x+k<destination->w;k++) out[x+k]=c;
         }
@@ -3842,10 +3860,8 @@ void render_game(const Game *g, Frame *f) {
     } else render_game_full(g,f);
 }
 /* Planes are contiguous and MSB-first, independent of host byte order. */
-void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
+static void c2p_bytes(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
     int y, x, b, p, stride = width / 8, plane = stride * height;
-    if (width <= 0 || (width & 7) || height <= 0 || depth < 1 || depth > 8)
-        return;
     if (!tables_ready)
         plane_tables();
     for (y = 0; y < height; y++) {
@@ -3886,6 +3902,55 @@ void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
                 dst[p * plane + y * stride + x] = (uint8_t)(low >> (8 * p));
             for (p = 4; p < depth; p++)
                 dst[p * plane + y * stride + x] = (uint8_t)(high >> (8 * (p - 4)));
+        }
+    }
+}
+
+/* The merge C2P of 1990s Amiga demos and games: 32 chunky pixels in eight
+   longwords become eight plane longwords through five exchange passes, each
+   swapping one register-index bit with one bit-position bit (shifts 16, 8,
+   4, 2, 1). About 15 cycles a pixel on a 68030, against roughly 170 for
+   per-pixel tables. Group r of four pixels loads into register 7 - r; plane
+   p ends in register 4 p1 + 2 p0 + p2. */
+#if defined(__mc68000__)
+#define C2P_LOAD(s) (*(const c2p_long *)(s))
+#define C2P_STORE(d, v) (*(c2p_long *)(d) = (v))
+#else
+#define C2P_LOAD(s) ((uint32_t)(s)[0] << 24 | (uint32_t)(s)[1] << 16 | (uint32_t)(s)[2] << 8 | (s)[3])
+#define C2P_STORE(d, v) ((d)[0] = (uint8_t)((v) >> 24), (d)[1] = (uint8_t)((v) >> 16), \
+                         (d)[2] = (uint8_t)((v) >> 8), (d)[3] = (uint8_t)(v))
+#endif
+#define C2P_MERGE(a, b, mask, shift) \
+    do { uint32_t t = (((a) >> (shift)) ^ (b)) & (mask); (b) ^= t; (a) ^= t << (shift); } while (0)
+void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
+    static const uint8_t slot[8] = {0, 2, 4, 6, 1, 3, 5, 7};
+    int y, x, p, stride = width / 8, plane = stride * height;
+    if (width <= 0 || (width & 7) || height <= 0 || depth < 1 || depth > 8)
+        return;
+    if ((width & 31) || (((uintptr_t)src | (uintptr_t)dst) & 1)) {
+        c2p_bytes(src, dst, width, height, depth);
+        return;
+    }
+    for (y = 0; y < height; y++) {
+        const uint8_t *in = src + (size_t)y * width;
+        uint8_t *out = dst + (size_t)y * stride;
+        if (platform_pump && y % 16 == 0)
+            platform_pump();
+        for (x = 0; x < width; x += 32, in += 32, out += 4) {
+            uint32_t r[8];
+            r[7] = C2P_LOAD(in); r[6] = C2P_LOAD(in + 4); r[5] = C2P_LOAD(in + 8); r[4] = C2P_LOAD(in + 12);
+            r[3] = C2P_LOAD(in + 16); r[2] = C2P_LOAD(in + 20); r[1] = C2P_LOAD(in + 24); r[0] = C2P_LOAD(in + 28);
+            C2P_MERGE(r[0], r[4], 0x0000ffffU, 16); C2P_MERGE(r[1], r[5], 0x0000ffffU, 16);
+            C2P_MERGE(r[2], r[6], 0x0000ffffU, 16); C2P_MERGE(r[3], r[7], 0x0000ffffU, 16);
+            C2P_MERGE(r[0], r[2], 0x00ff00ffU, 8); C2P_MERGE(r[1], r[3], 0x00ff00ffU, 8);
+            C2P_MERGE(r[4], r[6], 0x00ff00ffU, 8); C2P_MERGE(r[5], r[7], 0x00ff00ffU, 8);
+            C2P_MERGE(r[0], r[1], 0x0f0f0f0fU, 4); C2P_MERGE(r[2], r[3], 0x0f0f0f0fU, 4);
+            C2P_MERGE(r[4], r[5], 0x0f0f0f0fU, 4); C2P_MERGE(r[6], r[7], 0x0f0f0f0fU, 4);
+            C2P_MERGE(r[0], r[4], 0x33333333U, 2); C2P_MERGE(r[1], r[5], 0x33333333U, 2);
+            C2P_MERGE(r[2], r[6], 0x33333333U, 2); C2P_MERGE(r[3], r[7], 0x33333333U, 2);
+            C2P_MERGE(r[0], r[2], 0x55555555U, 1); C2P_MERGE(r[1], r[3], 0x55555555U, 1);
+            C2P_MERGE(r[4], r[6], 0x55555555U, 1); C2P_MERGE(r[5], r[7], 0x55555555U, 1);
+            for (p = 0; p < depth; p++) C2P_STORE(out + (size_t)p * plane, r[slot[p]]);
         }
     }
 }

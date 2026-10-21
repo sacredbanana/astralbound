@@ -235,6 +235,21 @@ uint32_t rotation_period(const Planet *p) {
     return p->spin_period ? p->spin_period : p->parent >= 0 ? (uint32_t)p->period : 18000U + hash32(p->seed ^ 0x5350494eU) % 90000U;
 }
 void set_rotation(Planet *p, uint32_t tick) {
+    /* Tick 0, the body-fixed frame that terrain and collision sample per
+       vertex, is angle 0 for every body: two series evaluations, each dozens
+       of 64-bit divisions on a 68k, computed once. */
+    static int32_t zero_sin, zero_cos;
+    static int zero_ready;
+    if (!tick) {
+        if (!zero_ready) {
+            zero_sin = (int32_t)sine_fine(0);
+            zero_cos = (int32_t)sine_fine(256ULL << 30);
+            zero_ready = 1;
+        }
+        p->spin_sin = zero_sin;
+        p->spin_cos = zero_cos;
+        return;
+    }
     uint64_t cycle = (uint64_t)rotation_period(p) * HZ;
     uint64_t time = (uint64_t)tick % cycle;
     /* Split before the angle multiply: long moon days overflow time*2^40. */

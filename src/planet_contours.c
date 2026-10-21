@@ -125,8 +125,22 @@ int planet_contours_build(PlanetContours *c, PlanetField *f, int n, int kind) {
             previous = current; current = next;
         }
         if (c->points - start >= 3) {
-            c->loop[c->loops].first = (uint16_t)start;
-            c->loop[c->loops].count = (uint16_t)(c->points - start);
+            ContourLoop *l = &c->loop[c->loops];
+            int64_t sx = 0, sy = 0, sz = 0;
+            int k, cosr = 16384;
+            Vec centre;
+            for (k = start; k < c->points; k++) { sx += c->point[k].x; sy += c->point[k].y; sz += c->point[k].z; }
+            centre = unit(vec(sx, sy, sz), 16384);
+            if (!centre.x && !centre.y && !centre.z) centre = vec(0, 0, 16384);
+            for (k = start; k < c->points; k++) {
+                int d = (int)((centre.x * c->point[k].x + centre.y * c->point[k].y + centre.z * c->point[k].z) >> 14);
+                if (d < cosr) cosr = d;
+            }
+            l->first = (uint16_t)start;
+            l->count = (uint16_t)(c->points - start);
+            l->cx = (int16_t)centre.x; l->cy = (int16_t)centre.y; l->cz = (int16_t)centre.z;
+            /* Chords between points bulge outwards by under a cell. */
+            l->cosr = (int16_t)(cosr - 256 < -16384 ? -16384 : cosr - 256);
             c->loops++;
         } else c->points = start;
     }
