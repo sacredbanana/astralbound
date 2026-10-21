@@ -265,7 +265,19 @@ int nearest_body(const Game *g, Vec pos) {
     int64_t distance = INT64_MAX;
     for (i = 0; i < g->system.count; i++) {
         const Planet *p = &g->system.planets[i];
-        int64_t d = length(sub(pos, scale(p->center, FP, 1))) / FP - p->radius;
+        Vec v = sub(pos, scale(p->center, FP, 1));
+        int64_t d;
+        if (distance != INT64_MAX) {
+            /* The largest component bounds the length from below (less
+               length's truncation, under 2^-26 of it): a body that cannot
+               come strictly closer skips the square root. */
+            int64_t m = v.x < 0 ? -v.x : v.x, k = v.y < 0 ? -v.y : v.y;
+            if (k > m) m = k;
+            k = v.z < 0 ? -v.z : v.z;
+            if (k > m) m = k;
+            if ((m - (m >> 26) - 4) / FP - p->radius >= distance) continue;
+        }
+        d = length(v) / FP - p->radius;
         if (d < distance) {
             distance = d;
             best = i;

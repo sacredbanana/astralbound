@@ -635,13 +635,16 @@ void career_tick(Game *g, Vec old) {
             if (i == MAX_NPC) { spawn(g, -1, RAIDER, 2400); say(g, "PIRATE INTERCEPT"); }
         }
     }
+    {
+    /* The belt's motion is the same for every rock: once a tick. */
+    Vec step = scale(sub(body_velocity(&g->system, 0, g->tick), frame_velocity(g)), 1, HZ);
     for (i = 0; i < ASTEROIDS; i++) {
         Vec p = asteroid_position(g, i);
-        Vec motion = sub(body_velocity(&g->system, 0, g->tick), frame_velocity(g));
-        if (swept_sphere(scale(sub(old, sub(p, scale(motion, 1, HZ))), 1, FP),
+        if (swept_sphere(scale(sub(old, sub(p, step)), 1, FP),
                          scale(sub(g->pos, p), 1, FP), vec(0, 0, 0), 90)) {
             g->hull = 0; say(g, "ASTEROID IMPACT"); break;
         }
+    }
     }
     /* Raiders in escort encounters attack the escorted civilian. */
     for (i = 0; i < MAX_NPC; i++) if (g->npc[i].active && g->npc_role[i] == CIVILIAN &&

@@ -189,6 +189,12 @@ int64_t muldiv(int64_t a, int64_t n, int64_t d) {
     return negative ? -(int64_t)q : (int64_t)q;
 }
 Vec scale(Vec a, int64_t n, int64_t d) {
+    /* Unit changes between metres and Q8, the commonest scales: constant
+       operations, identical to muldiv's truncation (no overflow below 2^54). */
+    if (n == 1 && d == FP) return vec(a.x / FP, a.y / FP, a.z / FP);
+    if (n == FP && d == 1 && a.x > -(1LL << 54) && a.x < (1LL << 54) && a.y > -(1LL << 54) && a.y < (1LL << 54) &&
+        a.z > -(1LL << 54) && a.z < (1LL << 54))
+        return vec(a.x * FP, a.y * FP, a.z * FP);
 #ifdef NATIVE_DIVIDE
     /* Local geometry fits 32 bits: three native products and quotients
        instead of three general 64-bit calls, with identical truncation. */
@@ -204,6 +210,20 @@ Vec scale(Vec a, int64_t n, int64_t d) {
 /* Scale before squaring, keeping lengths safe across the supported local frame. */
 int64_t length(Vec a) {
     int shift = 0;
+    uint64_t m = (uint64_t)(a.x < 0 ? -a.x : a.x) | (uint64_t)(a.y < 0 ? -a.y : a.y) | (uint64_t)(a.z < 0 ? -a.z : a.z);
+    /* Halving until every component is at most 10^9 (just under 2^30):
+       one jump to within a halving of the end, as repeated truncating
+       halvings equal one truncating division by the power of two. */
+    if (m >> 30) {
+        int jump = bits(m) - 31;
+        if (jump > 0) {
+            /* Truncating shifts: a variable 64-bit division is a library call. */
+            a.x = a.x >= 0 ? a.x >> jump : -((-a.x) >> jump);
+            a.y = a.y >= 0 ? a.y >> jump : -((-a.y) >> jump);
+            a.z = a.z >= 0 ? a.z >> jump : -((-a.z) >> jump);
+            shift = jump;
+        }
+    }
     while (a.x > 1000000000LL || a.x < -1000000000LL || a.y > 1000000000LL || a.y < -1000000000LL ||
            a.z > 1000000000LL || a.z < -1000000000LL) {
         a.x /= 2;
@@ -288,10 +308,23 @@ void aim_angles(Vec direction, int *yaw, int *pitch) {
     *pitch = best_pitch;
 }
 /* All coordinates for this query are metres. Projection clamps to the segment. */
+static int64_t abs64(int64_t v) { return v < 0 ? -v : v; }
 int swept_sphere(Vec start, Vec end, Vec center, int64_t radius) {
     Vec d = sub(end, start), r = sub(center, start);
-    int64_t l = length(d), t;
+    int64_t l, t;
     Vec n;
+    {
+        /* Broad phase: a centre beyond the segment's box by more than the
+           radius and the test's own rounding (the Q14 direction and the
+           truncated projection err by under (|d| + |r|) / 4096 + 16) is a
+           miss either way, decided here without square roots. */
+        int64_t margin = radius + (abs64(d.x) + abs64(d.y) + abs64(d.z) + abs64(r.x) + abs64(r.y) + abs64(r.z)) / 4096 + 16;
+        if (center.x + margin < (start.x < end.x ? start.x : end.x) || center.x - margin > (start.x > end.x ? start.x : end.x) ||
+            center.y + margin < (start.y < end.y ? start.y : end.y) || center.y - margin > (start.y > end.y ? start.y : end.y) ||
+            center.z + margin < (start.z < end.z ? start.z : end.z) || center.z - margin > (start.z > end.z ? start.z : end.z))
+            return 0;
+    }
+    l = length(d);
     if (!l)
         return length(r) <= radius;
     n = unit(d, 16384);
@@ -334,12 +367,13 @@ Vec guidance(Vec p, Vec v, Vec target, int64_t accel, int64_t maxspeed) {
     return guidance_step(p, v, target, accel, maxspeed, 1);
 }
 Vec avoidance(Vec r, Vec v, int64_t accel, int radius) {
-    int64_t dot, t = 0, closing;
+    int64_t dot, t = 0, closing, range = length(r), miss;
     Vec direction;
-    if (length(r) > 1000000000LL)
+    if (range > 1000000000LL)
         return vec(0, 0, 0);
-    direction = unit(v, 16384);
+    /* Each length once: they are pure, and a 68k square root is dear. */
     closing = length(v);
+    direction = closing ? scale(v, 16384, closing) : vec(0, 0, 0);
     dot = r.x * direction.x + r.y * direction.y + r.z * direction.z;
     Vec closest, side;
     if (closing && dot < 0)
@@ -347,12 +381,12 @@ Vec avoidance(Vec r, Vec v, int64_t accel, int radius) {
     if (t > 12 * HZ)
         t = 12 * HZ;
     closest = add(r, scale(v, t, HZ));
-    closing = length(v);
-    if (length(closest) > radius &&
+    miss = length(closest);
+    if (miss > radius &&
         (uint64_t)closing < isqrt_product(2ULL * (accel ? accel : 1),
-                                        (uint64_t)(length(closest) - radius)))
+                                        (uint64_t)(miss - radius)))
         return vec(0, 0, 0);
-    if (dot >= 0 && length(r) > radius)
+    if (dot >= 0 && range > radius)
         return vec(0, 0, 0); /* Deterministic lateral break for a perfectly head-on approach. */
     side = vec(r.z, 0, -r.x);
     if (length(side) < FP)

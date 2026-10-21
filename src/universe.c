@@ -34,12 +34,41 @@ int galaxy_density(Sector s) {
    coarse at AU scales and linear interpolation gives abrupt velocity changes
    at station-orbit segment boundaries. Range reduction keeps x <= pi/2;
    the thirteenth-order expansion stays within one Q30 unit in practice. */
+#if defined(__mc68020__) || defined(__mc68030__) || defined(__mc68040__)
+/* floor(a b / 2^30 / d) for a, b < 2^32 with the quotient in 32 bits: one
+   MULU.L 32x32->64, a shift and one DIVU.L 64/32, where the C needs two
+   64-bit library calls. Every value in the series is non-negative, so the
+   result is the C's floor division bit for bit. */
+static uint32_t series_step(uint32_t a, uint32_t b, uint32_t d) {
+    uint64_t p = ((uint64_t)a * b) >> 30;
+    uint32_t high = (uint32_t)(p >> 32), low = (uint32_t)p;
+    __asm__("divu.l %2,%0:%1" : "+d"(high), "+d"(low) : "d"(d) : "cc");
+    return low;
+}
+#endif
 static int64_t sine_fine(uint64_t angle) {
     uint64_t phase = angle & ((1024ULL << 30) - 1);
     int quadrant = (int)(phase >> 38);
     int64_t x = (int64_t)(phase & ((256ULL << 30) - 1)), x2, term, sum;
     if (quadrant & 1)
         x = (256LL << 30) - x;
+#if defined(__mc68020__) || defined(__mc68030__) || defined(__mc68040__)
+    {
+        /* x <= 2^38 maps to under 2^31 (pi/2 in Q30); x^2 / 2^30 < 2^32;
+           each term is under x and each quotient below fits 32 bits. */
+        uint32_t r = (uint32_t)(((uint64_t)(uint32_t)(x >> 8) * 1686629713U) >> 30) +
+                     (uint32_t)(((uint64_t)(uint32_t)(x & 255) * 1686629713U) >> 38);
+        uint32_t s2 = (uint32_t)(((uint64_t)r * r) >> 30), t = r;
+        int64_t total = r;
+        t = series_step(t, s2, 6); total -= t;
+        t = series_step(t, s2, 20); total += t;
+        t = series_step(t, s2, 42); total -= t;
+        t = series_step(t, s2, 72); total += t;
+        t = series_step(t, s2, 110); total -= t;
+        t = series_step(t, s2, 156); total += t;
+        return quadrant >= 2 ? -total : total;
+    }
+#endif
     x = (x / 256) * 1686629713LL / (1LL << 30) +
         (x % 256) * 1686629713LL / (256LL << 30); /* pi/2 in Q30 */
     x2 = x * x / (1LL << 30);
@@ -254,7 +283,18 @@ void set_rotation(Planet *p, uint32_t tick) {
     uint64_t time = (uint64_t)tick % cycle;
     /* Split before the angle multiply: long moon days overflow time*2^40. */
     uint64_t scaled = time << 30;
-    uint64_t a = ((scaled / cycle) << 10) + ((scaled % cycle) << 10) / cycle;
+    uint64_t a;
+#if defined(__mc68020__) || defined(__mc68030__) || defined(__mc68040__)
+    if (cycle < (1U << 22)) {
+        /* time < cycle < 2^22: one DIVU.L 64/32 gives quotient and
+           remainder of scaled / cycle, and the remainder's 2^10 multiple
+           still fits 32 bits. The same floors as the 64-bit divisions. */
+        uint32_t high = (uint32_t)(scaled >> 32), low = (uint32_t)scaled, d = (uint32_t)cycle;
+        __asm__("divu.l %2,%0:%1" : "+d"(high), "+d"(low) : "d"(d) : "cc");
+        a = ((uint64_t)low << 10) + (high << 10) / d;
+    } else
+#endif
+        a = ((scaled / cycle) << 10) + ((scaled % cycle) << 10) / cycle;
     p->spin_sin = (int32_t)sine_fine(a);
     p->spin_cos = (int32_t)sine_fine(a + (256ULL << 30));
 }
