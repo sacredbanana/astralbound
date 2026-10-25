@@ -10,6 +10,7 @@
 #include "xfloat.h"
 #include "planet_view.h"
 #include "planet_field.h"
+#include "planet_contours.h"
 #include "noise.h"
 typedef long double real;
 static uint32_t rng = 12345;
@@ -221,7 +222,39 @@ static void planet_fields(void) {
     assert(wet_agree * 1000 >= wet * 985 && caps_agree * 1000 >= caps * 995);
     for (i = 0; i < 3; i++) assert(llabs(share[i] / 256 - truth[i]) * 100 <= land * 3);
 }
+/* Extraction preserves the field sign at its lattice vertices. Querying
+   loops must preserve that sign too, across face seams, octants and LODs. */
+static void contour_parity(void) {
+    static PlanetContours contours;
+    static PlanetField field;
+    static const uint32_t seeds[] = {0x53504143, 37};
+    Planet p = {0};
+    int seed, n, kind, face, i, j, checked = 0;
+    p.type = OCEAN; p.radius = 1000000; p.parent = -1;
+    for (seed = 0; seed < 2; seed++) {
+        p.seed = seeds[seed]; planet_field_init(&field, &p);
+        for (n = 16; n <= 32; n += 8) for (kind = 0; kind < 3; kind++) {
+            planet_contours_build(&contours, &field, n, kind);
+            assert(!contours.truncated && contours.loops > 0);
+            for (face = 0; face < 6; face++) for (i = 0; i <= n; i += 4) for (j = 0; j <= n; j += 4) {
+                int axis = face / 2, sign = face & 1 ? -n : n, u = -n + 2 * i, v = -n + 2 * j;
+                Vec d = unit(axis == 0 ? vec(sign, u, v) : axis == 1 ? vec(u, sign, v) : vec(u, v, sign), 65536);
+                ContourPoint q = {(int16_t)(d.x / 4), (int16_t)(d.y / 4), (int16_t)(d.z / 4)};
+                int value = kind == CONTOUR_ALBEDO ? planet_field_region(&field, d) - 2048 :
+                    planet_field_base_height(&field, d) - (kind == CONTOUR_HIGHLAND ? 262 : 0);
+                if (abs(value) < 16) continue; /* Q14 rounding at the boundary */
+                if (planet_contours_positive(&contours, q) != (value >= 0))
+                    fprintf(stderr, "Contour parity seed %d n %d kind %d face %d i %d j %d value %d\n",
+                            seed, n, kind, face, i, j, value);
+                assert(planet_contours_positive(&contours, q) == (value >= 0));
+                checked++;
+            }
+        }
+    }
+    printf("PASS contour parity at %d lattice directions across seams, octants and three resolutions\n", checked);
+}
 int main(void) {
+    contour_parity();
     xfloat_arithmetic();
     planet_culling();
     planet_fields();

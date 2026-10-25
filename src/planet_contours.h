@@ -20,6 +20,7 @@ typedef struct { uint16_t first, count; int16_t cx, cy, cz, cosr; } ContourLoop;
 typedef struct {
     uint32_t seed;
     int resolution, kind, loops, points, truncated;
+    unsigned positive_corners; /* field sign at the eight cube corners */
     ContourLoop loop[CONTOUR_LOOPS];
     ContourPoint point[CONTOUR_POINTS];
 } PlanetContours;
@@ -29,4 +30,8 @@ enum { CONTOUR_COAST, CONTOUR_HIGHLAND, CONTOUR_ALBEDO };
 /* Contour loops at `resolution` cells per cube-face edge (4 to 48). Coasts
    and highlands exist only on ocean worlds. Returns the loop count. */
 int planet_contours_build(PlanetContours *c, PlanetField *f, int resolution, int kind);
+/* Positive side of the extracted loops at a body-fixed Q14 direction.
+   Use this for fill parity: the original field can disagree with the
+   simplified contour close to an edge. */
+int planet_contours_positive(const PlanetContours *c, ContourPoint direction);
 #endif

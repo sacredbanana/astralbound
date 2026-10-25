@@ -71,8 +71,13 @@ int planet_contours_build(PlanetContours *c, PlanetField *f, int n, int kind) {
     if (n < 4) n = 4;
     if (n > 48) n = 48;
     c->seed = f->seed; c->resolution = n; c->kind = kind; c->loops = c->points = c->truncated = 0;
+    c->positive_corners = 0;
     if (kind != CONTOUR_ALBEDO && f->type != OCEAN) return 0;
     if (f->type == GAS_GIANT) return 0;
+    for (i = 0; i < 8; i++) {
+        Vec corner = unit(vec(i & 1 ? -n : n, i & 2 ? -n : n, i & 4 ? -n : n), 65536);
+        if (contour_value(f, corner, kind) >= 0) c->positive_corners |= 1U << i;
+    }
     crossings = 0;
     memset(table, 0xff, sizeof(table));
     for (face = 0; face < 6; face++) {
@@ -145,4 +150,42 @@ int planet_contours_build(PlanetContours *c, PlanetField *f, int n, int kind) {
         } else c->points = start;
     }
     return c->loops;
+}
+int planet_contours_positive(const PlanetContours *c, ContourPoint q) {
+    int corner = (q.x < 0) | (q.y < 0 ? 2 : 0) | (q.z < 0 ? 4 : 0);
+    int sx = q.x < 0 ? -1 : 1, sy = q.y < 0 ? -1 : 1, sz = q.z < 0 ? -1 : 1;
+    int32_t rx = sy * q.z - sz * q.y, ry = sz * q.x - sx * q.z, rz = sx * q.y - sy * q.x;
+    int positive = (c->positive_corners >> corner) & 1, l, i;
+    /* Follow the short great-circle arc from a lattice corner in q's
+       octant to q. The corner's field sign is exact at every resolution;
+       crossing any extracted edge changes it. No projection or division
+       is needed, and the arc is always shorter than a quarter circle. */
+    for (l = 0; l < c->loops; l++) {
+        const ContourLoop *loop = &c->loop[l];
+        const ContourPoint *pt = c->point + loop->first;
+        for (i = 0; i < loop->count; i++) {
+            const ContourPoint *a = &pt[i], *b = &pt[i + 1 == loop->count ? 0 : i + 1];
+            int sa = sx * a->x + sy * a->y + sz * a->z;
+            int sb = sx * b->x + sy * b->y + sz * b->z;
+            int32_t da, db, ex, ey, ez;
+            int64_t start, end;
+            if (sa <= 0 && sb <= 0) continue;
+            /* Q14 normals keep these three-product sums within int32. */
+            da = rx * a->x + ry * a->y + rz * a->z;
+            db = rx * b->x + ry * b->y + rz * b->z;
+            if ((da > 0) == (db > 0)) continue;
+            ex = (int32_t)a->y * b->z - (int32_t)a->z * b->y;
+            ey = (int32_t)a->z * b->x - (int32_t)a->x * b->z;
+            ez = (int32_t)a->x * b->y - (int32_t)a->y * b->x;
+            start = (int64_t)ex * sx + (int64_t)ey * sy + (int64_t)ez * sz;
+            end = (int64_t)ex * q.x + (int64_t)ey * q.y + (int64_t)ez * q.z;
+            if ((start > 0) == (end > 0)) continue;
+            /* Great circles also intersect on the opposite hemisphere.
+               Only the intersection facing our reference corner counts. */
+            if (da < 0) da = -da;
+            if (db < 0) db = -db;
+            if ((int64_t)db * sa + (int64_t)da * sb > 0) positive ^= 1;
+        }
+    }
+    return positive;
 }

@@ -943,6 +943,77 @@ static void night_and_twilight_skies(void) {
     free(f.pixels); render_shutdown();
     puts("PASS stars by night and in vacuum, hidden by day and cloud; composition-tinted sunsets");
 }
+/* An orbital camera must move coast/highland edges locally. Sampling the
+   original noise to seed a simplified contour's parity inverted whole
+   regions whenever the bottom limb passed between the two boundaries. */
+static void classic_orbital_material_motion(void) {
+    static Game g;
+    Frame f = {320, 256, 1, NULL, {0}};
+    Settings s;
+    Graphics saved = graphics;
+    int mode, quality, range, angle;
+    f.pixels = malloc(640 * 480); assert(f.pixels);
+    render_renderer(RENDERER_CLASSIC);
+    for (mode = 0; mode < 3; mode++) for (quality = QUALITY_LOW; quality <= QUALITY_HIGH; quality++)
+        for (range = 0; range < 2; range++) {
+        Planet *p;
+        Vec sun, north, side;
+        int previous[5] = {0};
+        f.w = mode == 2 ? 640 : 320; f.h = mode == 2 ? 480 : mode == 1 ? 256 : 200;
+        f.enhanced = mode != 0;
+        settings_defaults(&s, 0); settings_preset(&s, quality);
+        s.gfx.stars = s.gfx.rings = 0;
+        render_graphics(&s.gfx); assert(render_init(&f));
+        game_init(&g, 0x53504143);
+        g.docked = g.target = -1; g.page = FLIGHT; g.ui_visible = 0;
+        g.body = g.target_body = g.frame_body = 0;
+        g.system.count = 1; g.nports = 0;
+        memset(g.npc, 0, sizeof(g.npc));
+        p = &g.system.planets[0];
+        sun = unit(sub(g.system.star[0].center, p->center), 16384);
+        north = unit(sub(vec(0, 0, 16384), scale(sun, sun.z, 16384)), 16384);
+        side = add(scale(cross(sun, north), cosi(85), 16384), scale(north, sini(85), 16384));
+        for (angle = 0; angle < 1024; angle++) {
+            Vec dir = unit(add(scale(sun, cosi(angle), 16384), scale(side, sini(angle), 16384)), 16384);
+            Vec offset = scale(dir, (int64_t)p->radius * (range ? 22 : 48), 16384 * 16LL), right, up;
+            int i, unused, area = 0, count[5] = {0};
+            g.pos = scale(add(p->center, offset), FP, 1);
+            aim_angles(scale(offset, -1, 1), &g.yaw, &g.pitch);
+            right = vec(cosi(g.yaw), 0, -sini(g.yaw));
+            up = vec(-(int64_t)sini(g.pitch) * sini(g.yaw) / 16384, cosi(g.pitch),
+                     -(int64_t)sini(g.pitch) * cosi(g.yaw) / 16384);
+            aim_angles(vec(right.z, 0, up.z), &g.roll, &unused);
+            render_performance_scene(&g, &f);
+            for (i = 0; i < f.w * f.h; i++) {
+                int c = f.pixels[i], material = 0;
+                if (f.enhanced) {
+                    if (c >= 64 && c < 128) material = (c - 64) / 16 + 1;
+                } else {
+                    if (c >= 8 && c <= 10) material = 1;
+                    if (c >= 16 && c <= 18) material = 3;
+                    if (c >= 25 && c <= 27) material = 2;
+                    if (c >= 28 && c <= 30) material = 4;
+                }
+                if (material) area++;
+                count[material]++;
+            }
+            /* Camera yaw/roll can wrap at the poles; compare visible
+               material areas rather than screen coordinates there. */
+            for (i = 1; i < 5; i++) {
+                int changed = abs(count[i] - previous[i]);
+                if (angle && changed > area / 10)
+                    fprintf(stderr, "Classic material flip mode %d quality %d range %d phase %d material %d: %d of %d pixels\n",
+                            mode, quality, range, angle, i, changed, area);
+                assert(area > 1000 && (!angle || changed <= area / 10));
+                previous[i] = count[i];
+            }
+        }
+        render_shutdown();
+    }
+    render_renderer(RENDERER_ENHANCED); render_graphics(&saved);
+    free(f.pixels);
+    puts("PASS Classic orbital material areas stay stable across 1024 views at two ranges in ECS/AGA/RTG Low/Medium/High");
+}
 /* Scenery lights must obey scene depth, including hull backs and terrain,
    while the station's actual central approach remains visibly open. */
 /* Title sequence frames: letterbox bars stay black outside captions, every
@@ -1276,9 +1347,11 @@ static void curved_ring_depth(void) {
 }
 int main(int argc, char **argv) {
     if(argc>1 && !strcmp(argv[1],"--low-graphics")) { low_city_terrain(); scaled_flight_labels(); return 0; }
+    if(argc>1 && !strcmp(argv[1],"--orbital-materials")) { classic_orbital_material_motion(); return 0; }
     curved_ring_depth();
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;
+    classic_orbital_material_motion();
     classic_intro_sun_occlusion();
     intro_frames();
     persistent_target_markers();

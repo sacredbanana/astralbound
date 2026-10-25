@@ -12,8 +12,8 @@
    that closing path runs up the left limb it crosses the rows to its right,
    so those rows start with the feature's bit toggled (Frontier's
    BODY_TOGGLE_COLOUR). Paths up the right limb cross nothing, because rows
-   end there. The starting mask at the disc's bottom-most limb point is
-   evaluated directly. */
+   end there. Feature parity is anchored inside a drawn span, away from
+   the rounded limb and against the same loops used for the fill. */
 enum {
     CLB_LAND = 1, CLB_ROCK = 2, CLB_ICE = 4, CLB_DARK = 8,
     CLB_LIGHT = 16,  /* five bits, 16..256 */
@@ -52,6 +52,14 @@ static int16_t cl_first[1024], cl_last[1024];
    two most recently drawn worlds. */
 static struct { PlanetContours coast, highland, dark; uint32_t key; unsigned used; } cl_contours[2];
 static unsigned cl_contour_clock;
+/* Circle polygons survive until the body's fill parity has been seeded.
+   The largest set is five lighting caps plus seven gas-giant bands. */
+static struct {
+    int16_t m[64][3], axis[3];
+    int count, cosr;
+    unsigned mask;
+} cl_circles[CL_LIGHT_CAPS + CL_GAS_BANDS];
+static int cl_circle_count;
 static int cl_contour_slot(const Planet *p) {
     uint32_t key = p->seed ^ (uint32_t)p->type * 0x9e3779b9U ^ (uint32_t)p->radius;
     int i, oldest = 0, n = graphics.planets >= 2 ? 32 : graphics.planets ? 24 : 16;
@@ -155,16 +163,22 @@ static void cl_body_loop(const ClBodyInfo *b, const int16_t (*m)[3], int count, 
 /* A small circle on the sphere: axis a (camera space, Q14), angular
    radius given by its cosine; generated as a loop of normals. */
 static void cl_body_circle(const ClBodyInfo *b, const int16_t *a, int cosr, unsigned mask, int segments) {
-    static int16_t m[64][3];
+    int16_t (*m)[3];
     int16_t u[3], w[3];
     int32_t sinr = (int32_t)cl_isqrt((uint32_t)(268435456 - cosr * cosr));
     int i;
+    if (cl_circle_count >= CL_LIGHT_CAPS + CL_GAS_BANDS) return;
+    m = cl_circles[cl_circle_count].m;
     /* u, w: an orthonormal pair perpendicular to the axis. */
     if (a[0] > 8000 || a[0] < -8000) cl_normalise14(-a[1], a[0], 0, u);
     else cl_normalise14(0, -a[2], a[1], u);
     cl_normalise14(((int32_t)a[1] * u[2] - (int32_t)a[2] * u[1]) >> 14, ((int32_t)a[2] * u[0] - (int32_t)a[0] * u[2]) >> 14,
                    ((int32_t)a[0] * u[1] - (int32_t)a[1] * u[0]) >> 14, w);
     if (segments > 64) segments = 64;
+    memcpy(cl_circles[cl_circle_count].axis, a, sizeof(cl_circles[0].axis));
+    cl_circles[cl_circle_count].count = segments;
+    cl_circles[cl_circle_count].cosr = cosr;
+    cl_circles[cl_circle_count++].mask = mask;
     for (i = 0; i < segments; i++) {
         int ang = i * 1024 / segments, k;
         int32_t cs = cosi(ang), sn = sini(ang);
@@ -268,6 +282,77 @@ static unsigned cl_body_mask(const ClBodyInfo *b, const int16_t *m) {
         if (planet_field_region(f, q) < 2048) mask |= CLB_DARK;
     }
     return mask;
+}
+/* Recover the initial feature parity from a pixel well inside a long
+   rendered span. A limb point is a poor anchor: clipping and Q14 rounding
+   can move a contour across it even when its spherical parity is exact. */
+static void cl_body_seed(ClBodyInfo *b) {
+    int y, k, x = 0, row = 0, widest = 0;
+    unsigned crossed = 0, actual = 0;
+    const Planet *p = &game->system.planets[b->body];
+    ContourPoint q;
+    int32_t n[3];
+    int slot;
+    int16_t normal[3];
+    XFloat dot, sq, cc, root, t;
+    int64_t d[3];
+    for (k = 1; k < 8; k++) {
+        int start, end, i;
+        ClBodyRow *r;
+        y = b->view.top + (b->view.bottom - b->view.top) * k / 8;
+        if (cl_first[y] > cl_last[y]) continue;
+        start = cl_first[y]; end = cl_last[y]; r = &cl_body.rows[y];
+        for (i = 0; i <= r->n; i++) {
+            int at = i < r->n ? r->c[i].x : end;
+            if (at > end) at = end;
+            if (at - start > widest) { widest = at - start; row = y; x = (start + at) / 2; }
+            if (at > start) start = at;
+        }
+    }
+    if (!widest) return;
+    d[0] = x - cl.cx; d[1] = cl.cy - row; d[2] = cl.focal;
+    dot = xf_int((int64_t)b->cp[0] * d[0] + (int64_t)b->cp[1] * d[1] + (int64_t)b->cp[2] * d[2]);
+    sq = xf_int(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    cc = xf_int((int64_t)b->cp[0] * b->cp[0] + (int64_t)b->cp[1] * b->cp[1] +
+                (int64_t)b->cp[2] * b->cp[2] - 268435456);
+    if (cc.m <= 0 || dot.m <= 0) return; /* rounded camera on/inside the sphere */
+    root = xf_sqrt(xf_sub(xf_mul(dot, dot), xf_mul(sq, cc)));
+    t = xf_div(cc, xf_add(dot, root));
+    for (k = 0; k < 3; k++)
+        normal[k] = (int16_t)xf_to_fixed(xf_sub(xf_mul(t, xf_int(d[k])), xf_int(b->cp[k])), 0, 32767);
+    for (k = 0; k < 3; k++)
+        n[k] = ((int32_t)b->m[0][k] * normal[0] + (int32_t)b->m[1][k] * normal[1] +
+                (int32_t)b->m[2][k] * normal[2]) >> 14;
+    q.x = (int16_t)n[0]; q.y = (int16_t)n[1]; q.z = (int16_t)n[2];
+    if (p->type != GAS_GIANT) {
+        slot = cl_contour_slot(p);
+        if (p->type == OCEAN) {
+            if (planet_contours_positive(&cl_contours[slot].coast, q)) actual |= CLB_LAND;
+            if (planet_contours_positive(&cl_contours[slot].highland, q)) actual |= CLB_ROCK;
+        }
+        if (!planet_contours_positive(&cl_contours[slot].dark, q)) actual |= CLB_DARK;
+    }
+    for (k = 0; k < cl_circle_count; k++) {
+        int i, small = cl_circles[k].cosr >= 0, inside = small;
+        const int16_t *axis = cl_circles[k].axis;
+        /* Small caps intersect their edge hemispheres; larger caps are
+           the complement of the small cap round the opposite pole. */
+        for (i = 0; i < cl_circles[k].count; i++) {
+            const int16_t *a = cl_circles[k].m[i], *z = cl_circles[k].m[(i + 1) % cl_circles[k].count];
+            int32_t ex = (int32_t)a[1] * z[2] - (int32_t)a[2] * z[1];
+            int32_t ey = (int32_t)a[2] * z[0] - (int32_t)a[0] * z[2];
+            int32_t ez = (int32_t)a[0] * z[1] - (int32_t)a[1] * z[0];
+            int64_t pole = (int64_t)ex * axis[0] + (int64_t)ey * axis[1] + (int64_t)ez * axis[2];
+            int64_t point = (int64_t)ex * normal[0] + (int64_t)ey * normal[1] + (int64_t)ez * normal[2];
+            int same = (pole >= 0) == (point >= 0);
+            if (same != small) { inside = same; break; }
+        }
+        if (inside) actual |= cl_circles[k].mask;
+    }
+    for (y = row + 1; y <= cl_body.height; y++) crossed ^= cl_body.toggle[y];
+    for (k = 0; k < cl_body.rows[row].n && cl_body.rows[row].c[k].x <= x; k++)
+        crossed ^= cl_body.rows[row].c[k].mask;
+    b->bottom_mask = actual ^ crossed;
 }
 static const uint8_t cl_aga_base[] = {80, 64, 64, 96, 112, 96};
 static const uint8_t cl_ecs_base[] = {25, 8, 8, 16, 28, 21};
@@ -506,6 +591,7 @@ static void cl_draw_planet(ClBodyInfo *b) {
     cl_atmosphere(b, p);
     cl_body_extremes(b);
     cl_body_begin(&cl_body, b->view.top, b->view.bottom);
+    cl_circle_count = 0;
     /* Light caps round the sub-solar point. */
     for (k = 0; k < 3; k++) light_axis[k] = b->light[k];
     /* Circles as round as the disc needs: a segment every few pixels. */
@@ -536,6 +622,7 @@ static void cl_draw_planet(ClBodyInfo *b) {
             cl_body_contours(b, &cl_contours[slot].dark, CLB_DARK);
         }
     }
+    if (b->view.radius_px >= 6 * 256) cl_body_seed(b);
     cl_body_draw(&cl_body, &cl.surface, cl_first, cl_last, b->bottom_mask, cl_body_colour, b);
 }
 /* Suns: Frontier's filled circles, with a dithered corona. */
