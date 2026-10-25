@@ -20,6 +20,8 @@
    built, the shared scene code's triangles, hulls, streaks and beams go to
    its painter's draw list instead of the depth-buffered rasteriser. */
 static int classic_mode, cl_active;
+static int bezier_rings = 1;
+void render_bezier(int enabled) { bezier_rings = enabled != 0; }
 static int64_t cl_bias;
 static int cl_emit;
 /* Classic level of detail for the shared port generator: screen pixels
@@ -3970,7 +3972,7 @@ void render_launcher(const Launcher *m, Frame *f) {
     text(8,34,7,buf);
     for(i=0;i<rows;i++) {
         launcher_row(m,i,name,sizeof(name),value,sizeof(value));
-        /* LAUNCHER_ROW_TOP/PITCH: thirteen rows clear the message line. */
+        /* LAUNCHER_ROW_TOP/PITCH: fourteen rows clear the message line. */
         if(i==m->selected) rect(6,LAUNCHER_ROW_TOP-1+i*LAUNCHER_ROW_PITCH,308,LAUNCHER_ROW_PITCH,3);
         text(9,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,i==m->selected ? 15 : 7,name);
         if(value[0]) text(310-(int)strlen(value)*6,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,13,value);

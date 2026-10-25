@@ -70,6 +70,7 @@ static int host_run(int argc, char **argv) {
     f.enhanced=preferences.mode!=VIDEO_ECS;
     render_graphics(&preferences.gfx);
     render_renderer(preferences.renderer);
+    render_bezier(preferences.bezier);
     muted=!preferences.sound; show_intro=preferences.intro;
     memset(&intro,0,sizeof(intro));
     game_init(&g, 0x53504143);
@@ -458,6 +459,7 @@ int main(int argc, char **argv) {
         if(!strcmp(argv[i],"--nointro")) preferences.intro=0;
         if(!strcmp(argv[i],"--classic")) preferences.renderer=RENDERER_CLASSIC;
         if(!strcmp(argv[i],"--enhanced")) preferences.renderer=RENDERER_ENHANCED;
+        if(!strcmp(argv[i],"--no-bezier")) preferences.bezier=0;
         if(!strcmp(argv[i],"--preset") && i+1<argc) {
             int k; i++; for(k=0;k<5;k++) if(!strcasecmp(argv[i],quality_names[k])) settings_preset(&preferences,k);
         }

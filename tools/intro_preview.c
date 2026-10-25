@@ -7,14 +7,17 @@
      intro_preview --stream 25 sound.wav > /dev/null
      intro_preview --stream 25 | ffmpeg -f rawvideo -pixel_format rgb24
          -video_size 320x256 -framerate 25 -i - -i sound.wav intro.mp4
-   --ecs, --ntsc and --rtg select the display layout. */
+   --ecs, --ntsc and --rtg select the display layout.
+   --classic or --enhanced selects the renderer; --preset selects detail. */
 #include "astralbound.h"
+#include "settings.h"
 #include "intro.h"
 #include "audio.h"
 #include "music.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 static Game g;
 static Intro intro;
 static void put_ppm(FILE *o, const Frame *f) {
@@ -40,17 +43,34 @@ static void seek(int tick) {
 }
 int main(int argc, char **argv) {
     Frame f = {320, 256, 1, NULL, {0}};
-    int i = 1;
+    Settings settings;
+    int i = 1, preset = -1;
+    settings_defaults(&settings, 0);
     for (; i < argc && !strncmp(argv[i], "--", 2); i++) {
         if (!strcmp(argv[i], "--ecs")) f.enhanced = 0;
         else if (!strcmp(argv[i], "--ntsc")) f.h = 200;
         else if (!strcmp(argv[i], "--rtg")) { f.w = 640; f.h = 480; }
+        else if (!strcmp(argv[i], "--classic")) settings.renderer = RENDERER_CLASSIC;
+        else if (!strcmp(argv[i], "--enhanced")) settings.renderer = RENDERER_ENHANCED;
+        else if (!strcmp(argv[i], "--no-bezier")) settings.bezier = 0;
+        else if (!strcmp(argv[i], "--preset") && i + 1 < argc) {
+            int k;
+            i++;
+            for (k = 0; k < QUALITY_CUSTOM; k++) if (!strcasecmp(argv[i], quality_names[k])) break;
+            if (k == QUALITY_CUSTOM) { fputs("Unknown preset (use LOW, MEDIUM, HIGH or ULTRA)\n", stderr); return 1; }
+            preset = k;
+        }
         else break;
     }
+    /* Keep the historical preview detail unless a preset was requested. */
+    if (preset >= 0) { settings_preset(&settings, preset); render_graphics(&settings.gfx); }
+    render_renderer(settings.renderer);
+    render_bezier(settings.bezier);
     f.pixels = malloc((size_t)f.w * f.h);
     if (!f.pixels || !render_init(&f) || i + 1 >= argc ||
         (strcmp(argv[i], "--stream") && i + 2 >= argc)) {
-        fputs("intro_preview [--ecs|--ntsc|--rtg] --frame SECONDS OUT.ppm | --sheet STEP OUT.ppm |"
+        fputs("intro_preview [--ecs|--ntsc|--rtg] [--classic|--enhanced] [--no-bezier] [--preset NAME]"
+              " --frame SECONDS OUT.ppm | --sheet STEP OUT.ppm |"
               " --stream FPS [OUT.wav]\n", stderr);
         return 1;
     }

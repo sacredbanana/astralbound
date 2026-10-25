@@ -6,7 +6,7 @@ enum { LAUNCH_UP=1001, LAUNCH_DOWN, LAUNCH_LEFT, LAUNCH_RIGHT };
 enum { LAUNCH_NONE, LAUNCH_PLAY, LAUNCH_TEST, LAUNCH_QUIT };
 /* Row geometry of the 320x200 launcher page, shared by drawing and pointer. */
 #define LAUNCHER_ROW_TOP 44
-#define LAUNCHER_ROW_PITCH 10
+#define LAUNCHER_ROW_PITCH 9
 typedef struct {
     Settings settings; PerformanceReport latest, previous;
     int page, selected, group, test_scene, down, available_aga, available_rtg;

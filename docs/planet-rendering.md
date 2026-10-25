@@ -6,9 +6,52 @@ silhouette was a polygon, lighting jumped at every facet edge, coastlines
 followed the facet grid and the poles pinched. The mesh also cost more than
 it showed: 1024 triangles of 64-bit work for a planet four pixels across.
 
-Planets are now drawn analytically. The shared geometry and procedural data
-are in their own modules, so a later Classic renderer for 68030 machines can
-reuse them and draw them its own way.
+Planets are now drawn analytically. Enhanced and Classic share geometry and
+procedural data, with separate rasterisation paths.
+
+## Selecting and previewing the renderers
+
+The launch menu's third row, **RENDERER**, switches between **ENHANCED** and
+**CLASSIC**. Graphics presets, including Ultra, control detail independently
+of that choice. Host runs also accept `--classic` and `--enhanced`.
+
+The next row, **BEZIER RINGS**, toggles Classic's cubic ring curves on or off.
+Off draws polygonal ring boundaries. The option defaults to On, is saved in
+the settings file, and is independent of presets. Enhanced displays
+**CLASSIC ONLY** on that row because it retains its existing ring mesh.
+Host and intro previews accept `--no-bezier` for comparison.
+
+Rebuild the host with `make` after updating the source. `./package.sh`
+rebuilds the Amiga binaries and refreshes the ZIP, LHA and boot ADF; an old
+archive or installed executable will still show the old launch menu.
+
+The intro preview tool supports the same choice, for example:
+
+```
+make build/intro-preview
+./build/intro-preview --classic --preset ultra --frame 148 classic.ppm
+./build/intro-preview --enhanced --preset ultra --frame 148 enhanced.ppm
+```
+
+## Classic implementation and current limits
+
+Classic builds a depth-sorted painter's draw list and fills flat scanline
+spans, without depth-testing those primitives. It uses integer camera
+transforms and reciprocal projection. Shared planetary fields provide
+coastline, highland and albedo contours; lighting caps become span masks.
+Terrain tiles and object geometry use the same world and procedural seeds
+as Enhanced. Both backends are exercised by `tests/test_renderers.c`.
+
+The implemented Bézier primitive is **cubic**, evaluated with fixed-point
+forward differences and a step count chosen from projected extent. Its
+current scene use is Classic's planetary rings. Planet silhouettes use
+analytic sphere outlines; switching to Ultra does not turn them into Béziers.
+Enhanced still uses its existing ring mesh.
+
+Quadratic curves, general error-bounded adaptive subdivision, a shared
+backend-neutral curve emitter, and Bézier cloud/coastline features remain
+unfinished. Classic is implemented, but its target 68030 frame rate still
+needs optimisation; passing renderer tests is not proof of playable speed.
 
 ## Layers
 

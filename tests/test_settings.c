@@ -16,8 +16,8 @@ static void persistence(void) {
 #else
     assert(original.renderer==RENDERER_CLASSIC);  /* plain 68k builds default to Classic */
 #endif
-    settings_defaults(&loaded,0); assert(loaded.renderer==RENDERER_ENHANCED);
-    original.renderer^=1; /* and the choice persists */
+    settings_defaults(&loaded,0); assert(loaded.renderer==RENDERER_ENHANCED && loaded.bezier==1);
+    original.renderer^=1; original.bezier=0; /* both choices persist */
     original.test_scene=11; original.mode=VIDEO_RTG16; original.rtg_size=3; original.intro=original.sound=0;
     for(i=0;i<GRAPHICS_OPTIONS;i++) { graphics_change(&original,i,1); graphics_change(&original,i,1); }
     assert(settings_save(&original,path)); settings_defaults(&loaded,0); assert(settings_load(&loaded,path));
@@ -40,9 +40,21 @@ static void menus(void) {
         launcher_key(&m,LAUNCH_LEFT); assert(m.settings.renderer==r); }
     { char name[32],value[32]; launcher_row(&m,2,name,sizeof(name),value,sizeof(value));
       assert(!strcmp(name,"RENDERER") && !strcmp(value,renderer_names[m.settings.renderer])); }
-    m.selected=5; launcher_key(&m,'\r'); assert(m.page==0); /* Presets gate Custom. */
-    m.selected=4; for(i=0;i<4;i++) launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.preset==QUALITY_CUSTOM);
-    m.selected=5; launcher_key(&m,'\r'); assert(m.page==1);
+    /* Curves are explicit, independent of presets, and scoped to Classic. */
+    m.settings.renderer=RENDERER_CLASSIC; m.selected=3;
+    assert(m.settings.bezier==1); launcher_key(&m,LAUNCH_RIGHT); assert(!m.settings.bezier);
+    settings_preset(&m.settings,QUALITY_ULTRA); assert(!m.settings.bezier);
+    settings_preset(&m.settings,QUALITY_LOW);
+    launcher_pointer(&m,200,LAUNCHER_ROW_TOP+3*LAUNCHER_ROW_PITCH+1,1);
+    assert(m.selected==3 && m.settings.bezier); launcher_pointer(&m,200,0,0);
+    m.settings.renderer=RENDERER_ENHANCED; launcher_key(&m,LAUNCH_RIGHT);
+    assert(m.settings.bezier && m.message[0]);
+    { char name[32],value[32]; launcher_row(&m,3,name,sizeof(name),value,sizeof(value));
+      assert(!strcmp(name,"BEZIER RINGS") && !strcmp(value,"CLASSIC ONLY")); }
+    assert(launcher_rows(&m)==14);
+    m.selected=6; launcher_key(&m,'\r'); assert(m.page==0); /* Presets gate Custom. */
+    m.selected=5; for(i=0;i<4;i++) launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.preset==QUALITY_CUSTOM);
+    m.selected=6; launcher_key(&m,'\r'); assert(m.page==1);
     for(i=0;i<GRAPHICS_OPTIONS;i++) {
         int value=graphics_value(&m.settings.gfx,i);
         m.group=i/6; m.selected=i%6; launcher_key(&m,LAUNCH_RIGHT);
@@ -51,7 +63,7 @@ static void menus(void) {
     launcher_key(&m,27); assert(m.page==0);
     assert(launcher_pointer(&m,200,49,1)==LAUNCH_PLAY);
     assert(launcher_pointer(&m,200,49,1)==0); launcher_pointer(&m,200,49,0);
-    m.selected=6; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
+    m.selected=7; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
     launcher_key(&m,LAUNCH_LEFT); assert(m.test_scene==-1);
     puts("PASS capability filtering, Custom gating, every option and pointer edge activation");
 }

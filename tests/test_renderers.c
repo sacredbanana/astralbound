@@ -133,10 +133,35 @@ static void planet_outlines(void) {
     }
     puts("PASS planet discs agree between renderers at three ranges (Classic adds only its halo)");
 }
+/* The launcher option must change the actual ring rasteriser, while
+   leaving Enhanced unchanged. The scripted 148 s shot frames the rings. */
+static void bezier_option(void) {
+    static uint8_t first[640 * 480];
+    int renderer, mode, enabled;
+    Settings s;
+    for(renderer=0;renderer<2;renderer++) for(mode=0;mode<3;mode++) {
+        Frame f={modes[mode].w,modes[mode].h,modes[mode].enhanced,NULL,{0}};
+        int n=f.w*f.h;
+        settings_defaults(&s,0); settings_preset(&s,QUALITY_ULTRA);
+        render_graphics(&s.gfx); render_renderer(renderer);
+        f.pixels=frame_pixels(); memset(buffer,0xA5,GUARD*2+640*480);
+        assert(render_init(&f));
+        intro_start(&intro,&g,0x53504143); intro_frame(&intro,&g,148*HZ);
+        for(enabled=0;enabled<2;enabled++) {
+            render_bezier(enabled); render_intro(&intro,&g,&f); guards(f.w,f.h);
+            if(!enabled) memcpy(first,f.pixels,(size_t)n);
+            else assert((memcmp(first,f.pixels,(size_t)n)!=0)==(renderer==RENDERER_CLASSIC));
+        }
+        render_shutdown();
+    }
+    render_bezier(1);
+    puts("PASS Bezier ring toggle changes Classic and preserves Enhanced in ECS/AGA/RTG");
+}
 int main(void) {
     buffer = malloc(GUARD * 2 + 640 * 480);
     assert(buffer);
     planet_outlines();
+    bezier_option();
     scenes();
     title_sequence();
     free(buffer);

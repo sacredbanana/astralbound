@@ -46,7 +46,7 @@ void settings_preset(Settings *s, int preset) {
 }
 void settings_defaults(Settings *s, int amiga) {
     memset(s,0,sizeof(*s)); s->mode=amiga ? VIDEO_ECS : VIDEO_AGA;
-    s->compact=amiga; s->intro=1; s->sound=1; s->rtg_size=1;
+    s->compact=amiga; s->intro=1; s->sound=1; s->rtg_size=1; s->bezier=1;
     /* Machines without an FPU get the Classic renderer; the FPU builds
        (020+881, 040, 060) and accelerated hosts default to Enhanced. */
 #ifdef ASTRALBOUND_FPU
@@ -70,6 +70,7 @@ void settings_validate(Settings *s) {
     s->rtg_size=bounded(s->rtg_size,3,1); s->preset=bounded(s->preset,4,0);
     s->intro=bounded(s->intro,1,1); s->sound=bounded(s->sound,1,1); s->test_scene=bounded(s->test_scene,14,0);
     s->renderer=bounded(s->renderer,1,0);
+    s->bezier=bounded(s->bezier,1,1);
     for(i=0;i<GRAPHICS_OPTIONS;i++) *graphics_slot(&s->gfx,i)=bounded(graphics_value(&s->gfx,i),graphics_options[i].maximum,0);
     if(s->preset<QUALITY_CUSTOM) s->gfx=presets[s->preset];
 }
@@ -93,6 +94,7 @@ int settings_load(Settings *s, const char *path) {
         else if(!strcmp(key,"sound")) loaded.sound=(int)value;
         else if(!strcmp(key,"test_scene")) loaded.test_scene=(int)value;
         else if(!strcmp(key,"renderer")) loaded.renderer=(int)value;
+        else if(!strcmp(key,"bezier")) loaded.bezier=(int)value;
         else for(i=0;i<GRAPHICS_OPTIONS;i++) { char name[32]; snprintf(name,sizeof(name),"graphics_%d",i);
             if(!strcmp(key,name)) *graphics_slot(&loaded.gfx,i)=(int)value; }
     }
@@ -106,8 +108,8 @@ int settings_save(const Settings *settings, const char *path) {
     if(snprintf(temporary,sizeof(temporary),"%s.tmp",path)>=(int)sizeof(temporary) ||
        snprintf(backup,sizeof(backup),"%s.bak",path)>=(int)sizeof(backup)) return 0;
     file=fopen(temporary,"w"); if(!file) return 0;
-    fprintf(file,"ASTRALBOUND_SETTINGS 1\nmode %d\ncompact %d\nrtg_size %d\npreset %d\nintro %d\nsound %d\ntest_scene %d\nrenderer %d\n",
-            s.mode,s.compact,s.rtg_size,s.preset,s.intro,s.sound,s.test_scene,s.renderer);
+    fprintf(file,"ASTRALBOUND_SETTINGS 1\nmode %d\ncompact %d\nrtg_size %d\npreset %d\nintro %d\nsound %d\ntest_scene %d\nrenderer %d\nbezier %d\n",
+            s.mode,s.compact,s.rtg_size,s.preset,s.intro,s.sound,s.test_scene,s.renderer,s.bezier);
     for(i=0;i<GRAPHICS_OPTIONS;i++) fprintf(file,"graphics_%d %d\n",i,graphics_value(&s.gfx,i));
     ok=!ferror(file); if(fclose(file)) ok=0;
     if(!ok) { remove(temporary); return 0; }

@@ -610,7 +610,8 @@ static void cl_draw_ring(const ClNode *node) {
             int32_t c[4][2];
             int j;
             for (j = 0; j < 4; j++) { c[j][0] = q[(k * 3 + j) * 2]; c[j][1] = q[(k * 3 + j) * 2 + 1]; }
-            cl_spans_bezier(&cl_spans, (const int32_t (*)[2])c);
+            if (bezier_rings) cl_spans_bezier(&cl_spans, (const int32_t (*)[2])c);
+            else cl_spans_edge(&cl_spans, c[0][0], c[0][1], c[3][0], c[3][1]);
         }
     }
     /* Radial joins close the half annulus. */
