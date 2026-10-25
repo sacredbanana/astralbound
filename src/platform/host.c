@@ -341,6 +341,7 @@ static int host_run(int argc, char **argv) {
             if(testing) performance_animate(&performance,&g);
             else if (intro.running) intro_frame(&intro, &g, due);
             else game_frame(&g, c, due);
+            g.draw_lag = 256 - (int)(accumulator * 256 / freq);
             /* The commander's Game replaced the stage: resynchronise sound
                silently instead of hearing the switch as a jump and a dock. */
             if (staged && !intro.running) {

@@ -390,7 +390,7 @@ parks the ship:
 
 Landed on a planet (open ground or a surface pad, not a station berth), **K**
 (the parking button, which reads **EXIT** on the ground) steps outside; on foot it
-reads **USE** beside a site or **BOARD** beside the hull. On foot, W/S walk forward/back (3 m/s, half pace
+reads **USE** beside a site or **BOARD** beside the hull. On foot, W/S walk forward/back (6 m/s, half pace
 backwards), A/D sidestep, the left/right arrows turn and up/down look (or hold the
 right mouse button and drag). A joystick walks with up/down and turns with
 left/right; hold fire to look with up/down and sidestep with left/right, and tap

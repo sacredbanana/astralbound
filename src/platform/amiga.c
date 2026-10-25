@@ -836,6 +836,7 @@ launch_again:
                 else if (intro.running) {
                     if (!intro_frame(&intro, &g, due)) audio_init(&sound, &g);
                 } else game_frame(&g, c, due);
+                g.draw_lag = 256 - (int)(accumulator * 256 / clock_rate);
             }
         }
         sound_update();

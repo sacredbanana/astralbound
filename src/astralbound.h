@@ -159,7 +159,7 @@ typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
    the ship at WALK_SPEED m/s and use ground sites within SITE_REACH metres. */
 #define DOCK_RANGE 20000
 #define LAND_CEILING 30000
-#define WALK_SPEED 3
+#define WALK_SPEED 6
 #define WALK_RANGE 1500
 #define EYE_HEIGHT 2
 #define SITE_REACH 12
@@ -257,9 +257,13 @@ typedef struct {
     int landing;
     Vec land_anchor;
     /* Transient excursion on foot: body-fixed Q8 feet position, heading from
-       local north toward east and look pitch (table angles), used sites. */
+       local north toward east and look pitch (table angles), used sites. The
+       pose a tick earlier and draw_lag, the Q8 part of a tick the display is
+       behind the simulation, let frames between ticks draw a blended view. */
     int on_foot, walk_yaw, walk_pitch;
     Vec walker;
+    int walk_yaw_prev, walk_pitch_prev, draw_lag;
+    Vec walker_prev;
     uint32_t site_claims[GROUND_CLAIMS];
     int site_claim_next;
     char message[80];
@@ -417,7 +421,7 @@ int64_t walker_ship_distance(const Game *g);
 int board_reach(const Game *g);
 void ground_tick(Game *g, Controls c);
 Vec walker_position(const Game *g);
-void ground_view(const Game *g, Vec *eye, int *yaw, int *pitch, int *roll);
+void ground_view(const Game *g, Vec *eye, Vec axes[3], int *yaw, int *pitch, int *roll);
 int ground_sites(const Game *g, Vec around, GroundSite *out, int max);
 Vec site_position(const Game *g, const GroundSite *s);
 int nearest_site(const Game *g, GroundSite *site, int64_t *metres);

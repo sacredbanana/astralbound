@@ -16,6 +16,9 @@ static int find_port(const Game *g, const char *name) {
     assert(0);
     return -1;
 }
+static int64_t dot_raw(Vec a, Vec b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
 static void fly(Game *g, int seconds) {
     Controls c = {0};
     int i;
@@ -319,17 +322,66 @@ static void on_foot(void) {
         for (i = 0; i < HZ; i++) game_tick(&g, side);
         moved = length(sub(g.walker, before));
         assert(g.walk_yaw == yaw);
-        assert(g.message[0] || (moved > 5 * FP / 2 && moved < 7 * FP / 2));
+        assert(g.message[0] || (moved > WALK_SPEED * FP * 5 / 6 && moved < WALK_SPEED * FP * 7 / 6));
         g.message[0] = 0;
         before = g.walker;
         for (i = 0; i < HZ; i++) game_tick(&g, diagonal);
         moved = length(sub(g.walker, before));
-        assert(g.message[0] || (moved > 3 * FP / 2 && moved < 7 * FP / 2));
+        assert(g.message[0] || (moved > WALK_SPEED * FP / 2 && moved < WALK_SPEED * FP * 7 / 6));
         g.message[0] = 0;
         before = g.walker;
         for (i = 0; i < HZ; i++) game_tick(&g, half);
         moved = length(sub(g.walker, before));
-        assert(g.message[0] || (moved > 5 * FP / 4 && moved < 7 * FP / 4));
+        assert(g.message[0] || (moved > WALK_SPEED * FP * 5 / 12 && moved < WALK_SPEED * FP * 7 / 12));
+    }
+    /* D steps and the right arrow turns toward the screen's right, which is
+       up x forward in the renderer: the mirror of east from north. */
+    {
+        Controls side = {0}, turn = {0};
+        Vec eye, axes[3], after[3], before;
+        int yaw, pitch, roll;
+        g.walk_pitch = 0;
+        g.draw_lag = 0;
+        side.strafe = 1;
+        turn.roll = 1;
+        ground_view(&g, &eye, axes, &yaw, &pitch, &roll);
+        g.message[0] = 0;
+        before = g.walker;
+        game_tick(&g, side);
+        assert(g.message[0] || dot_raw(body_rotate(p, sub(g.walker, before), 0), axes[0]) > 0);
+        game_tick(&g, turn);
+        ground_view(&g, &eye, after, &yaw, &pitch, &roll);
+        assert(dot_raw(after[2], axes[0]) > 0);
+    }
+    /* The on-foot camera basis is orthonormal, agrees with the table angles
+       the sky and scope use, and between ticks blends back draw_lag/256 of
+       the last step. A paused view holds still. */
+    {
+        Controls ahead = {0};
+        Vec now, mid, then, axes[3];
+        int yaw, pitch, roll, a, b;
+        ahead.thrust = 1;
+        g.walk_pitch = -40;
+        g.message[0] = 0;
+        game_tick(&g, ahead);
+        g.draw_lag = 0;
+        ground_view(&g, &now, axes, &yaw, &pitch, &roll);
+        for (a = 0; a < 3; a++) {
+            assert(llabs(length(axes[a]) - 16384) < 64);
+            for (b = a + 1; b < 3; b++) assert(llabs(dot_raw(axes[a], axes[b])) / 16384 < 64);
+        }
+        assert(dot_raw(axes[2], forward(yaw, pitch)) / 16384 > 16300);
+        g.draw_lag = 128;
+        ground_view(&g, &mid, axes, &yaw, &pitch, &roll);
+        g.draw_lag = 256;
+        ground_view(&g, &then, axes, &yaw, &pitch, &roll);
+        assert(g.message[0] || llabs(length(sub(now, then)) - WALK_SPEED * FP / HZ) < WALK_SPEED * FP / HZ / 2);
+        assert(length(sub(add(now, then), scale(mid, 2, 1))) < 4);
+        g.paused = 1;
+        ground_view(&g, &mid, axes, &yaw, &pitch, &roll);
+        assert(mid.x == now.x && mid.y == now.y && mid.z == now.z);
+        g.paused = 0;
+        g.draw_lag = 0;
     }
     /* A pad's left stick walks and sidesteps, the right stick looks, the
        shoulders sidestep, green/Y and yellow/X look and blue/B boards. */
@@ -359,7 +411,7 @@ static void on_foot(void) {
         Vec eye;
         int yaw, pitch, roll;
         g.walk_pitch = 0;
-        ground_view(&g, &eye, &yaw, &pitch, &roll);
+        ground_view(&g, &eye, NULL, &yaw, &pitch, &roll);
         assert(llabs(length(sub(eye, walker_position(&g))) - EYE_HEIGHT * FP) < FP / 4);
     }
     /* Too far to board. */

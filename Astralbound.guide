@@ -253,7 +253,7 @@
 
   Landed, K (EXIT) steps outside. On foot:
 
-  W / S     Walk forward at 3 m/s / back at half pace.
+  W / S     Walk forward at 6 m/s / back at half pace.
   A / D     Sidestep left / right.
   Arrows    Left/right turn; up/down look. RMouse drag also looks.
   E         USE a ground site within 12 m, else BOARD beside the hull.

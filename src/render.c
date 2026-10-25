@@ -211,7 +211,7 @@ static int64_t floor_shift(int64_t v, int s) { return v >= 0 ? v >> s : ~(~v >> 
 /* World-to-camera rotation (yaw, pitch, then roll) folded into one Q14
    matrix. It is rebuilt only when the camera turns, normally once a frame,
    so vertices pay nine multiplies and no sine lookups. */
-static struct { int yaw, pitch, roll, valid; int64_t m[3][3]; } view_matrix;
+static struct { int yaw, pitch, roll, valid; unsigned serial; int64_t m[3][3]; } view_matrix;
 static void view_prepare(void) {
     int64_t sy = sini(camera_yaw), cy = cosi(camera_yaw), sp = sini(camera_pitch),
             cp = cosi(camera_pitch), sr = sini(camera_roll), cr = cosi(camera_roll);
@@ -225,10 +225,21 @@ static void view_prepare(void) {
         view_matrix.m[2][i] = round_div(depth[i], 16384);
     }
     view_matrix.yaw = camera_yaw; view_matrix.pitch = camera_pitch; view_matrix.roll = camera_roll; view_matrix.valid = 1;
+    view_matrix.serial++;
 }
 static void view_current(void) {
     if (!view_matrix.valid || view_matrix.yaw != camera_yaw || view_matrix.pitch != camera_pitch || view_matrix.roll != camera_roll)
         view_prepare();
+}
+/* An exact Q14 right/up/forward basis in place of the table angles, held
+   (valid 2) until the angles change or the next frame begins. */
+static void view_basis(const Vec axes[3]) {
+    int i;
+    for (i = 0; i < 3; i++) {
+        view_matrix.m[i][0] = axes[i].x; view_matrix.m[i][1] = axes[i].y; view_matrix.m[i][2] = axes[i].z;
+    }
+    view_matrix.yaw = camera_yaw; view_matrix.pitch = camera_pitch; view_matrix.roll = camera_roll; view_matrix.valid = 2;
+    view_matrix.serial++;
 }
 /* In the offset's unit. */
 static Vec view_rotate(Vec r) {
@@ -564,25 +575,18 @@ static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u,
 static struct {
     const Planet *planet;
     Vec camera, center;
-    int yaw, pitch, roll;
+    unsigned serial;
     int32_t spin_sin, spin_cos, radius;
     double m[3][3], t[3];
 } ray;
+/* Camera axis i in the world is row i of the view matrix, so rays and
+   polygons share one rotation even when it is an exact on-foot basis. */
 static void fpu_camera_to_world(const double in[3], double out[3]) {
-    double sy = sini(camera_yaw) / 16384.0, cy = cosi(camera_yaw) / 16384.0;
-    double sp = sini(camera_pitch) / 16384.0, cp = cosi(camera_pitch) / 16384.0;
-    double x = in[0], y = in[1], z = in[2], yy, zz;
-    if (camera_roll) {
-        double cr = cosi(camera_roll) / 16384.0, sr = sini(camera_roll) / 16384.0;
-        double rx = x * cr + y * sr;
-        y = y * cr - x * sr;
-        x = rx;
-    }
-    yy = y * cp + z * sp;
-    zz = z * cp - y * sp;
-    out[0] = x * cy + zz * sy;
-    out[1] = yy;
-    out[2] = zz * cy - x * sy;
+    int i;
+    view_current();
+    for (i = 0; i < 3; i++)
+        out[i] = (in[0] * (int)view_matrix.m[0][i] + in[1] * (int)view_matrix.m[1][i] +
+                  in[2] * (int)view_matrix.m[2][i]) / 16384.0;
 }
 static void fpu_body_inverse(const Planet *p, double v[3]) {
     double sn = -p->spin_sin / 1073741824.0, cs = p->spin_cos / 1073741824.0, x;
@@ -605,14 +609,14 @@ static void ray_prepare(const Planet *p) {
     ray.t[2] = fpu_double(offset.z);
     fpu_body_inverse(p, ray.t);
     ray.planet = p; ray.camera = camera_position; ray.center = p->center;
-    ray.yaw = camera_yaw; ray.pitch = camera_pitch; ray.roll = camera_roll;
+    ray.serial = view_matrix.serial;
     ray.spin_sin = p->spin_sin; ray.spin_cos = p->spin_cos; ray.radius = p->radius;
 }
 /* Q4 camera-space point to Q4 body-fixed planet coordinates. */
 static void ray_local(const Planet *p, double x, double y, double z, double q[3]) {
     int i;
-    if (ray.planet != p || ray.yaw != camera_yaw || ray.pitch != camera_pitch ||
-        ray.roll != camera_roll || ray.spin_sin != p->spin_sin || ray.spin_cos != p->spin_cos ||
+    view_current();
+    if (ray.planet != p || ray.serial != view_matrix.serial || ray.spin_sin != p->spin_sin || ray.spin_cos != p->spin_cos ||
         ray.radius != p->radius || ray.camera.x != camera_position.x ||
         ray.camera.y != camera_position.y || ray.camera.z != camera_position.z ||
         ray.center.x != p->center.x || ray.center.y != p->center.y || ray.center.z != p->center.z)
@@ -644,7 +648,8 @@ static void surface_ray_uv(const Planet *p, int x, int y, int64_t depth,
 static struct {
     const Planet *planet;
     Vec camera, center;
-    int yaw, pitch, roll, half;
+    unsigned serial;
+    int half;
     int32_t spin_sin, spin_cos;
     int32_t m[3][3], mx[3], my[3];
     int64_t t[3];
@@ -669,12 +674,12 @@ static void ray_prepare(const Planet *p) {
     }
     ray.t[0] = offset.x; ray.t[1] = offset.y; ray.t[2] = offset.z;
     ray.planet = p; ray.camera = camera_position; ray.center = p->center;
-    ray.yaw = camera_yaw; ray.pitch = camera_pitch; ray.roll = camera_roll;
+    ray.serial = view_matrix.serial;
     ray.spin_sin = p->spin_sin; ray.spin_cos = p->spin_cos;
 }
 static void ray_current(const Planet *p) {
-    if (ray.planet != p || ray.yaw != camera_yaw || ray.pitch != camera_pitch ||
-        ray.roll != camera_roll || ray.spin_sin != p->spin_sin || ray.spin_cos != p->spin_cos ||
+    view_current();
+    if (ray.planet != p || ray.serial != view_matrix.serial || ray.spin_sin != p->spin_sin || ray.spin_cos != p->spin_cos ||
         ray.half != frame->w / 2 || ray.camera.x != camera_position.x ||
         ray.camera.y != camera_position.y || ray.camera.z != camera_position.z ||
         ray.center.x != p->center.x || ray.center.y != p->center.y || ray.center.z != p->center.z)
@@ -3765,6 +3770,7 @@ static void render_game_full(const Game *g, Frame *f) {
     frame = f;
     game = g;
     weather_status = 0;
+    if (view_matrix.valid == 2) view_matrix.valid = 0;
     if (g->page != FLIGHT) {
         view_h=f->h;
         gui();
@@ -3804,7 +3810,9 @@ static void render_game_full(const Game *g, Frame *f) {
         aim_angles(sub(g->pos, camera_position), &camera_yaw, &camera_pitch);
         camera_roll = 0;
     } else if (g->on_foot) {
-        ground_view(g, &camera_position, &camera_yaw, &camera_pitch, &camera_roll);
+        Vec axes[3];
+        ground_view(g, &camera_position, axes, &camera_yaw, &camera_pitch, &camera_roll);
+        view_basis(axes);
         fine_camera = 1; near_plane = 1; camera_unit = 16;
     } else if (g->camera_mode == 2) {
         Vec up = unit(sub(g->pos, scale(g->system.planets[g->body].center, FP, 1)), 16384);

@@ -15,6 +15,10 @@ static int clamp(int x, int lo, int hi) { return x < lo ? lo : x > hi ? hi : x; 
 static int64_t dot(Vec a, Vec b) {
     return (a.x * b.x + a.y * b.y + a.z * b.z) / 16384;
 }
+static Vec cross(Vec a, Vec b) {
+    return vec((a.y * b.z - a.z * b.y) / 16384, (a.z * b.x - a.x * b.z) / 16384,
+               (a.x * b.y - a.y * b.x) / 16384);
+}
 /* Q14 east (the direction of spin about +Z) and north at a Q14 up. */
 static void tangent_frame(Vec up, Vec *east, Vec *north) {
     Vec e = vec(-up.y, up.x, 0);
@@ -77,6 +81,9 @@ int disembark(Game *g) {
     /* Face back toward the hull. */
     g->walk_yaw = i == 4 ? 0 : attitude_angle(-dot(step, east), -dot(step, north));
     g->walk_pitch = 0;
+    g->walker_prev = g->walker;
+    g->walk_yaw_prev = g->walk_yaw;
+    g->walk_pitch_prev = 0;
     g->on_foot = 1;
     g->page = FLIGHT;
     g->warp = g->effective_warp = 1;
@@ -104,16 +111,21 @@ Vec walker_position(const Game *g) {
 }
 /* Arrows (or a second stick) turn and look; W/S walk and A/D sidestep, or a
    stick's analogue deflection sets the pace. Water, cliffs and the suit's
-   range from the ship stop the commander rather than ending the excursion. */
+   range from the ship stop the commander rather than ending the excursion.
+   The camera's screen right is up x heading, the mirror of east from north,
+   so turning or stepping right goes against the bearing. */
 void ground_tick(Game *g, Controls c) {
     const Planet *p = &g->system.planets[g->body];
     Planet still;
     Vec up, east, north, heading, right, move, next;
     int64_t step, rise, pace;
     int ahead, aside;
+    g->walker_prev = g->walker;
+    g->walk_yaw_prev = g->walk_yaw;
+    g->walk_pitch_prev = g->walk_pitch;
     if (g->page != FLIGHT)
         return;
-    g->walk_yaw = (g->walk_yaw + c.axis_roll) & 1023;
+    g->walk_yaw = (g->walk_yaw - c.axis_roll) & 1023;
     g->walk_pitch -= c.axis_pitch;
     if (g->walk_pitch > 200) g->walk_pitch = 200;
     if (g->walk_pitch < -200) g->walk_pitch = -200;
@@ -127,7 +139,7 @@ void ground_tick(Game *g, Controls c) {
     up = unit(g->walker, 16384);
     tangent_frame(up, &east, &north);
     heading = add(scale(north, cosi(g->walk_yaw), 16384), scale(east, sini(g->walk_yaw), 16384));
-    right = sub(scale(east, cosi(g->walk_yaw), 16384), scale(north, sini(g->walk_yaw), 16384));
+    right = sub(scale(north, sini(g->walk_yaw), 16384), scale(east, cosi(g->walk_yaw), 16384));
     move = add(scale(heading, ahead, 256), scale(right, aside, 256));
     /* A diagonal is no faster than a straight walk. */
     pace = length(move);
@@ -155,16 +167,35 @@ void ground_tick(Game *g, Controls c) {
     }
     g->walker = next;
 }
-/* Eye above the feet, looking along the heading with the horizon level. */
-void ground_view(const Game *g, Vec *eye, int *yaw, int *pitch, int *roll) {
-    const Planet *p = &g->system.planets[g->body];
-    Vec up = unit(g->walker, 16384), east, north, look, right, level;
+static Vec walker_look(Vec up, int yaw, int pitch) {
+    Vec east, north, look;
     tangent_frame(up, &east, &north);
-    look = add(scale(north, cosi(g->walk_yaw), 16384), scale(east, sini(g->walk_yaw), 16384));
-    look = add(scale(look, cosi(g->walk_pitch), 16384), scale(up, sini(g->walk_pitch), 16384));
+    look = add(scale(north, cosi(yaw), 16384), scale(east, sini(yaw), 16384));
+    return add(scale(look, cosi(pitch), 16384), scale(up, sini(pitch), 16384));
+}
+/* Eye above the feet, looking along the heading with the horizon level.
+   Table angles step a third of a degree, enough to make the ground shudder
+   at walking height, so axes (when wanted) gives the exact world Q14 right,
+   up and forward camera rows. Between ticks the pose is blended draw_lag of
+   the way back to the previous tick, so a 32 Hz walk moves evenly. */
+void ground_view(const Game *g, Vec *eye, Vec axes[3], int *yaw, int *pitch, int *roll) {
+    const Planet *p = &g->system.planets[g->body];
+    int lag = g->paused || g->ui_quit ? 0 : clamp(g->draw_lag, 0, 256);
+    Vec feet = add(g->walker, scale(sub(g->walker_prev, g->walker), lag, 256));
+    Vec up = unit(feet, 16384), look, side, right, level;
+    look = walker_look(up, g->walk_yaw, g->walk_pitch);
+    if (lag)
+        look = add(look, scale(sub(walker_look(up, g->walk_yaw_prev, g->walk_pitch_prev), look), lag, 256));
+    look = unit(look, 16384);
+    side = unit(cross(up, look), 16384);
+    if (axes) {
+        axes[0] = body_rotate(p, side, 0);
+        axes[1] = body_rotate(p, cross(look, side), 0);
+        axes[2] = body_rotate(p, look, 0);
+    }
     look = body_rotate(p, look, 0);
     up = body_rotate(p, up, 0);
-    *eye = add(walker_position(g), scale(up, EYE_HEIGHT * FP, 16384));
+    *eye = add(add(scale(p->center, FP, 1), body_rotate(p, feet, 0)), scale(up, EYE_HEIGHT * FP, 16384));
     *yaw = g->yaw;
     *pitch = 0;
     aim_angles(look, yaw, pitch);
