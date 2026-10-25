@@ -1157,8 +1157,67 @@ static void scaled_flight_labels(void) {
     free(baseline); free(f.pixels); render_shutdown(); render_graphics(&saved);
     puts("PASS native-size flight and body labels independent of 1x/2x/3x/4x 3D pixel size in ECS/AGA/RTG");
 }
+/* Curved ring boundaries must retain holes, clip to the viewport, and
+   compare the true planar depth against foreground geometry. */
+static void curved_ring_depth(void) {
+    Frame f={320,200,1,NULL,{0}};
+    Planet p={0};
+    int i, pose;
+    f.pixels=malloc(320*200); assert(f.pixels && render_init(&f));
+    frame=&f; view_h=f.h; view_top=view_left=view_right_inset=proj_dx=proj_dy=0;
+    graphics.rings=4; p.radius=1000; p.rings=1;
+    camera_position=vec(0,0,-4000LL*FP); camera_yaw=camera_pitch=camera_roll=0;
+    memset(f.pixels,0,320*200); memset(depth_buffer,0,320*200*sizeof(*depth_buffer));
+    assert(ring_curves(&p));
+    assert(f.pixels[100*320+160]==0); /* central hole */
+    assert(f.pixels[100*320+235]==19);
+    assert(depth_buffer[100*320+235]==1073741824U/4000);
+    /* A foreground surface across the right half must win every test. */
+    for(i=0;i<320*200;i++) {
+        f.pixels[i]=7;
+        depth_buffer[i]=1073741824U/(i%320>=160 ? 2000 : 8000);
+    }
+    assert(ring_curves(&p));
+    assert(f.pixels[100*320+235]==7 && f.pixels[100*320+85]==19);
+    for(i=0;i<320*200;i++) if(i%320>=160) assert(f.pixels[i]==7);
+    /* Rolled/pitched cameras, including the opposite side of the plane:
+       verify every written depth against a double-precision ray/plane hit. */
+    for(pose=0;pose<4;pose++) {
+        int count=0;
+        int64_t height;
+        camera_position=vec(0,0,(pose==2 ? 4000LL : -4000LL)*FP);
+        camera_yaw=pose==2 ? 512 : 0; camera_pitch=pose==1 ? 48 : 0; camera_roll=pose*123;
+        view_left=pose==3 ? 150 : 0; view_top=pose==3 ? 70 : 0;
+        view_right_inset=pose==3 ? 80 : 0; proj_dx=pose==3 ? 23 : 0; proj_dy=pose==3 ? -17 : 0;
+        memset(f.pixels,0,320*200); memset(depth_buffer,0,320*200*sizeof(*depth_buffer));
+        assert(ring_curves(&p)); height=p.center.z-camera_position.z/FP;
+        for(i=0;i<320*200;i++) if(depth_buffer[i]) {
+            int x=i%320,y=i/320;
+            double dot=view_matrix.m[0][2]*(x-160-proj_dx)+view_matrix.m[1][2]*(100+proj_dy-y)+view_matrix.m[2][2]*160;
+            assert(x>=view_left && x<320-view_right_inset && y>=view_top);
+            double expected=1073741824.0*dot/(height*160.0*16384.0);
+            double error=depth_buffer[i]-expected;
+            assert(error>-2 && error<2); count++;
+        }
+        assert(count>1000);
+    }
+    view_left=view_top=view_right_inset=proj_dx=proj_dy=0;
+    /* Near-plane crossing: request the existing clipped mesh, never leave
+       half a curve in the crossing table or partially draw an annulus. */
+    camera_position=vec(0,-1800LL*FP,-100LL*FP);
+    aim_angles(vec(0,1800,100),&camera_yaw,&camera_pitch); camera_roll=0;
+    memset(f.pixels,7,320*200);
+    assert(!ring_curves(&p));
+    for(i=0;i<320*200;i++) assert(f.pixels[i]==7);
+    assert(cl_spans.top==cl_spans.height && !cl_spans.bottom);
+    graphics.rings=0; assert(ring_curves(&p));
+    for(i=0;i<320*200;i++) assert(f.pixels[i]==7);
+    free(f.pixels); render_shutdown();
+    puts("PASS curved ring holes, foreground occlusion, planar depth, rolled views and near-plane fallback");
+}
 int main(int argc, char **argv) {
     if(argc>1 && !strcmp(argv[1],"--low-graphics")) { low_city_terrain(); scaled_flight_labels(); return 0; }
+    curved_ring_depth();
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;
     intro_frames();

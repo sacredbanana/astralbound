@@ -16,6 +16,10 @@
 #include "planet_field.h"
 #include "planet_contours.h"
 #include "classic_raster.h"
+#include "planet_ring.h"
+/* Shared curve boundary crossings; each backend fills them independently. */
+static ClRow cl_rows[1024];
+static ClSpans cl_spans;
 /* Classic renderer hooks (render_classic.inc): while a Classic frame is
    built, the shared scene code's triangles, hulls, streaks and beams go to
    its painter's draw list instead of the depth-buffered rasteriser. */
@@ -1889,6 +1893,7 @@ static void ring_mesh(const Planet *p) {
         }
     }
 }
+#include "render_rings.inc"
 static void stellar_discs(void) {
     int i, j;
     for (i = 0; i < game->system.stars; i++) {
@@ -2516,7 +2521,7 @@ static void world(void) {
     stellar_discs();
     for (b = 0; b < game->system.count; b++) {
         planet_mesh(b);
-        if (game->system.planets[b].rings)
+        if (game->system.planets[b].rings && !bezier_rings)
             ring_mesh(&game->system.planets[b]);
     }
     forests();
@@ -2526,6 +2531,14 @@ static void world(void) {
         const Planet *p = &game->system.planets[b];
         int64_t altitude = length(sub(scale(viewer(), 1, FP), p->center)) - p->radius;
         planet_disc(b, b == game->body && altitude < PATCH_ALTITUDE && p->type != GAS_GIANT);
+    }
+    if (bezier_rings && graphics.rings) {
+        nt = 0;
+        for (b = 0; b < game->system.count; b++) {
+            const Planet *p = &game->system.planets[b];
+            if (p->rings && !ring_curves(p)) ring_mesh(p);
+        }
+        if (nt) draw_triangles(); /* clipped close-up fallback only */
     }
     if(graphics.lights) port_draw_lights();
 }

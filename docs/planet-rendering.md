@@ -15,10 +15,9 @@ The launch menu's third row, **RENDERER**, switches between **ENHANCED** and
 **CLASSIC**. Graphics presets, including Ultra, control detail independently
 of that choice. Host runs also accept `--classic` and `--enhanced`.
 
-The next row, **BEZIER RINGS**, toggles Classic's cubic ring curves on or off.
+The next row, **BEZIER RINGS**, toggles cubic ring curves on or off in both renderers.
 Off draws polygonal ring boundaries. The option defaults to On, is saved in
-the settings file, and is independent of presets. Enhanced displays
-**CLASSIC ONLY** on that row because it retains its existing ring mesh.
+the settings file, and is independent of presets.
 Host and intro previews accept `--no-bezier` for comparison.
 
 Rebuild the host with `make` after updating the source. `./package.sh`
@@ -44,9 +43,16 @@ as Enhanced. Both backends are exercised by `tests/test_renderers.c`.
 
 The implemented Bézier primitive is **cubic**, evaluated with fixed-point
 forward differences and a step count chosen from projected extent. Its
-current scene use is Classic's planetary rings. Planet silhouettes use
+current scene use is planetary rings in both renderers. Planet silhouettes use
 analytic sphere outlines; switching to Ultra does not turn them into Béziers.
-Enhanced still uses its existing ring mesh.
+Enhanced fills the shared curve crossings with its own depth-tested spans.
+The ring plane's inverse depth is affine in screen coordinates, so pixels
+need additions and comparisons, with no divisions in the fill loop. The
+normal orbital path uses no ring triangles. Rings crossing the near plane
+or exceeding the curve guard band use the existing clipped mesh as a safe
+close-up fallback. Classic retains its flat painter spans. Ring controls
+live in `planet_ring.h`, and both paths use the same integer cubic edge
+stepping from `classic_raster.c`.
 
 Quadratic curves, general error-bounded adaptive subdivision, a shared
 backend-neutral curve emitter, and Bézier cloud/coastline features remain

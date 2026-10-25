@@ -17,7 +17,7 @@ void launcher_row(const Launcher *m, int row, char *name, size_t size, char *val
         switch(row) {
         case 1: snprintf(value,value_size,"%s",video_names[m->settings.mode]); break;
         case 2: snprintf(value,value_size,"%s",renderer_names[m->settings.renderer]); break;
-        case 3: snprintf(value,value_size,"%s",m->settings.renderer==RENDERER_CLASSIC ? (m->settings.bezier ? "ON" : "OFF") : "CLASSIC ONLY"); break;
+        case 3: snprintf(value,value_size,"%s",m->settings.bezier ? "ON" : "OFF"); break;
         case 4: snprintf(value,value_size,"%s",m->settings.mode>=VIDEO_RTG ? sizes[m->settings.rtg_size] : m->settings.compact ? "320 X 200" : "NATIVE PAL/NTSC"); break;
         case 5: snprintf(value,value_size,"%s",quality_names[m->settings.preset]); break;
         case 6: snprintf(value,value_size,"%s",m->settings.preset==QUALITY_CUSTOM ? "OPEN" : "SELECT CUSTOM FIRST"); break;
@@ -51,8 +51,7 @@ int launcher_key(Launcher *m, int key) {
     case 1: do { m->settings.mode=(m->settings.mode+4+direction)%4; } while((m->settings.mode==VIDEO_AGA && !m->available_aga) || (m->settings.mode>=VIDEO_RTG && !m->available_rtg)); break;
     case 2: m->settings.renderer^=1; break;
     case 3:
-        if(m->settings.renderer==RENDERER_CLASSIC) m->settings.bezier^=1;
-        else snprintf(m->message,sizeof(m->message),"SELECT CLASSIC TO USE BEZIER RINGS");
+        m->settings.bezier^=1;
         break;
     case 4: if(m->settings.mode>=VIDEO_RTG) m->settings.rtg_size=(m->settings.rtg_size+4+direction)%4; else m->settings.compact^=1; break;
     case 5: settings_preset(&m->settings,(m->settings.preset+5+direction)%5); break;

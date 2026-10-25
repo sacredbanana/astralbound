@@ -40,7 +40,7 @@ static void menus(void) {
         launcher_key(&m,LAUNCH_LEFT); assert(m.settings.renderer==r); }
     { char name[32],value[32]; launcher_row(&m,2,name,sizeof(name),value,sizeof(value));
       assert(!strcmp(name,"RENDERER") && !strcmp(value,renderer_names[m.settings.renderer])); }
-    /* Curves are explicit, independent of presets, and scoped to Classic. */
+    /* Curves are explicit, independent of presets, available in both backends. */
     m.settings.renderer=RENDERER_CLASSIC; m.selected=3;
     assert(m.settings.bezier==1); launcher_key(&m,LAUNCH_RIGHT); assert(!m.settings.bezier);
     settings_preset(&m.settings,QUALITY_ULTRA); assert(!m.settings.bezier);
@@ -48,9 +48,9 @@ static void menus(void) {
     launcher_pointer(&m,200,LAUNCHER_ROW_TOP+3*LAUNCHER_ROW_PITCH+1,1);
     assert(m.selected==3 && m.settings.bezier); launcher_pointer(&m,200,0,0);
     m.settings.renderer=RENDERER_ENHANCED; launcher_key(&m,LAUNCH_RIGHT);
-    assert(m.settings.bezier && m.message[0]);
+    assert(!m.settings.bezier && !m.message[0]);
     { char name[32],value[32]; launcher_row(&m,3,name,sizeof(name),value,sizeof(value));
-      assert(!strcmp(name,"BEZIER RINGS") && !strcmp(value,"CLASSIC ONLY")); }
+      assert(!strcmp(name,"BEZIER RINGS") && !strcmp(value,"OFF")); }
     assert(launcher_rows(&m)==14);
     m.selected=6; launcher_key(&m,'\r'); assert(m.page==0); /* Presets gate Custom. */
     m.selected=5; for(i=0;i<4;i++) launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.preset==QUALITY_CUSTOM);

@@ -174,8 +174,6 @@ static int32_t cl_pool[CL_POOL];
 static uint32_t cl_sort_key[CL_NODES];
 static uint16_t cl_order[CL_NODES * 2];
 static int cl_count, cl_used;
-static ClRow cl_rows[1024];
-static ClSpans cl_spans;
 /* Depth key from a camera-space z (Q4): order-preserving and saturating. */
 static uint32_t cl_key(int64_t z) { return z <= 0 ? 0 : z >= 0xFFFFFF00LL ? 0xFFFFFF00U : (uint32_t)z; }
 static ClNode *cl_node(uint32_t key, int kind, int colour, int words) {

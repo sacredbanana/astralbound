@@ -582,12 +582,9 @@ static void cl_ring_half(const ClBodyInfo *b, const Planet *p, int band, int fro
             int a = r ? start + 512 - k * 128 : start + k * 128, h, sgn = r ? -1 : 1;
             for (h = (k ? -1 : 0); h <= (k < CL_RING_ARCS ? 1 : 0); h++) {
                 /* h = -1: the handle before the point, 0 the point, 1 after. */
-                int32_t s1 = sini(a), c1 = cosi(a), wx = s1 * rad / 16384, wy = c1 * rad / 16384;
+                int32_t wx, wy;
                 ClV v;
-                if (h) {
-                    int32_t hl = rad / 16 * 4345 / 1024 * h * sgn; /* 0.2652 r along the tangent */
-                    wx += c1 * hl / 16384; wy -= s1 * hl / 16384;
-                }
+                planet_ring_control(rad, a, h, sgn, &wx, &wy);
                 /* World ring plane (x, y) into camera space, about the centre. */
                 v.x = b->cp[0] + (int32_t)(((int64_t)cl.m[0][0] * wx + (int64_t)cl.m[0][1] * wy) >> 14);
                 v.y = b->cp[1] + (int32_t)(((int64_t)cl.m[1][0] * wx + (int64_t)cl.m[1][1] * wy) >> 14);

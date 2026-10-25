@@ -7,7 +7,12 @@
 static Game g;
 int main(int argc, char **argv) {
     Frame f={320,200,0,NULL,{0}};
-    Settings s; int preset,scene,i,j,renderer=argc>1 && !strcmp(argv[1],"--classic") ? RENDERER_CLASSIC : RENDERER_ENHANCED;
+    Settings s; int preset,scene,i,j,renderer=RENDERER_ENHANCED,bezier=1;
+    for(i=1;i<argc;i++) {
+        if(!strcmp(argv[i],"--classic")) renderer=RENDERER_CLASSIC;
+        if(!strcmp(argv[i],"--no-bezier")) bezier=0;
+    }
+    render_bezier(bezier);
     f.pixels=malloc(320*200); if(!f.pixels) return 1;
     printf("Host CPU, %s renderer only, ECS 320x200. Excludes C2P, sync, audio and physics.\n", renderer_names[renderer]);
     puts("preset scene ms/frame indexed-hash");
