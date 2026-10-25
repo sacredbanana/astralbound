@@ -95,7 +95,7 @@ const char *mission_orders(const Mission *m) {
 }
 int services_key(Game *g, int k) {
     int missions=g->page==BOARD || g->page==LOG;
-    if(k==SERVICE_DIRECTORY || (k=='s' && g->docked>=0 && g->page!=MAP)) { g->page=SERVICES; g->mission_map_return=0; return 1; }
+    if(k==SERVICE_DIRECTORY || (k=='s' && g->docked>=0 && !g->on_foot && g->page!=MAP)) { g->page=SERVICES; g->mission_map_return=0; return 1; }
     if(g->page==MAP && k==MISSION_RETURN && g->mission_map_return) {
         g->page=g->mission_map_return; g->selection=g->mission_map_selection;
         g->mission_detail=1; g->mission_map_return=0; return 1;

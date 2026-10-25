@@ -78,7 +78,7 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         /* Landed on a surface the hatch opens; outside it reads BOARD. */
         button(v,&n,50,y+17,47,13,'k',foot?"BOARD":"EXIT",
                foot ? walker_ship_distance(g) <= board_reach(g) : !disembark_refusal(g),0);
-        button(v,&n,222,y+17,47,13,'d',park,park_on,park_active);
+        button(v,&n,222,y+17,47,13,foot?'e':'d',park,park_on,park_active);
         button(v,&n,270,y+17,47,13,'r',"LOCK",!foot,0);
         button(v,&n,101,y+2,117,38,UI_SCAN,"",1,g->ui_weapons);
         if (g->ui_weapons) {

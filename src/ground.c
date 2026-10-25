@@ -11,6 +11,7 @@ const char *site_names[SITE_KINDS] = {"MINERAL OUTCROP", "WRECKAGE", "SURVEY BEA
 static void say(Game *g, const char *s) {
     snprintf(g->message, sizeof(g->message), "%s", s);
 }
+static int clamp(int x, int lo, int hi) { return x < lo ? lo : x > hi ? hi : x; }
 static int64_t dot(Vec a, Vec b) {
     return (a.x * b.x + a.y * b.y + a.z * b.z) / 16384;
 }
@@ -80,7 +81,7 @@ int disembark(Game *g) {
     g->page = FLIGHT;
     g->warp = g->effective_warp = 1;
     g->throttle = 0;
-    say(g, "ON FOOT - W/S WALK / K BOARD / D USE");
+    say(g, "ON FOOT - WASD WALK / ARROWS LOOK / E USE / K BOARD");
     return 1;
 }
 int64_t walker_ship_distance(const Game *g) {
@@ -101,34 +102,49 @@ Vec walker_position(const Game *g) {
     const Planet *p = &g->system.planets[g->body];
     return add(scale(p->center, FP, 1), body_rotate(p, g->walker, 0));
 }
-/* Arrows turn and look; W/S walk. Water, cliffs and the suit's range from
-   the ship stop the commander rather than ending the excursion. */
+/* Arrows (or a second stick) turn and look; W/S walk and A/D sidestep, or a
+   stick's analogue deflection sets the pace. Water, cliffs and the suit's
+   range from the ship stop the commander rather than ending the excursion. */
 void ground_tick(Game *g, Controls c) {
     const Planet *p = &g->system.planets[g->body];
     Planet still;
-    Vec up, east, north, heading, next;
-    int64_t step, rise;
+    Vec up, east, north, heading, right, move, next;
+    int64_t step, rise, pace;
+    int ahead, aside;
     if (g->page != FLIGHT)
         return;
     g->walk_yaw = (g->walk_yaw + c.axis_roll) & 1023;
     g->walk_pitch -= c.axis_pitch;
     if (g->walk_pitch > 200) g->walk_pitch = 200;
     if (g->walk_pitch < -200) g->walk_pitch = -200;
-    if (!c.thrust)
+    ahead = c.thrust ? c.thrust * 256 : clamp(c.axis_walk, -256, 256);
+    aside = c.strafe ? c.strafe * 256 : clamp(c.axis_strafe, -256, 256);
+    if (!ahead && !aside)
         return;
+    /* Backing up is half pace. */
+    if (ahead < 0) ahead /= 2;
     still = still_body(p);
     up = unit(g->walker, 16384);
     tangent_frame(up, &east, &north);
     heading = add(scale(north, cosi(g->walk_yaw), 16384), scale(east, sini(g->walk_yaw), 16384));
-    /* Backing up is half pace. */
-    step = (int64_t)WALK_SPEED * FP / HZ * (c.thrust > 0 ? 2 : -1) / 2;
-    next = ground_point(&still, add(g->walker, scale(heading, step, 16384)));
+    right = sub(scale(east, cosi(g->walk_yaw), 16384), scale(north, sini(g->walk_yaw), 16384));
+    move = add(scale(heading, ahead, 256), scale(right, aside, 256));
+    /* A diagonal is no faster than a straight walk. */
+    pace = length(move);
+    if (pace > 16384) {
+        move = unit(move, 16384);
+        pace = 16384;
+    }
+    step = (int64_t)WALK_SPEED * FP / HZ * pace / 16384;
+    if (!step)
+        return;
+    next = ground_point(&still, add(g->walker, scale(move, (int64_t)WALK_SPEED * FP / HZ, 16384)));
     if (!dry(&still, next)) {
         say(g, "WATER AHEAD - TURN BACK");
         return;
     }
     rise = length(next) - length(g->walker);
-    if (rise * 5 > llabs(step) * 6) {
+    if (rise * 5 > step * 6) {
         say(g, "TOO STEEP TO CLIMB");
         return;
     }
@@ -287,4 +303,12 @@ int use_site(Game *g) {
     g->site_claims[g->site_claim_next] = s.id;
     g->site_claim_next = (g->site_claim_next + 1) % GROUND_CLAIMS;
     return 1;
+}
+/* E (or a tap of fire): use a site in reach, else board a ship in reach. */
+void ground_interact(Game *g) {
+    GroundSite s;
+    int64_t metres;
+    if (g->on_foot && !(nearest_site(g, &s, &metres) && metres <= SITE_REACH) && embark(g))
+        return;
+    use_site(g);
 }

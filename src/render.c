@@ -2877,8 +2877,9 @@ static void menus(void) {
                 "[ ] TIME TO 4096X / SPACE PAUSE",          "G MAP / DRAG ROTATE / +/- ZOOM",
                 "S SERVICES / B BOARD / M MARKET",  "J CONTRACT LOG / V FLIGHT OR CAMERA",
                 "F5 SAVE / F9 LOAD / ESC QUIT DIALOG",         "R CONTACT / Z ORBITS / I BODY DATA",
-                "0 EQUIP / 9 CREW / , MISSILE . DECOY", "BACKSLASH ROCK / O MINE N CARGO / / POD"};
-            for (i = 0; i < 12; i++)
+                "0 EQUIP / 9 CREW / , MISSILE . DECOY", "BACKSLASH ROCK / O MINE N CARGO / / POD",
+                "ON FOOT: WASD WALK / ARROWS LOOK / E USE"};
+            for (i = 0; i < 13; i++)
                 text(12, 30 + i * 9, i < 9 ? 15 : 7, help[i]);
         }
         break;
@@ -3714,7 +3715,7 @@ static void foot_hud(void) {
     text(7, 8, 13, game->system.planets[game->body].name);
     text(7, 20, 7, suit_status(&game->system.planets[game->body]));
     if (nearest_site(game, &site, &metres) && metres <= SITE_REACH) {
-        snprintf(s, sizeof(s), "D USE %s", site_names[site.kind]);
+        snprintf(s, sizeof(s), "E USE %s", site_names[site.kind]);
         text(7, 32, 12, s);
     }
 }

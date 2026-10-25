@@ -164,7 +164,7 @@
   P         Toggle autopilot to the selected port.
   T         Cycle port targets.
   Q         Cycle planet/moon approach waypoints.
-  D         DOCK at a port within 20 km, LAND here, or USE a site on foot.
+  D         DOCK at a port within 20 km, or LAND here.
   V         Return to flight; cycle front/rear/external/dorsal/ventral.
   R         Cycle contacts within the 10 km radar sphere.
   Z / I     Open orbital map / system and body data.
@@ -252,9 +252,16 @@
   berth - K (EXIT) steps outside. On foot:
 
   W / S     Walk forward at 3 m/s / back at half pace.
-  Arrows    Left/right turn; up/down look.
-  D         USE a ground site within 12 m.
+  A / D     Sidestep left / right.
+  Arrows    Left/right turn; up/down look. RMouse drag also looks.
+  E         USE a ground site within 12 m, else BOARD beside the hull.
   K         BOARD when back within reach of the hull.
+
+  Joystick  Up/down walk; left/right turn. Hold fire: up/down look,
+            left/right sidestep. Tap fire alone to USE or BOARD.
+  Gamepad   Left stick walks and sidesteps; right stick looks.
+            A (CD32 red) taps as fire; B (blue) boards; shoulders
+            sidestep; Y (green) looks up and X (yellow) looks down.
 
   Water, cliffs steeper than about 50 degrees and the suit's 1.5 km
   range from the ship stop you without ending the excursion. The HUD

@@ -58,6 +58,7 @@ static int host_run(int argc, char **argv) {
     SDL_Joystick *joystick = NULL;
     SDL_GameController *gamepad = NULL;
     Controller pad = {0};
+    FootStick walker = {1, 1};
     controller_calibrate(&pad, 128, 128);
     MouseStick mouse = {0};
     int mouse_right = 0;
@@ -296,9 +297,24 @@ static int host_run(int argc, char **argv) {
                 if (SDL_JoystickNumButtons(joystick)) fire = SDL_JoystickGetButton(joystick, 0);
             }
             c.fire = keys[SDL_SCANCODE_LCTRL] || keys[SDL_SCANCODE_RCTRL];
-            flight_input(&c, &mouse, roll, pitch,
-                         fire || ui_fire(&g, &f));
+            if (g.on_foot) {
+                c.strafe = keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A];
+                /* The pad's d-pad and A work as a walker's stick and fire. */
+                if (gamepad) {
+                    roll = SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) -
+                           SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+                    pitch = SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_DPAD_DOWN) -
+                            SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_DPAD_UP);
+                    fire = SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_A);
+                }
+                flight_input(&c, &mouse, 0, 0, 0);
+                if (foot_stick(&walker, &c, roll, pitch, fire)) game_action(&g, 'e');
+            } else
+                flight_input(&c, &mouse, roll, pitch,
+                             fire || ui_fire(&g, &f));
         }
+        /* Fire already down when the commander steps out is not a tap. */
+        if (!g.on_foot) walker = (FootStick){1, 1};
         if (!testing && !intro.running && !g.ui_quit && gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             unsigned buttons = 0;
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_A)) buttons |= PAD_FIRE;
@@ -310,7 +326,9 @@ static int host_run(int argc, char **argv) {
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_START)) buttons |= PAD_PAUSE;
             controller_apply(&pad, &g, &c, buttons,
                              ((int)SDL_GameControllerGetAxis(gamepad, SDL_CONTROLLER_AXIS_LEFTX) + 32768) / 256,
-                             ((int)SDL_GameControllerGetAxis(gamepad, SDL_CONTROLLER_AXIS_LEFTY) + 32768) / 256, 1);
+                             ((int)SDL_GameControllerGetAxis(gamepad, SDL_CONTROLLER_AXIS_LEFTY) + 32768) / 256, 2,
+                             ((int)SDL_GameControllerGetAxis(gamepad, SDL_CONTROLLER_AXIS_RIGHTX) + 32768) / 256,
+                             ((int)SDL_GameControllerGetAxis(gamepad, SDL_CONTROLLER_AXIS_RIGHTY) + 32768) / 256);
         } else pad.held = 0;
         now = SDL_GetPerformanceCounter();
         accumulator += (now - last) * HZ;

@@ -682,14 +682,12 @@ const char *park_label(const Game *g, int *enabled, int *active) {
     *active = mode == PARK_DOCK && g->autopilot && g->target == port;
     return "DOCK";
 }
-/* D: dock, land, abort either, or (on foot) use the nearest ground site. */
+/* D: dock, land or abort either. On foot D sidesteps; E uses a ground site. */
 static void park(Game *g) {
     int port, mode;
     const char *refusal;
-    if (g->on_foot) {
-        use_site(g);
+    if (g->on_foot)
         return;
-    }
     if (g->landing) {
         g->landing = 0;
         g->assist = 1;
@@ -1585,7 +1583,10 @@ void game_action(Game *g, int k) {
         park(g);
         break;
     case 'e':
-        if (g->on_foot) break;
+        if (g->on_foot) {
+            ground_interact(g);
+            break;
+        }
         if (g->drive_manual || g->drive_active) g->throttle = 0;
         g->drive_manual = 0;
         g->assist = !g->assist;

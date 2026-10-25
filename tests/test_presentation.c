@@ -70,10 +70,10 @@ static void controller_tests(void) {
     assert(analogue_axis(0,0) == 0 && analogue_axis(255,255) == 0);
     controller_calibrate(&p, 100, 150);
     g.docked = -1; g.pos = add(g.pos, vec(0, 18000 * FP, 0)); g.page = FLIGHT;
-    controller_apply(&p, &g, &c, PAD_FIRE | PAD_THRUST, 255, 0, 1);
+    controller_apply(&p, &g, &c, PAD_FIRE | PAD_THRUST, 255, 0, 1, 128, 128);
     assert(c.axis_roll == 256 && c.axis_pitch == -256 && c.fire && c.thrust == 1);
     c = (Controls){0};
-    controller_apply(&p, &g, &c, 0, 100, 255, 1);
+    controller_apply(&p, &g, &c, 0, 100, 255, 1, 128, 128);
     assert(!c.axis_roll && c.axis_pitch == 256);
     game_tick(&g, c);
     assert(g.pitch == 3); /* Pushing down raises the nose. */
@@ -84,14 +84,14 @@ static void controller_tests(void) {
     c = (Controls){0}; c.roll = -1; c.axis_roll = 256;
     game_tick(&g, c);
     assert(g.roll == roll && g.yaw == yaw); /* digital wins */
-    controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0); assert(g.paused);
-    controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0); assert(g.paused);
-    controller_apply(&p, &g, &c, 0, 0, 0, 0);
-    controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0); assert(!g.paused);
+    controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0, 128, 128); assert(g.paused);
+    controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0, 128, 128); assert(g.paused);
+    controller_apply(&p, &g, &c, 0, 0, 0, 0, 128, 128);
+    controller_apply(&p, &g, &c, PAD_PAUSE, 0, 0, 0, 128, 128); assert(!g.paused);
     g.throttle = 4000;
-    controller_apply(&p, &g, &c, PAD_BRAKE, 0, 0, 0); assert(!g.throttle);
+    controller_apply(&p, &g, &c, PAD_BRAKE, 0, 0, 0, 128, 128); assert(!g.throttle);
     g.page = MARKET; c = (Controls){0};
-    controller_apply(&p, &g, &c, PAD_FIRE | PAD_THRUST, 255, 0, 1);
+    controller_apply(&p, &g, &c, PAD_FIRE | PAD_THRUST, 255, 0, 1, 128, 128);
     assert(!c.fire && !c.thrust && !c.axis_roll);
     puts("PASS analogue calibration/rates, digital precedence, button edges and menu isolation");
 }

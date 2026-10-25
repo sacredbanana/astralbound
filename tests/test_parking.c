@@ -2,6 +2,7 @@
 /* Parking without landing gear: DOCK flies in and settles, LAND descends in
    place when the ground is safe, and a landed commander may walk outside. */
 #include "astralbound.h"
+#include "controller.h"
 #include "ui.h"
 #include <assert.h>
 #include <stdio.h>
@@ -242,8 +243,20 @@ static void on_foot(void) {
     assert(g.ports[g.docked].surface && !disembark_refusal(&g));
     game_action(&g, 'k');
     assert(g.on_foot && walker_ship_distance(&g) <= board_reach(&g));
+    /* S walks back; it does not open the port's services from outside. */
+    game_action(&g, 's');
+    assert(g.page == FLIGHT && g.on_foot);
     game_action(&g, 'k');
     assert(!g.on_foot);
+    game_action(&g, 's');
+    assert(g.page == SERVICES);
+    g.page = FLIGHT;
+    /* E beside the hull boards when no site is in reach. */
+    game_action(&g, 'k');
+    if (!(nearest_site(&g, &site, &metres) && metres <= SITE_REACH)) {
+        game_action(&g, 'e');
+        assert(!g.on_foot);
+    } else game_action(&g, 'k');
     /* Open ground after a LAND. */
     body = g.ports[g.docked].body;
     game_action(&g, 'l');
@@ -264,6 +277,8 @@ static void on_foot(void) {
     for (i = 0; i < n && v[i].action != 'l'; i++) {}
     assert(i < n && !v[i].enabled);
     assert(!strcmp(park_label(&g, &enabled, &active), "USE"));
+    for (i = 0; i < n && strcmp(v[i].label, "USE"); i++) {}
+    assert(i < n && v[i].action == 'e');
     game_action(&g, 'l');
     assert(g.docked == -2 && g.on_foot && strstr(g.message, "BOARD FIRST"));
     /* Walk away: feet stay on the ground as the planet turns beneath. */
@@ -281,6 +296,56 @@ static void on_foot(void) {
     }
     printf("walked %lld m from the hull\n", (long long)(walker_ship_distance(&g) - start));
     assert(walker_ship_distance(&g) > start + 20 || strstr(g.message, "WATER") || strstr(g.message, "STEEP"));
+    /* A/D sidestep at walking pace without turning; a diagonal is no
+       faster, and half an analogue stick is half pace. */
+    {
+        Controls side = {0}, diagonal = {0}, half = {0};
+        int yaw = g.walk_yaw;
+        int64_t moved;
+        Vec before;
+        side.strafe = 1;
+        diagonal.thrust = diagonal.strafe = -1;
+        half.axis_walk = 128;
+        g.message[0] = 0;
+        before = g.walker;
+        for (i = 0; i < HZ; i++) game_tick(&g, side);
+        moved = length(sub(g.walker, before));
+        assert(g.walk_yaw == yaw);
+        assert(g.message[0] || (moved > 5 * FP / 2 && moved < 7 * FP / 2));
+        g.message[0] = 0;
+        before = g.walker;
+        for (i = 0; i < HZ; i++) game_tick(&g, diagonal);
+        moved = length(sub(g.walker, before));
+        assert(g.message[0] || (moved > 3 * FP / 2 && moved < 7 * FP / 2));
+        g.message[0] = 0;
+        before = g.walker;
+        for (i = 0; i < HZ; i++) game_tick(&g, half);
+        moved = length(sub(g.walker, before));
+        assert(g.message[0] || (moved > 5 * FP / 4 && moved < 7 * FP / 4));
+    }
+    /* A pad's left stick walks and sidesteps, the right stick looks, the
+       shoulders sidestep, green/Y and yellow/X look and blue/B boards. */
+    {
+        Controller pad = {0};
+        Controls c = {0};
+        controller_calibrate(&pad, 128, 128);
+        controller_apply(&pad, &g, &c, 0, 255, 0, 2, 0, 255);
+        assert(c.axis_walk == 256 && c.axis_strafe == 256);
+        assert(c.axis_roll == -256 && c.axis_pitch == 256 && !c.thrust && !c.roll);
+        c = (Controls){0};
+        controller_apply(&pad, &g, &c, 0, 255, 128, 1, 128, 128);
+        assert(c.axis_roll == 256 && !c.axis_strafe && !c.axis_walk);
+        c = (Controls){0};
+        controller_apply(&pad, &g, &c, PAD_THRUST | PAD_AUTO | PAD_FIRE, 128, 128, 0, 128, 128);
+        assert(c.strafe == 1 && c.pitch == -1 && !c.fire);
+        c = (Controls){0};
+        controller_apply(&pad, &g, &c, PAD_REVERSE | PAD_TARGET, 128, 128, 0, 128, 128);
+        assert(c.strafe == -1 && c.pitch == 1);
+        if (walker_ship_distance(&g) > board_reach(&g)) {
+            controller_apply(&pad, &g, &c, PAD_BRAKE, 128, 128, 0, 128, 128);
+            assert(g.on_foot && strstr(g.message, "WALK BACK"));
+        }
+    }
     /* The eye stands above the feet with a level horizon. */
     {
         Vec eye;
@@ -315,10 +380,13 @@ static void on_foot(void) {
     assert(!strcmp(park_label(&g, &enabled, &active), "USE") && enabled);
     credits = g.credits;
     i = cargo_used(&g);
+    /* D is a sidestep on foot; E uses the site. */
     game_action(&g, 'd');
+    assert(cargo_used(&g) == i && g.credits == credits);
+    game_action(&g, 'e');
     assert(cargo_used(&g) == i + 1 || g.credits > credits);
     assert(!nearest_site(&g, &site, &metres) || site.id != sites[0].id);
-    game_action(&g, 'd');
+    game_action(&g, 'e');
     assert(strstr(g.message, "NOTHING IN REACH") || g.credits > credits || cargo_used(&g) > i);
     /* Saves keep the landed ship and put the commander back aboard. */
     assert(save_game(&g, path));
@@ -326,7 +394,7 @@ static void on_foot(void) {
     assert(load_game(&h, path));
     remove(path);
     assert(h.docked == -2 && !h.on_foot && !h.landing);
-    puts("PASS gear-free touchdown, disembark/board, walking, ground sites and saves");
+    puts("PASS gear-free touchdown, disembark/board, walking, sidestep, pad controls, ground sites and saves");
 }
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);

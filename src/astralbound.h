@@ -267,6 +267,7 @@ typedef struct {
 typedef struct {
     int pitch, roll, thrust, fire;
     int axis_roll, axis_pitch; /* calibrated analogue, -256..256 */
+    int strafe, axis_walk, axis_strafe; /* on foot: sidestep, analogue walk/sidestep */
 } Controls;
 typedef struct {
     int w, h, enhanced;
@@ -420,6 +421,7 @@ int ground_sites(const Game *g, Vec around, GroundSite *out, int max);
 Vec site_position(const Game *g, const GroundSite *s);
 int nearest_site(const Game *g, GroundSite *site, int64_t *metres);
 int use_site(Game *g);
+void ground_interact(Game *g);
 int combat_target(const Game *g);
 int safe_warp(const Game *g);
 Vec avoidance(Vec relative_position, Vec relative_velocity, int64_t acceleration, int radius);

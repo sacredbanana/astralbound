@@ -45,6 +45,7 @@ struct Library *LowLevelBase, *IconBase;
 struct Library *PotgoBase;
 static UWORD pot_bits;
 static Controller pad;
+static FootStick walker = {1, 1};
 static int analog, analog_x = 128, analog_y = 128, highcolour, rtg_depth = 8;
 static ULONG pad_state;
 static uint64_t analog_last;
@@ -781,26 +782,44 @@ launch_again:
         }
         if (!testing && g.page == FLIGHT && input_active && !g.ui_quit) {
             UWORD joy = hw->joy1dat;
+            int fire = !(*(volatile UBYTE *)0xbfe001 & 0x80);
             c.pitch = held[0x4d] - held[0x4c];
             c.roll = held[0x4e] - held[0x4f];
             c.thrust = held[0x11] - held[0x21];
             c.fire = held[0x63];
-            flight_input(&c, &mouse, analog ? 0 : joystick_roll(joy), analog ? 0 : joystick_pitch(joy),
-                         ui_fire(&g, &f) || !(*(volatile UBYTE *)0xbfe001 & 0x80));
+            if (g.on_foot) {
+                /* Port 2's stick, a lowlevel pad's d-pad and red button and
+                   the fire line are one walker's stick, so fire taps once. */
+                ULONG type = analog ? 0 : pad_state & JP_TYPE_MASK;
+                int x = analog ? 0 : joystick_roll(joy), y = analog ? 0 : joystick_pitch(joy);
+                c.strafe = held[0x22] - held[0x20];
+                if (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK) {
+                    x = flight_axis(x + !!(pad_state & JPF_JOY_RIGHT) - !!(pad_state & JPF_JOY_LEFT), 0);
+                    y = flight_axis(y + !!(pad_state & JPF_JOY_DOWN) - !!(pad_state & JPF_JOY_UP), 0);
+                }
+                if (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK || type == JP_TYPE_ANALOGUE)
+                    fire |= !!(pad_state & JPF_BUTTON_RED);
+                flight_input(&c, &mouse, 0, 0, 0);
+                if (foot_stick(&walker, &c, x, y, fire)) game_action(&g, 'e');
+            } else
+                flight_input(&c, &mouse, analog ? 0 : joystick_roll(joy), analog ? 0 : joystick_pitch(joy),
+                             ui_fire(&g, &f) || fire);
         }
+        /* Fire already down when the commander steps out is not a tap. */
+        if (!g.on_foot) walker = (FootStick){1, 1};
         if (!testing && input_active && !g.ui_quit && !intro.running) {
             ULONG type = pad_state & JP_TYPE_MASK;
             int usb_analog = type == JP_TYPE_ANALOGUE;
             unsigned buttons = !analog && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK || usb_analog)
                                ? controller_buttons(pad_state) : 0;
             if (usb_analog && !pad.calibrated) controller_calibrate(&pad, pad_state & 255, (pad_state >> 8) & 255);
-            if (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK) {
+            if (!g.on_foot && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK)) {
                 c.roll = flight_axis(c.roll + !!(pad_state & JPF_JOY_RIGHT) - !!(pad_state & JPF_JOY_LEFT), 0);
                 c.pitch = flight_axis(c.pitch + !!(pad_state & JPF_JOY_DOWN) - !!(pad_state & JPF_JOY_UP), 0);
             }
             controller_apply(&pad, &g, &c, buttons,
                              analog ? analog_x : (int)(pad_state & 255),
-                             analog ? analog_y : (int)((pad_state >> 8) & 255), analog || usb_analog);
+                             analog ? analog_y : (int)((pad_state >> 8) & 255), analog || usb_analog, 128, 128);
         } else pad.held = 0;
         {
             uint64_t now = clock_now(),

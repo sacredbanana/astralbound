@@ -1061,7 +1061,7 @@ static void test_unrestricted_warp(void) {
 }
 static void test_presentation(void) {
     Game g, h;
-    Controls c = {1, 1, 0, 0, 0, 0};
+    Controls c = {1, 1, 0, 0, 0, 0, 0, 0, 0};
     int i, yaw, pitch;
     game_init(&g, 3);
     assert(combat_target(&g) == -1);
@@ -1107,8 +1107,8 @@ static void test_presentation(void) {
     g.turret_yaw = 512; g.turret_pitch = 0; g.tick = 5;
     g.npc[2] = (Npc){add(g.pos, vec(0, 0, -2000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
     h = g; h.camera_mode = 0;
-    game_tick(&g, (Controls){0, 0, 0, 1, 0, 0});
-    game_tick(&h, (Controls){0, 0, 0, 1, 0, 0});
+    game_tick(&g, (Controls){0, 0, 0, 1, 0, 0, 0, 0, 0});
+    game_tick(&h, (Controls){0, 0, 0, 1, 0, 0, 0, 0, 0});
     assert(g.npc[2].hull == 80 && h.npc[2].hull == 100);
     assert(g.pos.x == h.pos.x && g.pos.y == h.pos.y && g.pos.z == h.pos.z);
     puts("PASS independent turret aim/fire, contact range, map controls and save compatibility");
@@ -1126,6 +1126,19 @@ static void test_flight_input(void) {
                                   (down ^ right) | ((up ^ left) << 8));
         assert(joystick_roll(joy) == right - left);
         assert(joystick_pitch(joy) == down - up);
+    }
+    /* On foot the stick walks and turns; fire held looks and sidesteps,
+       and only a tap of fire alone uses what is in reach. */
+    {
+        FootStick s = {1, 1};
+        assert(!foot_stick(&s, &c, 0, 0, 0)); /* already down on stepping out */
+        assert(!foot_stick(&s, &c, 1, -1, 0) && c.thrust == 1 && c.roll == 1 && !c.strafe && !c.pitch);
+        c = (Controls){0};
+        assert(!foot_stick(&s, &c, 0, 0, 1) && !foot_stick(&s, &c, 0, 0, 1));
+        assert(foot_stick(&s, &c, 0, 0, 0) && !c.thrust && !c.roll);
+        assert(!foot_stick(&s, &c, 1, 1, 1) && c.strafe == 1 && c.pitch == 1 && !c.thrust && !c.roll);
+        assert(!foot_stick(&s, &c, 0, 0, 1) && !foot_stick(&s, &c, 0, 0, 0));
+        c = (Controls){0};
     }
     mouse_stick(&m, 8, -8, 1);
     flight_input(&c, &m, 0, 0, 0);

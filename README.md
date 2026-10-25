@@ -352,7 +352,7 @@ other systems show values derived from each world's size, gravity and climate. Y
 destination list; V returns to flight.
 
 Flight controls: left/right arrows roll, up/down pitch, W/S change set speed, Ctrl fires, E switches flight
-assist, D docks or lands (or uses a ground site on foot), K leaves or re-boards a
+assist, D docks or lands, K leaves or re-boards a
 landed ship, Space pauses, H opens help, F5 saves, F9 loads,
 and Escape opens a paused quit dialog: **Save & quit** (S), **Quit without saving**
 (Q), or **Cancel** (Escape/C). A failed save keeps the dialog open.
@@ -390,16 +390,22 @@ parks the ship:
 
 Landed on a planet (open ground or a surface pad, not a station berth), **K**
 (**EXIT**) steps outside. On foot, W/S walk forward/back (3 m/s, half pace
-backwards), left/right turn and up/down look. Water, cliffs steeper than about
+backwards), A/D sidestep, the left/right arrows turn and up/down look (or hold the
+right mouse button and drag). A joystick walks with up/down and turns with
+left/right; hold fire to look with up/down and sidestep with left/right, and tap
+fire alone to use a site or board. On a gamepad the left stick walks and
+sidesteps and the right stick looks, A taps as fire, B boards, the shoulders
+sidestep and X/Y look down/up; a CD32 pad's red, blue, shoulder, yellow and
+green buttons do the same. Water, cliffs steeper than about
 50° and the suit's 1.5 km range from the ship stop you without ending the
 excursion. The HUD marks the ship and the nearest **ground site**, and the scope
-plots everything within 500 m. Walk within 12 m of a site and press **D** (**USE**):
+plots everything within 500 m. Walk within 12 m of a site and press **E** (**USE**):
 mineral outcrops yield a tonne of crystals, wreckage a tonne of alloys or
 machinery (hold space permitting), and survey beacons sell their data for
 credits. Each site is used once per session. Sites are deterministic: the same
 ground always has the same sites, and they are visible from low flight, so you can
-land beside one. Return within reach of the hull and press **K** (**BOARD**) to go
-back aboard; launching, autopilot and time compression wait until you do. A save
+land beside one. Return within reach of the hull and press **K** (**BOARD**), or
+**E** with no site in reach, to go back aboard; launching, autopilot and time compression wait until you do. A save
 made outside restores you aboard the landed ship.
 
 ## Contracts
