@@ -822,10 +822,9 @@ static void cl_draw_body(const ClNode *node) {
     ClBodyInfo *b = &cl_body_info[node->data];
     if (b->body < 0) cl_draw_star(b); else cl_draw_planet(b);
 }
-static void cl_bodies(void) {
+static void cl_bodies(int first, int last) {
     int i;
-    cl_body_count = 0;
-    for (i = -game->system.stars; i < game->system.count && cl_body_count < CL_BODIES; i++) {
+    for (i = first; i < last && cl_body_count < CL_BODIES; i++) {
         ClBodyInfo *b = &cl_body_info[cl_body_count];
         const Planet *p = i >= 0 ? &game->system.planets[i] : NULL;
         ClNode *node;
@@ -865,7 +864,12 @@ static void classic_world(void) {
     cl_active = 1;
     world_objects();
     cl_lights(0);
-    cl_bodies();
+    cl_body_count = 0;
+    cl_bodies(-game->system.stars, 0);
+    /* At saturated astronomical keys, bloom covers its star but remains
+       behind the foreground planet, including its ground backdrop. */
+    if (cinema) cl_intro_effects();
+    cl_bodies(0, game->system.count);
     cl_terrain();
     forests();
     cl_clouds();

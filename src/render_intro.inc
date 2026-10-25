@@ -34,6 +34,33 @@ static void intro_glow(const IntroGlow *g) {
         }
     }
 }
+/* Classic has no per-pixel depth. Keep cinematic effects in its painter's
+   list, using the same full-range projection as Enhanced: stellar glows
+   and streaks can be much farther away than cl_world's local Q4 range. */
+static void cl_intro_effects(void) {
+    int i;
+    for (i = 0; i < cinema->beams + cinema->glows; i++) {
+        int glow = i >= cinema->beams, index = glow ? i - cinema->beams : i;
+        int64_t z;
+        ClNode *node;
+        if (glow) {
+            const IntroGlow *g = &cinema->glow[index];
+            z = camera(scale(g->p, 1, FP)).z - g->radius;
+        } else {
+            Vec a = camera(scale(cinema->beam[index].a, 1, FP));
+            Vec b = camera(scale(cinema->beam[index].b, 1, FP));
+            z = (a.z + b.z) / 2;
+        }
+        node = cl_node(cl_key(z * 16), CL_INTRO, 0, 0);
+        if (!node) return;
+        node->data = index; node->extra = (uint8_t)glow;
+    }
+}
+static void cl_draw_intro(const ClNode *node) {
+    int i = node->data;
+    if (node->extra) intro_glow(&cinema->glow[i]);
+    else weapon_beam(cinema->beam[i].a, cinema->beam[i].b, cinema->beam[i].colour, 1);
+}
 /* Ordered dither of a whole region towards one colour, level 0..16. */
 static void intro_dither(int level, int colour, int top, int bottom) {
     int x, y;
@@ -153,8 +180,11 @@ static void render_intro_full(const Intro *in, const Game *g, Frame *f) {
     cinema = in;
     render_game(g, &view);
     /* render_game leaves the projection set up for the sub-frame. */
-    for (i = 0; i < in->beams; i++) weapon_beam(in->beam[i].a,in->beam[i].b,in->beam[i].colour,1);
-    for (i = 0; i < in->glows; i++) intro_glow(&in->glow[i]);
+    /* The tunnel bypasses world rendering, so it has no painter's list. */
+    if (!classic_mode || (g->hyperspace > HYPER_CHARGE && g->hyperspace <= HYPER_CHARGE + HYPER_TUNNEL)) {
+        for (i = 0; i < in->beams; i++) weapon_beam(in->beam[i].a,in->beam[i].b,in->beam[i].colour,1);
+        for (i = 0; i < in->glows; i++) intro_glow(&in->glow[i]);
+    }
     if (in->cockpit) {
         int cx = view.w / 2, cy = view_h / 2;
         line(cx - 9, cy, cx - 3, cy, 15); line(cx + 3, cy, cx + 9, cy, 15);

@@ -160,7 +160,7 @@ static int cl_clip(ClV *poly, int n, ClV *scratch) {
 /* ---------------------------------------------------------- draw list */
 /* Painter's order, far to near. A node is a polygon (Q4 points in the
    pool), a line, a disc, a planet, or a sprite. */
-enum { CL_POLY, CL_LINE, CL_DISC, CL_BODY, CL_SPRITE, CL_PIXEL, CL_BALL, CL_RING };
+enum { CL_POLY, CL_LINE, CL_DISC, CL_BODY, CL_SPRITE, CL_PIXEL, CL_BALL, CL_RING, CL_INTRO };
 typedef struct {
     uint32_t key;     /* larger is farther */
     uint8_t kind, colour, extra;
@@ -209,6 +209,8 @@ static void cl_draw_body(const ClNode *node);
 static void cl_draw_sprite(const ClNode *node);
 static void cl_draw_ball(const ClNode *node);
 static void cl_draw_ring(const ClNode *node);
+static void cl_draw_intro(const ClNode *node);
+static void cl_intro_effects(void);
 static void cl_flush(void) {
     int i, pass, *unused = NULL;
     uint16_t *order = cl_order, *spare = cl_order + CL_NODES;
@@ -246,6 +248,7 @@ static void cl_flush(void) {
         case CL_SPRITE: cl_draw_sprite(n); break;
         case CL_BALL: cl_draw_ball(n); break;
         case CL_RING: cl_draw_ring(n); break;
+        case CL_INTRO: cl_draw_intro(n); break;
         }
     }
     cl_count = cl_used = 0;

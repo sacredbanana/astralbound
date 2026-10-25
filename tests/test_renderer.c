@@ -948,6 +948,65 @@ static void night_and_twilight_skies(void) {
 /* Title sequence frames: letterbox bars stay black outside captions, every
    act draws a picture in all layouts, and the cinematic camera never leaks
    into ordinary flight rendering. */
+static void classic_intro_sun_occlusion(void) {
+    static Game g;
+    static Intro in;
+    static const int seconds[] = {4, 8, 12};
+    Frame f = {320, 256, 0, NULL, {0}};
+    Graphics saved = graphics;
+    Settings s;
+    uint8_t *reference = malloc(640 * 480);
+    int mode, quality, t, effect, visible[2] = {0, 0};
+    f.pixels = malloc(640 * 480);
+    assert(f.pixels && reference);
+    render_renderer(RENDERER_CLASSIC);
+    for (mode = 0; mode < 4; mode++) for (quality = 0; quality < 2; quality++) {
+        f.w = mode == 3 ? 640 : 320; f.h = mode == 3 ? 480 : mode == 2 ? 200 : 256;
+        f.enhanced = mode != 0;
+        settings_defaults(&s, 0); settings_preset(&s, quality ? QUALITY_HIGH : QUALITY_LOW);
+        render_graphics(&s.gfx); assert(render_init(&f));
+        intro_start(&in, &g, 0x53504143);
+        for (t = 0; t < 3; t++) {
+            int glows, beams, bar = (f.h - f.w * 100 / 185) / 2;
+            intro_frame(&in, &g, seconds[t] * HZ - in.tick);
+            glows = in.glows; beams = in.beams;
+            assert(glows && beams);
+            in.glows = in.beams = 0;
+            render_intro(&in, &g, &f);
+            memcpy(reference, f.pixels, (size_t)f.w * f.h);
+            /* Test the solar bloom and streak separately: neither may paint
+               over the foreground planet, and both must emerge outside it. */
+            for (effect = 0; effect < 2; effect++) {
+                int b, x, y, interior = 0, wrong = 0;
+                in.glows = effect == 0 ? glows : 0;
+                in.beams = effect == 1 ? beams : 0;
+                render_intro(&in, &g, &f);
+                for (b = 0; b < cl_body_count && cl_body_info[b].body != 0; b++) {}
+                assert(b < cl_body_count);
+                for (y = 0; y < f.h - 2 * bar; y++) {
+                    int lo, hi;
+                    if (!planet_row_pixels(&cl_body_info[b].view, y, &lo, &hi)) continue;
+                    /* Keep clear of the subpixel silhouette and its halo. */
+                    for (x = lo + 2; x <= hi - 2; x++) {
+                        int at = (y + bar) * f.w + x;
+                        interior++; wrong += reference[at] != f.pixels[at];
+                    }
+                }
+                if (wrong) fprintf(stderr, "Classic sunrise mode %d quality %d at %ds effect %d: %d planet pixels overwritten\n",
+                                   mode, quality, seconds[t], effect, wrong);
+                assert(interior > 100 && !wrong);
+                for (x = 0; x < f.w * f.h; x++) visible[effect] += reference[x] != f.pixels[x];
+            }
+            in.glows = glows; in.beams = beams;
+        }
+        render_shutdown();
+    }
+    assert(visible[0] > 100 && visible[1] > 100);
+    render_renderer(RENDERER_ENHANCED);
+    render_graphics(&saved);
+    free(reference); free(f.pixels);
+    puts("PASS Classic sunrise bloom and streak hidden by the planet and visible beyond its limb in ECS/AGA/NTSC/RTG Low/High");
+}
 static void intro_frames(void) {
     static Game g, plain;
     static Intro in;
@@ -1220,6 +1279,7 @@ int main(int argc, char **argv) {
     curved_ring_depth();
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;
+    classic_intro_sun_occlusion();
     intro_frames();
     persistent_target_markers();
     night_and_twilight_skies();
