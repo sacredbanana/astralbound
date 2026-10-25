@@ -56,7 +56,8 @@ static void dock_from_pad_departure(void) {
     game_init(&g, SEED);
     port = g.docked;
     assert(park_mode(&g, NULL) == PARK_NONE);
-    assert(!strcmp(park_label(&g, &enabled, &active), "DOCK") && !enabled);
+    /* Sitting on the pad the parking button opens the hatch. */
+    assert(!strcmp(park_label(&g, &enabled, &active), "EXIT") && enabled && park_key(&g) == 'k');
     game_action(&g, 'l');
     fly(&g, 5);
     assert(g.docked == -1 && park_mode(&g, NULL) == PARK_DOCK);
@@ -226,7 +227,7 @@ static void on_foot(void) {
     Game g, h;
     GroundSite sites[GROUND_SITES], again[GROUND_SITES], site;
     Controls walk = {0};
-    int i, n, body, enabled, active, credits;
+    int i, a, n, body, enabled, active, credits;
     int64_t metres, start;
     const Planet *p;
     char path[] = "build/parking-test.sav";
@@ -266,19 +267,26 @@ static void on_foot(void) {
     fly(&g, 300);
     assert(g.docked == -2);
     p = &g.system.planets[body];
+    /* Landed, LAND becomes EXIT; there is no separate hatch button. */
     n = ui_widgets(&g, &f, v);
+    for (i = 0; i < n && strcmp(v[i].label, "LAND"); i++) {}
+    assert(i == n);
     for (i = 0; i < n && v[i].action != 'k'; i++) {}
     assert(i < n && !strcmp(v[i].label, "EXIT") && v[i].enabled);
-    game_action(&g, 'k');
+    a = i;
+    for (i++; i < n && v[i].action != 'k'; i++) {}
+    assert(i == n);
+    game_action(&g, v[a].action);
     assert(g.on_foot && safe_warp(&g) == 1);
+    /* Outside, the same slot uses a site in reach or else boards. */
     n = ui_widgets(&g, &f, v);
     for (i = 0; i < n && v[i].action != 'k'; i++) {}
-    assert(i < n && !strcmp(v[i].label, "BOARD") && v[i].enabled);
+    assert(i == n);
     for (i = 0; i < n && v[i].action != 'l'; i++) {}
     assert(i < n && !v[i].enabled);
-    assert(!strcmp(park_label(&g, &enabled, &active), "USE"));
-    for (i = 0; i < n && strcmp(v[i].label, "USE"); i++) {}
-    assert(i < n && v[i].action == 'e');
+    for (i = 0; i < n && strcmp(v[i].label,
+         nearest_site(&g, &site, &metres) && metres <= SITE_REACH ? "USE" : "BOARD"); i++) {}
+    assert(i < n && v[i].enabled && v[i].action == 'e');
     game_action(&g, 'l');
     assert(g.docked == -2 && g.on_foot && strstr(g.message, "BOARD FIRST"));
     /* Walk away: feet stay on the ground as the planet turns beneath. */

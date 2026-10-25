@@ -662,14 +662,28 @@ static int landing_touchdown(Game *g) {
     settle_on_ground(g, g->landing - 1, g->land_anchor);
     return 1;
 }
+/* Resting on solid ground - open ground or a surface pad - the hatch can open. */
+static int grounded(const Game *g) {
+    return !g->on_foot && (g->docked == -2 || (g->docked >= 0 && g->ports[g->docked].surface));
+}
+/* The one parking slot: DOCK/LAND in flight, EXIT on the ground, and on foot
+   USE a site in reach or else BOARD the ship, as E does. */
 const char *park_label(const Game *g, int *enabled, int *active) {
     int port, mode;
     *enabled = *active = 0;
     if (g->on_foot) {
         GroundSite site;
         int64_t metres;
-        *enabled = nearest_site(g, &site, &metres) && metres <= SITE_REACH;
-        return "USE";
+        if (nearest_site(g, &site, &metres) && metres <= SITE_REACH) {
+            *enabled = 1;
+            return "USE";
+        }
+        *enabled = walker_ship_distance(g) <= board_reach(g);
+        return *enabled ? "BOARD" : "USE";
+    }
+    if (grounded(g)) {
+        *enabled = !disembark_refusal(g);
+        return "EXIT";
     }
     if (g->landing) {
         *enabled = *active = 1;
@@ -681,6 +695,9 @@ const char *park_label(const Game *g, int *enabled, int *active) {
         return "LAND";
     *active = mode == PARK_DOCK && g->autopilot && g->target == port;
     return "DOCK";
+}
+int park_key(const Game *g) {
+    return g->on_foot ? 'e' : grounded(g) ? 'k' : 'd';
 }
 /* D: dock, land or abort either. On foot D sidesteps; E uses a ground site. */
 static void park(Game *g) {

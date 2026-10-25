@@ -405,8 +405,9 @@ int attitude_angle(int64_t x, int64_t z);
 /* Parking console: PARK_DOCK (with the port), PARK_LAND or PARK_NONE. */
 int park_mode(const Game *g, int *port);
 const char *land_refusal(const Game *g);
-/* The DOCK/LAND/USE button's label and state for the flight console. */
+/* The DOCK/LAND/EXIT/USE/BOARD button's label, state and key. */
 const char *park_label(const Game *g, int *enabled, int *active);
+int park_key(const Game *g);
 /* On foot (ground.c). Positions are Q8 in the system frame. */
 extern const char *site_names[SITE_KINDS];
 const char *disembark_refusal(const Game *g);

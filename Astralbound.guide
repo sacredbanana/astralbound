@@ -246,10 +246,12 @@
             Refused over water, on slopes steeper than about 1:2 under
             the hull, when gravity outweighs the engines, or with a
             hostile within 5 km; the message line says why. D aborts.
+  EXIT      Landed on a planet - open ground or a surface pad, not a
+            station berth - the button opens the hatch (K).
+  USE/BOARD On foot it uses a site in reach, else boards the ship (E).
   (dim)     In space away from ports there is nothing to park on.
 
-  Landed on a planet - open ground or a surface pad, not a station
-  berth - K (EXIT) steps outside. On foot:
+  Landed, K (EXIT) steps outside. On foot:
 
   W / S     Walk forward at 3 m/s / back at half pace.
   A / D     Sidestep left / right.

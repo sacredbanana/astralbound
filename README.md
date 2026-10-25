@@ -242,8 +242,8 @@ use the labelled action buttons to trade, accept or negotiate jobs, buy equipmen
 hire crew or service the ship. Dim controls are unavailable in the current state.
 Buttons activate on release inside the same control; dragging away cancels a click.
 
-In flight, click **LAUNCH**, **AUTO**, **DRIVE**, **ASSIST**, **EXIT**/**BOARD**,
-**DOCK**/**LAND**/**USE** or **LOCK** to operate the ship. Drag the cyan throttle strip; **STOP** commands zero
+In flight, click **LAUNCH**, **AUTO**, **DRIVE**, **ASSIST**,
+**DOCK**/**LAND**/**EXIT**/**USE**/**BOARD** or **LOCK** to operate the ship. Drag the cyan throttle strip; **STOP** commands zero
 speed. The time strip selects 1/4/16/64/256/1024/4096x while retaining the existing
 safety limits; the cockpit shows delivered/requested compression. **PAUSE/PLAY**
 works with the mouse. Click the scanner to show missile/decoy controls and click
@@ -389,7 +389,8 @@ parks the ship:
 - In space, away from ports, the button is dimmed.
 
 Landed on a planet (open ground or a surface pad, not a station berth), **K**
-(**EXIT**) steps outside. On foot, W/S walk forward/back (3 m/s, half pace
+(the parking button, which reads **EXIT** on the ground) steps outside; on foot it
+reads **USE** beside a site or **BOARD** beside the hull. On foot, W/S walk forward/back (3 m/s, half pace
 backwards), A/D sidestep, the left/right arrows turn and up/down look (or hold the
 right mouse button and drag). A joystick walks with up/down and turns with
 left/right; hold fire to look with up/down and sidestep with left/right, and tap
