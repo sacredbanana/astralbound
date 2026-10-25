@@ -11,7 +11,7 @@ build/astralbound: $(CORE) $(HEADERS) src/platform/host.c src/flight_input.h src
 	$(CC) $(CPPFLAGS) $(CFLAGS) $$(sdl2-config --cflags) $(CORE) src/platform/host.c $$(sdl2-config --libs) -o $@
 build/tests: $(CORE) $(HEADERS) tests/test_astralbound.c src/flight_input.h src/astralbound.h src/trig.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_astralbound.c -o $@
-build/renderer-tests: $(CORE) $(HEADERS) tests/test_renderer.c src/astralbound.h src/trig.h src/native_video.h | build
+build/renderer-tests: $(CORE) $(HEADERS) tools/aurora_fixture.h tests/test_renderer.c src/astralbound.h src/trig.h src/native_video.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(filter-out src/render.c,$(CORE)) tests/test_renderer.c -o $@
 build/presentation-tests: $(CORE) $(HEADERS) tests/test_presentation.c src/controller.h src/audio.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_presentation.c -o $@
@@ -70,7 +70,7 @@ amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
 	rm -f build/classic-tests build/classic-tests-sanitize build/renderers-tests build/renderers-tests-sanitize build/planet-tests build/planet-tests-sanitize build/planet-bench build/settings-tests build/settings-tests-sanitize build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
-	rm -f build/port-preview build/ground-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/parking-tests build/parking-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
+	rm -f build/aurora-preview build/port-preview build/ground-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/parking-tests build/parking-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 build/intro-preview: $(CORE) $(HEADERS) tools/intro_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/intro_preview.c -o $@
@@ -90,7 +90,7 @@ package-test:
 .PHONY: fpu-test
 build/fpu-tests: $(CORE) $(HEADERS) tests/test_astralbound.c | build
 	$(CC) $(CPPFLAGS) -DSPACE_FPU $(CFLAGS) $(CORE) tests/test_astralbound.c -o $@
-build/fpu-renderer-tests: $(CORE) $(HEADERS) tests/test_renderer.c | build
+build/fpu-renderer-tests: $(CORE) $(HEADERS) tools/aurora_fixture.h tests/test_renderer.c | build
 	$(CC) $(CPPFLAGS) -DSPACE_FPU $(CFLAGS) $(filter-out src/render.c,$(CORE)) tests/test_renderer.c -o $@
 fpu-test: build/fpu-tests build/fpu-renderer-tests
 	./build/fpu-renderer-tests
@@ -207,3 +207,10 @@ planet-bench: build/planet-bench
 planet-evidence: build/planet-bench
 	mkdir -p build/evidence/planets
 	./build/planet-bench --no-timing --images build/evidence/planets
+
+.PHONY: aurora-preview
+build/aurora-preview: $(CORE) $(HEADERS) tools/aurora_preview.c tools/aurora_fixture.h | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/aurora_preview.c -o $@
+aurora-preview: build/aurora-preview
+	mkdir -p build/evidence
+	./build/aurora-preview

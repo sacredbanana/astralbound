@@ -82,13 +82,20 @@ Selecting AGA or RTG alone does not make the CPU renderer faster.
 Open **Graphics Options** from any preset for four pages of controls. Renderer
 and Bezier Rings are on the first page, alongside terrain and surface detail.
 The remaining controls cover planets, clouds, forests, ports, effects, stars,
-rings, weather, lights, labels, triangle budget and ship detail. Changing any
+rings, weather, lights, labels, triangle budget, ship detail and planetary
+aurorae. Changing any
 option selects **Custom**, preserving the other values. Selecting a named
 preset reapplies its renderer and Bezier defaults. Surface Shading and Triangle Budget are disabled for
 Classic, which uses flat shading and its own draw list; their values return
 when Enhanced is selected. Classic offers only the detail levels it uses.
 Pixel-size scaling is no longer an option; old saved scaling values are ignored. Visual detail never
 changes collision, autopilot, weather physics or commander save data.
+
+**Planetary Aurorae** is enabled by default in Ultra and can be toggled in
+Custom with either renderer. Animated green, cyan and violet curtains follow
+both magnetic polar ovals on atmospheric worlds, visible above the surface
+and across the globe from orbit. They fade into daylight, remain behind
+terrain and foreground objects, and are absent on airless bodies.
 
 **Run Performance Test** runs all 14 scenes or the scene chosen in **Test Scene**:
 orbit/rings, low/desert/ice terrain, a city, an orbital station, rain/forests,

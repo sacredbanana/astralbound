@@ -49,7 +49,7 @@ static int triangle_capacity, triangle_limit;
 /* Draw order: triangle indices sorted on a depth key, with ping-pong space. */
 static int *triangle_order;
 static uint32_t *triangle_keys;
-static Graphics graphics = {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1};
+static Graphics graphics = {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1,0};
 static int graphics_configured, scene_only, scaled_view_h, performance_camera, weather_status;
 static uint8_t *scaled_pixels;
 static size_t scaled_capacity;
@@ -2405,6 +2405,7 @@ static void destruction_effects(void) {
 }
 
 #include "render_planet.inc"
+#include "render_aurora.inc"
 
 #include "render_weapons.inc"
 
@@ -2540,6 +2541,8 @@ static void world(void) {
         }
         if (nt) draw_triangles(); /* clipped close-up fallback only */
     }
+    if (graphics.aurorae) for (b = 0; b < game->system.count; b++)
+        aurora_body(&game->system.planets[b], 0);
     if(graphics.lights) port_draw_lights();
 }
 static void panel(const char *title) {

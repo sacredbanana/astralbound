@@ -210,3 +210,40 @@ Low/Medium/High, rotation and pole-on views.
 
 Host timings do not predict 68k cost; see the 68020 notes in the commit
 history. Native measurement belongs on a cycle-exact emulator with JIT off.
+
+## Planetary aurorae
+
+**PLANETARY AURORAE** is an independent On/Off graphics option. Ultra enables
+it; Low, Medium and High disable it. Custom preserves the selected value in
+`graphics_18`, appended so legacy graphics keys keep their meanings. Old Ultra
+settings acquire the new preset default; old Custom files default to Off.
+
+`render_aurora.inc` supplies the same body-fixed northern and southern ovals
+to both backends. A seeded magnetic tilt, flowing latitude folds, varying
+curtain heights and emission strengths animate from the fixed game tick.
+The shell scales with body radius, independent of terrain and cloud LOD.
+Emission fades with solar elevation; atmosphere-free and vacuum bodies are
+skipped. Indexed ordered transparency reuses green/cyan/violet palette entries.
+No simulation, commander-save or palette format changes are required.
+
+Enhanced draws the clipped curtains against the completed world depth buffer.
+Classic places an aurora callback immediately after its globe in the painter
+list, including sky-only views, and masks the far oval with an analytic sphere
+depth test. Near ground and cloud geometry then draws over the glow. A small
+independent triangle scratch buffer avoids consuming the scenery budget.
+
+`tools/gen_aurora.py` generates exact integer lookup tables from `trig.h` for
+waveforms, circle/latitude/tilt directions, daylight fading, brightness and
+opacity (about 12.4 KiB of read-only data). `--check` verifies reproducibility.
+A 4 KiB pose table caches rotated directions and their lazily evaluated norms;
+phase, magnetic tilt and both spin components invalidate it. Adjacent height
+bands reuse radial endpoints. These preserve the original C99 truncation and
+both radial normalization stages; the 12 deterministic previews remain
+byte-identical. View-dependent clipping and depth still use the existing
+fixed-point arithmetic.
+
+`make aurora-preview` writes deterministic polar-night surface and orbital
+PPMs for Enhanced and Classic in ECS 320x200, AGA 320x256 and RTG 640x480 to
+`build/evidence/aurora-*.ppm`. `build/renderer-tests --aurorae` checks both
+poles, animation and repeatability, toggle/vacuum behavior, clipping,
+foreground depth, far-globe occlusion and HUD bounds.

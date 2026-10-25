@@ -15,6 +15,22 @@ static void persistence(void) {
     assert(original.renderer==RENDERER_CLASSIC && original.bezier && !original.gfx.scale);
     settings_defaults(&loaded,0);
     assert(loaded.preset==QUALITY_MEDIUM && loaded.renderer==RENDERER_CLASSIC && loaded.bezier && !loaded.gfx.scale);
+    for (i=QUALITY_LOW;i<=QUALITY_ULTRA;i++) {
+        settings_preset(&original,i);
+        assert(original.gfx.aurorae==(i==QUALITY_ULTRA));
+    }
+    assert(settings_save(&original,path)); settings_defaults(&loaded,0); assert(settings_load(&loaded,path));
+    assert(loaded.preset==QUALITY_ULTRA && loaded.gfx.aurorae);
+    graphics_change(&original,18,-1); assert(original.preset==QUALITY_CUSTOM && !original.gfx.aurorae);
+    assert(settings_save(&original,path)); assert(settings_load(&loaded,path)); assert(!loaded.gfx.aurorae);
+    graphics_change(&original,18,1);
+    assert(settings_save(&original,path)); assert(settings_load(&loaded,path)); assert(loaded.gfx.aurorae);
+    /* Old Custom files have no aurora key, even when loaded over Ultra. */
+    file=fopen(path,"w"); assert(file); fputs("ASTRALBOUND_SETTINGS 1\npreset 4\n",file); fclose(file);
+    assert(settings_load(&loaded,path)); assert(!loaded.gfx.aurorae);
+    file=fopen(path,"w"); assert(file); fputs("ASTRALBOUND_SETTINGS 1\npreset 3\n",file); fclose(file);
+    assert(settings_load(&loaded,path)); assert(loaded.gfx.aurorae);
+    settings_defaults(&original,1);
     original.renderer^=1; original.bezier=0; /* both choices persist */
     original.test_scene=11; original.mode=VIDEO_RTG16; original.rtg_size=3; original.intro=original.sound=0;
     for(i=0;i<GRAPHICS_OPTIONS;i++) { graphics_change(&original,i,1); graphics_change(&original,i,1); }
@@ -95,8 +111,8 @@ static void menus(void) {
         else assert(graphics_value(&m.settings.gfx,i-1)!=before);
         assert(m.settings.preset==QUALITY_CUSTOM && !m.settings.gfx.scale);
     }
-    /* Last page has one setting; navigation stays on valid rows as pages shrink. */
-    assert(m.group==GRAPHICS_MENU_PAGES-1 && launcher_rows(&m)==4);
+    /* Last page has two settings; navigation stays on valid rows as pages shrink. */
+    assert(m.group==GRAPHICS_MENU_PAGES-1 && launcher_rows(&m)==5);
     m.selected=launcher_graphics_rows(&m)+1; launcher_key(&m,'\r');
     assert(m.group==0 && m.selected<launcher_rows(&m));
     m.selected=launcher_graphics_rows(&m); launcher_key(&m,'\r');

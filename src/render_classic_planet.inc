@@ -31,6 +31,7 @@ static const uint8_t cl_light_aga[CL_LIGHT_CAPS + 1] = {0, 1, 3, 6, 9, 13};
 static const uint8_t cl_light_ecs[CL_LIGHT_CAPS + 1] = {0, 0, 0, 1, 1, 2};
 typedef struct {
     int body;               /* planet index, or -1 - star */
+    uint32_t draw_key;       /* shared with its aurora callback */
     PlanetView view;
     int64_t c[3], radius;   /* camera-space centre and radius, unit as below */
     int64_t q4;             /* units per Q4 metre: 1 (Q4) or 16 (metres) */
@@ -932,6 +933,7 @@ static void cl_bodies(int first, int last) {
             key = 0xFFFFFF00U;
         node = cl_node(key, CL_BODY, 0, 0);
         if (!node) return;
+        b->draw_key = key;
         node->data = cl_body_count++;
         if (p && p->rings && graphics.rings && b->view.kind == PLANET_DISC) {
             int band;
@@ -958,6 +960,24 @@ static void classic_world(void) {
        behind the foreground planet, including its ground backdrop. */
     if (cinema) cl_intro_effects();
     cl_bodies(0, game->system.count);
+    /* The glow follows its planet in the painter list. Ground, clouds and
+       foreground objects still draw over it, including when looking up. */
+    if (graphics.aurorae) {
+        int i, j;
+        for (i = 0; i < game->system.count; i++) {
+            const Planet *p = &game->system.planets[i];
+            int64_t d = length(sub(p->center, scale(camera_position, 1, FP)));
+            uint32_t key = cl_key((d - p->radius) * 16);
+            ClNode *node;
+            if (!aurora_visible(p, d)) continue;
+            if (i == game->body && d - p->radius < (p->radius > PATCH_ALTITUDE ? PATCH_ALTITUDE : p->radius))
+                key = 0xFFFFFF00U;
+            for (j = 0; j < cl_body_count; j++)
+                if (cl_body_info[j].body == i) { key = cl_body_info[j].draw_key; break; }
+            node = cl_node(key, CL_AURORA, 0, 0);
+            if (node) node->data = i;
+        }
+    }
     cl_terrain();
     forests();
     cl_clouds();

@@ -78,13 +78,19 @@
   Open GRAPHICS OPTIONS from any preset for four pages of controls.
   Renderer and Bezier Rings are on the first page. Other controls cover
   terrain, shading, planets, clouds, forests, ports, effects, stars,
-  rings, weather, lights, labels, triangle budget and ship detail.
+  rings, weather, lights, labels, triangle budget, ship detail and aurorae.
   Editing an option selects Custom and keeps the remaining values.
   Selecting a named preset reapplies its renderer and Bezier defaults.
   Classic disables Surface Shading and Triangle Budget, retaining their
   values for Enhanced. Classic offers only detail levels that it uses.
   Pixel size is no longer selectable; old saved scaling is ignored.
   Visual detail does not change collision, autopilot or flight physics.
+
+  PLANETARY AURORAE defaults to ON in Ultra and OFF in other presets.
+  Toggle it in Custom with either renderer. Animated green, cyan and
+  violet curtains follow both polar ovals on atmospheric worlds. They
+  are visible from the surface and orbit, fade into daylight, and are
+  hidden by terrain and foreground objects. Airless bodies have none.
 
   TEST SCENE chooses all 14 scenes or one scene. RUN PERFORMANCE TEST
   measures orbit/rings, low/desert/ice terrain, a city, an orbital port,

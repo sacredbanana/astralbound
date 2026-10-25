@@ -160,7 +160,7 @@ static int cl_clip(ClV *poly, int n, ClV *scratch) {
 /* ---------------------------------------------------------- draw list */
 /* Painter's order, far to near. A node is a polygon (Q4 points in the
    pool), a line, a disc, a planet, or a sprite. */
-enum { CL_POLY, CL_LINE, CL_DISC, CL_BODY, CL_SPRITE, CL_PIXEL, CL_BALL, CL_RING, CL_INTRO };
+enum { CL_POLY, CL_LINE, CL_DISC, CL_BODY, CL_SPRITE, CL_PIXEL, CL_BALL, CL_RING, CL_INTRO, CL_AURORA };
 typedef struct {
     uint32_t key;     /* larger is farther */
     uint8_t kind, colour, extra;
@@ -245,6 +245,7 @@ static void cl_flush(void) {
         case CL_DISC: cl_disc(&cl.surface, d[0], d[1], d[2], n->colour); break;
         case CL_PIXEL: cl_pixel(&cl.surface, d[0], d[1], n->colour); break;
         case CL_BODY: cl_draw_body(n); break;
+        case CL_AURORA: aurora_body(&game->system.planets[n->data], 1); break;
         case CL_SPRITE: cl_draw_sprite(n); break;
         case CL_BALL: cl_draw_ball(n); break;
         case CL_RING: cl_draw_ring(n); break;

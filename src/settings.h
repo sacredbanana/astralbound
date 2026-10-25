@@ -11,11 +11,11 @@ enum { RENDERER_ENHANCED, RENDERER_CLASSIC };
 typedef struct {
     int scale, terrain, texture, planets, clouds, cloud_range, trees, ports;
     int port_range, particles, stars, rings, sky, weather, lights, labels;
-    int triangles, ships;
+    int triangles, ships, aurorae;
 } Graphics;
 typedef struct { int mode, compact, rtg_size, preset, intro, sound, test_scene, renderer, bezier; Graphics gfx; } Settings;
 typedef struct { const char *name, *help; size_t offset; int maximum; const char *values[6]; } GraphicsOption;
-#define GRAPHICS_OPTIONS 18
+#define GRAPHICS_OPTIONS 19
 extern const GraphicsOption graphics_options[GRAPHICS_OPTIONS];
 extern const char *quality_names[5], *video_names[4], *renderer_names[2];
 void settings_defaults(Settings *s, int amiga);

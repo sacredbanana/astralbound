@@ -7,7 +7,7 @@ enum { LAUNCH_NONE, LAUNCH_PLAY, LAUNCH_TEST, LAUNCH_QUIT };
 /* Row geometry of the 320x200 launcher page, shared by drawing and pointer. */
 #define LAUNCHER_ROW_TOP 44
 #define LAUNCHER_ROW_PITCH 9
-/* Renderer, Bezier, then the 17 detail options (legacy scale is hidden). */
+/* Renderer, Bezier, then the 18 detail options (legacy scale is hidden). */
 #define GRAPHICS_MENU_OPTIONS (GRAPHICS_OPTIONS + 1)
 #define GRAPHICS_MENU_PAGES ((GRAPHICS_MENU_OPTIONS + 5) / 6)
 typedef struct {

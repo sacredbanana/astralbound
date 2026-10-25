@@ -3,6 +3,7 @@
 #include <assert.h>
 #include "../src/render.c"
 #include "../src/native_video.h"
+#include "../tools/aurora_fixture.h"
 static void weapon_visibility(void) {
     static Game g;
     Frame f={320,200,0,NULL,{0}};
@@ -1404,10 +1405,141 @@ static void curved_ring_depth(void) {
     free(f.pixels); render_shutdown();
     puts("PASS curved ring holes, foreground occlusion, planar depth, rolled views and near-plane fallback");
 }
+/* Numerical reference for the pre-table aurora geometry. Keep C99 truncation
+   and both radial normalization stages: even metre changes can move a limb. */
+static Vec aurora_reference_direction(const Planet *p, int angle, int pole, int phase) {
+    int latitude = 190 + sini(angle * 3 + phase) * 5 / 16384 +
+                          sini(angle * 7 - phase * 2) * 2 / 16384;
+    int tilt = 28 + (int)(p->seed % 12);
+    Vec n = vec((int64_t)cosi(angle) * cosi(latitude) / 16384,
+                (int64_t)sini(angle) * cosi(latitude) / 16384, pole * sini(latitude));
+    return body_rotate(p, vec((n.x * cosi(tilt) + n.z * sini(tilt)) / 16384, n.y,
+                             (n.z * cosi(tilt) - n.x * sini(tilt)) / 16384), 0);
+}
+static void aurora_lookup_tables(void) {
+    static const int phases[] = {0,1,337,1023};
+    static const int64_t radii[] = {1000,6400000,70000000,2000000000};
+    Planet p = {0};
+    int i, j, f, fold, layer, tilt, phase, spin, pole;
+    for (i = 0; i < 1024; i++) {
+        assert(aurora_wave[i].latitude5 == sini(i)*5/16384);
+        assert(aurora_wave[i].latitude2 == sini(i)*2/16384);
+        assert(aurora_wave[i].fold48 == sini(i)*48/16384);
+        assert(aurora_wave[i].fold24 == sini(i)*24/16384);
+    }
+    for (i = 0; i <= 5000; i++) assert(aurora_fade[i] == i*16/5000);
+    for (f = 0; f <= 16; f++) for (fold = 120; fold <= 264; fold++)
+        assert(aurora_strength[f][fold-120] == f*fold/256);
+    for (layer = 0; layer < 3; layer++) for (i = 0; i <= 16; i++) {
+        static const int opacity[] = {16,12,7};
+        assert(aurora_density[layer][i] == opacity[layer]*i/16);
+    }
+    p.parent = -1; p.spin_period = 86400;
+    for (tilt = 0; tilt < 12; tilt++) for (phase = 0; phase < 4; phase++) for (spin = 0; spin < 3; spin++) {
+        AuroraDirection (*profile)[256];
+        p.seed = (uint32_t)tilt;
+        p.spin_sin = p.spin_cos = 0;
+        if (spin) set_rotation(&p,spin == 1 ? 86400U*HZ/4 : 86400U*HZ*7/10);
+        profile = aurora_profile(&p,phases[phase]);
+        for (pole = 0; pole < 2; pole++) for (i = 0; i < 256; i++) {
+            Vec expected = aurora_reference_direction(&p,i*4,pole ? 1 : -1,phases[phase]);
+            AuroraDirection *d = &profile[pole][i];
+            assert(d->x == expected.x && d->y == expected.y && d->z == expected.z);
+            if (i%64) continue;
+            for (j = 0; j < 4; j++) {
+                Vec actual = aurora_radial(d,radii[j]), reference = radial(expected,radii[j]);
+                assert(actual.x == reference.x && actual.y == reference.y && actual.z == reference.z);
+            }
+        }
+        /* Reuse a pose across changes that do not affect its local geometry. */
+        {
+            uint16_t norm = profile[0][0].length;
+            p.center = vec(1234567,7654321,9876543); p.radius = 6400000;
+            assert(aurora_profile(&p,phases[phase])[0][0].length == norm && norm > 0);
+        }
+    }
+    puts("PASS exact aurora lookup values, all magnetic tilts, phase/spin invalidation and radial rounding from 1 km to 2 billion metres");
+}
+static void planetary_aurorae(void) {
+    aurora_lookup_tables();
+    static Game g;
+    Frame f = {320,200,0,NULL,{0}};
+    Settings settings;
+    Graphics saved = graphics;
+    uint8_t *off = malloc(640*480), *on = malloc(640*480);
+    int renderer, mode, surface, pole, i, changed, moving;
+    assert(off && on); f.pixels = malloc(640*480); assert(f.pixels);
+    for (renderer = 0; renderer < 2; renderer++) for (mode = 0; mode < 3; mode++) {
+        f.w = mode == 2 ? 640 : 320; f.h = mode == 2 ? 480 : mode ? 256 : 200;
+        f.enhanced = mode != 0;
+        settings_defaults(&settings,0); settings_preset(&settings,QUALITY_ULTRA);
+        settings.gfx.clouds = settings.gfx.weather = settings.gfx.trees = 0;
+        render_graphics(&settings.gfx); render_renderer(renderer); assert(render_init(&f));
+        for (surface = 0; surface < 2; surface++) for (pole = -1; pole <= 1; pole += 2) {
+            aurora_fixture(&g,surface,pole);
+            graphics.aurorae = 0; render_performance_scene(&g,&f);
+            memcpy(off,f.pixels,(size_t)f.w*f.h);
+            graphics.aurorae = 1; render_performance_scene(&g,&f);
+            memcpy(on,f.pixels,(size_t)f.w*f.h);
+            changed = 0;
+            for (i = 0; i < f.w*f.h; i++) {
+                changed += off[i] != on[i];
+                if (!f.enhanced) assert(on[i] < 32);
+            }
+            printf("aurora renderer=%d mode=%d surface=%d pole=%d pixels=%d\n",renderer,mode,surface,pole,changed);
+            assert(changed > 12);
+            render_performance_scene(&g,&f);
+            assert(!memcmp(on,f.pixels,(size_t)f.w*f.h));
+            g.tick += 240; render_performance_scene(&g,&f); moving = 0;
+            for (i = 0; i < f.w*f.h; i++) moving += on[i] != f.pixels[i];
+            assert(moving > 12);
+        }
+        /* Noon drowns the visible polar curtains; the night view above glows. */
+        aurora_fixture(&g,1,1);
+        g.system.star[0].center = radial(g.pos,AU_METRES);
+        graphics.aurorae = 0; render_performance_scene(&g,&f); memcpy(off,f.pixels,(size_t)f.w*f.h);
+        graphics.aurorae = 1; render_performance_scene(&g,&f);
+        assert(!memcmp(off,f.pixels,(size_t)f.w*f.h));
+        /* Airless worlds and the disabled switch produce identical frames. */
+        aurora_fixture(&g,0,1); g.system.planets[0].atmosphere = 0;
+        graphics.aurorae = 0; render_performance_scene(&g,&f); memcpy(off,f.pixels,(size_t)f.w*f.h);
+        graphics.aurorae = 1; render_performance_scene(&g,&f);
+        assert(!memcmp(off,f.pixels,(size_t)f.w*f.h));
+        g.system.planets[0].atmosphere = 80000; g.system.planets[0].climate = VACUUM;
+        graphics.aurorae = 0; render_performance_scene(&g,&f); memcpy(off,f.pixels,(size_t)f.w*f.h);
+        graphics.aurorae = 1; render_performance_scene(&g,&f);
+        assert(!memcmp(off,f.pixels,(size_t)f.w*f.h));
+        /* Looking away and rolled views exercise near-plane clipping. */
+        aurora_fixture(&g,1,1); g.yaw = (g.yaw + 512) & 1023; g.roll = 128;
+        render_performance_scene(&g,&f);
+        render_game(&g,&f); memcpy(off,f.pixels,(size_t)f.w*f.h);
+        graphics.aurorae = 0; render_game(&g,&f);
+        for (i = f.w*view_h; i < f.w*f.h; i++) assert(off[i] == f.pixels[i]);
+    }
+    /* Enhanced fragments must be hidden by foreground terrain and hulls. */
+    aurora_fixture(&g,0,1); render_renderer(RENDERER_ENHANCED);
+    graphics.aurorae = 1; render_performance_scene(&g,&f);
+    memset(f.pixels,7,(size_t)f.w*f.h);
+    for (i = 0; i < f.w*f.h; i++) depth_buffer[i] = 1073741824U/8;
+    aurora_body(&g.system.planets[0],0);
+    for (i = 0; i < f.w*f.h; i++) assert(f.pixels[i] == 7);
+    /* The Classic analytic mask rejects far curtains through the globe. */
+    {
+        Disc globe;
+        assert(disc_setup(&globe,&g.system.planets[0],0));
+        assert(aurora_behind_globe(&globe,f.w/2,view_h/2,1));
+        assert(!aurora_behind_globe(&globe,f.w/2,view_h/2,1073741824U/8));
+    }
+    free(off); free(on); free(f.pixels); render_shutdown(); render_graphics(&saved);
+    render_renderer(RENDERER_ENHANCED);
+    puts("PASS animated polar aurorae in surface/orbit, both poles, ECS/AGA/RTG and both renderers; vacuum, clipping, occlusion and HUD bounds");
+}
 int main(int argc, char **argv) {
+    if(argc>1 && !strcmp(argv[1],"--aurorae")) { planetary_aurorae(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--low-graphics")) { low_city_terrain(); scaled_flight_labels(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--polar-ice")) { polar_ice_rendering(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--orbital-materials")) { classic_orbital_material_motion(); return 0; }
+    planetary_aurorae();
     curved_ring_depth();
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;

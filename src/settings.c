@@ -27,13 +27,14 @@ const GraphicsOption graphics_options[GRAPHICS_OPTIONS] = {
     OPT(lights,"PORT LIGHTS","BEACONS AND LANDING LIGHT GLOWS.",1,"OFF","ON"),
     OPT(labels,"BODY LABELS","BODY NAME OVERLAYS. TARGET MARKERS STAY ON.",1,"OFF","ON"),
     OPT(triangles,"TRIANGLE BUDGET","GEOMETRY CAP AND MEMORY: 512 TO 16384.",5,"512","1024","2048","4096","8192","16384"),
-    OPT(ships,"SHIP DETAIL","SIMPLE HULLS SAVE TRANSFORM AND CLIPPING WORK.",1,"SIMPLE","FULL")
+    OPT(ships,"SHIP DETAIL","SIMPLE HULLS SAVE TRANSFORM AND CLIPPING WORK.",1,"SIMPLE","FULL"),
+    OPT(aurorae,"PLANETARY AURORAE","ANIMATED POLAR LIGHTS IN SURFACE AND ORBITAL VIEWS.",1,"OFF","ON")
 };
 static const Graphics presets[4] = {
-    {0,1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,1,0},
-    {0,2,1,1,1,1,1,1,2,1,2,2,0,1,1,0,2,1},
-    {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1},
-    {0,4,3,2,3,4,3,2,4,3,4,4,1,1,1,1,5,1}
+    {0,1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,1,0,0},
+    {0,2,1,1,1,1,1,1,2,1,2,2,0,1,1,0,2,1,0},
+    {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1,0},
+    {0,4,3,2,3,4,3,2,4,3,4,4,1,1,1,1,5,1,1}
 };
 int graphics_value(const Graphics *g, int o) {
     if(o<0 || o>=GRAPHICS_OPTIONS) return 0;
@@ -92,6 +93,7 @@ void settings_dimensions(const Settings *s, int pal, int *w, int *h) {
 int settings_load(Settings *s, const char *path) {
     FILE *file=fopen(path,"r"); char line[128]; int version, i; Settings loaded=*s;
     if(!file) return 0;
+    loaded.gfx.aurorae=0;
     if(!fgets(line,sizeof(line),file) || sscanf(line,"ASTRALBOUND_SETTINGS %d",&version)!=1 || version!=1) { fclose(file); return 0; }
     while(fgets(line,sizeof(line),file)) {
         char key[40], tail; long value;
