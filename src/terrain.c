@@ -151,10 +151,10 @@ int64_t terrain_height_fine(const Planet *p, Vec relative_q8) {
 /* Shared land/water/forest/rock/ice classification drives local and globe LOD. */
 int terrain_material(const Planet *p, Vec relative) {
     int h = terrain_elevation(p, relative);
-    Vec normal = unit(body_rotate(p, relative, 1), 16384);
+    Vec normal = unit(body_rotate(p, relative, 1), 65536);
     if (p->type == GAS_GIANT)
         return 5;
-    if (p->type == ICE || normal.z > 14000 || normal.z < -14000)
+    if (p->type == ICE || noise_polar_value(p->seed, normal) >= 0)
         return 4;
     /* Pads are levelled to exactly sea level: dry ground, never a pond. A
        pad out at sea becomes a 1 km island where the seabed blend begins. */

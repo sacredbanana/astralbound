@@ -2,7 +2,7 @@
    Classic planets, after Frontier: Elite II's RenderPlanet. The outline is
    planet_view's exact span per row. Surface features are closed loops on
    the sphere: coastlines, highland and dark-region outlines from
-   planet_contours, ice caps, gas-giant bands, and five nested light caps
+   planet_contours (including polar ice), gas-giant bands, and five light caps
    around the sub-solar point whose count is the shade (the terminator and
    its twilight bands). Each loop's visible edges become body-span
    crossings carrying one mask bit; a pixel's colour comes from the XOR of
@@ -48,9 +48,9 @@ static ClBodyRow cl_body_rows[1024];
 static uint16_t cl_body_toggles[1025];
 static ClBody cl_body;
 static int16_t cl_first[1024], cl_last[1024];
-/* Classic coastline caches: coast, highland and dark-region loops for the
+/* Classic geographic caches: coast, highland, dark-region and ice loops for the
    two most recently drawn worlds. */
-static struct { PlanetContours coast, highland, dark; uint32_t key; unsigned used; } cl_contours[2];
+static struct { PlanetContours coast, highland, dark, ice; uint32_t key; unsigned used; } cl_contours[2];
 static unsigned cl_contour_clock;
 /* Circle polygons survive until the body's fill parity has been seeded.
    The largest set is five lighting caps plus seven gas-giant bands. */
@@ -74,6 +74,10 @@ static int cl_contour_slot(const Planet *p) {
         planet_contours_build(&cl_contours[oldest].coast, f, n, CONTOUR_COAST);
         planet_contours_build(&cl_contours[oldest].highland, f, n, CONTOUR_HIGHLAND);
         planet_contours_build(&cl_contours[oldest].dark, f, n * 2 / 3, CONTOUR_ALBEDO);
+        /* A coarse 16-cell coast mesh cuts across narrow polar bays in
+           pole-on views. Ice needs at least 24 cells even on Low; extraction
+           is cached, and the extra edges only surround the two small poles. */
+        planet_contours_build(&cl_contours[oldest].ice, f, n < 24 ? 24 : n, CONTOUR_ICE);
     }
     cl_contours[oldest].key = key; cl_contours[oldest].used = ++cl_contour_clock;
     return oldest;
@@ -257,7 +261,8 @@ static void cl_body_contours(const ClBodyInfo *b, const PlanetContours *c, unsig
     }
 }
 /* Feature mask at a camera-space normal: land, rock and dark regions from
-   the planet field; ice and bands from latitude; light from the star. */
+   the planet field, including geographic ice; gas bands from latitude;
+   light from the star. */
 static unsigned cl_body_mask(const ClBodyInfo *b, const int16_t *m) {
     const Planet *p = &game->system.planets[b->body];
     int32_t n[3];
@@ -270,10 +275,10 @@ static unsigned cl_body_mask(const ClBodyInfo *b, const int16_t *m) {
         for (k = 0; k < CL_GAS_BANDS; k++) if (n[2] > -14336 + k * 4096) mask |= CLB_BAND << k;
         return mask;
     }
-    if (p->type != ICE && (n[2] > 14000 || n[2] < -14000)) mask |= CLB_ICE;
     {
         PlanetField *f = planet_field_for(p);
         Vec q = vec(n[0] * 4, n[1] * 4, n[2] * 4);
+        if (p->type != ICE && planet_field_ice(f, q) >= 0) mask |= CLB_ICE;
         if (p->type == OCEAN) {
             int h = planet_field_base_height(f, q);
             if (h >= 0) mask |= CLB_LAND;
@@ -331,6 +336,7 @@ static void cl_body_seed(ClBodyInfo *b) {
             if (planet_contours_positive(&cl_contours[slot].highland, q)) actual |= CLB_ROCK;
         }
         if (!planet_contours_positive(&cl_contours[slot].dark, q)) actual |= CLB_DARK;
+        if (p->type != ICE && planet_contours_positive(&cl_contours[slot].ice, q)) actual |= CLB_ICE;
     }
     for (k = 0; k < cl_circle_count; k++) {
         int i, small = cl_circles[k].cosr >= 0, inside = small;
@@ -606,20 +612,15 @@ static void cl_draw_planet(ClBodyInfo *b) {
         int16_t pole[3] = {b->m[0][2], b->m[1][2], b->m[2][2]};
         for (k = 0; k < CL_GAS_BANDS; k++) cl_body_circle(b, pole, -14336 + k * 4096, CLB_BAND << k, segments);
     } else {
-        int16_t north[3] = {b->m[0][2], b->m[1][2], b->m[2][2]};
-        int16_t south[3] = {(int16_t)-b->m[0][2], (int16_t)-b->m[1][2], (int16_t)-b->m[2][2]};
-        if (p->type != ICE) {
-            cl_body_circle(b, north, 14000, CLB_ICE, segments * 2 / 3);
-            cl_body_circle(b, south, 14000, CLB_ICE, segments * 2 / 3);
-        }
         /* Under six pixels Frontier drew a plain shaded disc: no surface
            features, and none in the bottom mask, so parity holds. */
-        if (b->view.radius_px < 6 * 256) b->bottom_mask &= ~(unsigned)(CLB_LAND | CLB_ROCK | CLB_DARK);
+        if (b->view.radius_px < 6 * 256) b->bottom_mask &= ~(unsigned)(CLB_LAND | CLB_ROCK | CLB_DARK | CLB_ICE);
         else {
             int slot = cl_contour_slot(p);
             cl_body_contours(b, &cl_contours[slot].coast, CLB_LAND);
             cl_body_contours(b, &cl_contours[slot].highland, CLB_ROCK);
             cl_body_contours(b, &cl_contours[slot].dark, CLB_DARK);
+            cl_body_contours(b, &cl_contours[slot].ice, CLB_ICE);
         }
     }
     if (b->view.radius_px >= 6 * 256) cl_body_seed(b);

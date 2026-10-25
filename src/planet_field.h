@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
    A planet's appearance at orbital scale, evaluated from the same seeded
    noise as its terrain. Coastlines are the terrain's own sea-level contour
-   of the continent field, ice caps its own latitude threshold, so a world
+   of the continent field, polar ice its own geographic field, so a world
    seen from orbit has exactly the coasts and caps the commander lands on.
    Lattice values are cached per body; every evaluation is bit-identical to
    terrain.c's noise at the same body-fixed direction.
@@ -34,9 +34,12 @@ int planet_field_base_height(const PlanetField *f, Vec n);
    land also reports their expected Q8 shares (lowland, forest, rock; sum
    256), which a renderer can blend; the return value is the largest. */
 int planet_field_land(const PlanetField *f, Vec n, int mix[3]);
-/* The same from a base height the caller already has (for example one
-   interpolated between exact samples), so coasts stay sub-pixel smooth. */
-int planet_field_classify(const PlanetField *f, Vec n, int base_height, int mix[3]);
+/* Classify a sampled or interpolated base height and signed ice value,
+   applying their boundaries per pixel so both margins stay smooth. */
+int planet_field_classify(const PlanetField *f, int base_height, int ice, int mix[3]);
+/* Signed geographic ice coverage, shared with terrain. >= 0 is frozen.
+   Interpolate this field alongside height, then classify per pixel. */
+int planet_field_ice(const PlanetField *f, Vec n);
 int planet_field_material(const PlanetField *f, Vec n);
 /* The coarse regional reflectance noise alone, 0..4095 (the dominant term
    of terrain_regional_albedo), for region outlines. */

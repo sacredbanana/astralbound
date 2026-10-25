@@ -16,20 +16,26 @@ typedef struct {
     int64_t altitude;  /* metres above the surface for a horizon view */
     int phase;         /* camera bearing from the sun line, table angles */
     int spin;          /* extra planet rotation, fraction of a day in 1024ths */
+    int latitude;      /* dedicated polar view; zero keeps the phase camera */
 } Fixture;
 static const Fixture fixtures[] = {
-    {"ocean-distant", 0x53504143, 0, 200 * 16, 0, 170, 0},
-    {"ocean-far", 0x53504143, 0, 40 * 16, 0, 170, 0},
-    {"ocean-orbit", 0x53504143, 0, 8 * 16, 0, 170, 0},
-    {"ocean-close", 0x53504143, 0, 3 * 16, 0, 170, 0},
-    {"ocean-terminator", 0x53504143, 0, 3 * 16, 0, 300, 0},
-    {"ocean-low-orbit", 0x53504143, 0, 22, 0, 150, 0},
-    {"ocean-high-altitude", 0x53504143, 0, 0, 150000, 120, 0},
-    {"ocean-low-altitude", 0x53504143, 0, 0, 3000, 120, 0},
-    {"desert-orbit", 0x53504143, 2, 4 * 16, 0, 200, 0},
-    {"moon-orbit", 0x53504143, 3, 4 * 16, 0, 200, 0},
-    {"gas-orbit", 2, 1, 6 * 16, 0, 170, 0},
-    {"gas-close", 2, 1, 40, 0, 120, 0},
+    {"ocean-distant", 0x53504143, 0, 200 * 16, 0, 170, 0, 0},
+    {"ocean-far", 0x53504143, 0, 40 * 16, 0, 170, 0, 0},
+    {"ocean-orbit", 0x53504143, 0, 8 * 16, 0, 170, 0, 0},
+    {"ocean-close", 0x53504143, 0, 3 * 16, 0, 170, 0, 0},
+    {"ocean-terminator", 0x53504143, 0, 3 * 16, 0, 300, 0, 0},
+    {"ocean-low-orbit", 0x53504143, 0, 22, 0, 150, 0, 0},
+    {"ocean-high-altitude", 0x53504143, 0, 0, 150000, 120, 0, 0},
+    {"ocean-low-altitude", 0x53504143, 0, 0, 3000, 120, 0, 0},
+    {"desert-orbit", 0x53504143, 2, 4 * 16, 0, 200, 0, 0},
+    {"moon-orbit", 0x53504143, 3, 4 * 16, 0, 200, 0, 0},
+    {"gas-orbit", 2, 1, 6 * 16, 0, 170, 0, 0},
+    {"gas-close", 2, 1, 40, 0, 120, 0, 0},
+    {"ocean-north-oblique", 0x53504143, 0, 3 * 16, 0, 0, 0, 128},
+    {"ocean-north-rotated", 0x53504143, 0, 3 * 16, 0, 0, 300, 128},
+    {"ocean-north-pole", 0x53504143, 0, 3 * 16, 0, 0, 0, 256},
+    {"ocean-south-oblique", 0x53504143, 0, 3 * 16, 0, 0, 0, -128},
+    {"ocean-south-pole", 0x53504143, 0, 3 * 16, 0, 0, 0, -256},
 };
 #define FIXTURES (int)(sizeof(fixtures) / sizeof(fixtures[0]))
 static Game g;
@@ -69,6 +75,13 @@ static void place(const Fixture *x) {
         across = cross14(sun, north);
         side = add(scale(across, cosi(85), 16384), scale(north, sini(85), 16384));
         dir = unit(add(scale(sun, cosi(x->phase), 16384), scale(side, sini(x->phase), 16384)), 16384);
+    }
+    if (x->latitude) {
+        dir = vec(cosi(x->latitude), 0, sini(x->latitude));
+        /* Light the polar geography clearly, independently of season. */
+        g.system.stars = 1;
+        g.system.star[0].center = add(p->center, scale(dir, AU_METRES, 16384));
+        g.system.count = 1; g.nports = 0;
     }
     if (x->distance) {
         Vec offset = scale(dir, (int64_t)p->radius * x->distance, 16384 * 16LL);

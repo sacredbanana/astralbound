@@ -57,6 +57,7 @@ typedef struct {
     int32_t light;     /* 0..16384 */
     int32_t height;    /* planet-scale base height (ocean worlds), metres */
     int32_t albedo;    /* regional reflectance of land, Q8 */
+    int32_t ice;       /* signed geographic ice coverage */
     uint32_t depth;
     int limb, field; /* field: height and albedo evaluated */
 } DiscSample;
@@ -269,37 +270,39 @@ static void disc_field(const Disc *s, DiscSample *m) {
     if (m->field) return;
     m->height = s->field->type == OCEAN ? planet_field_base_height(s->field, nb) : 0;
     m->albedo = s->field->type == GAS_GIANT ? 0 : planet_field_regional_albedo(s->field, nb, 1) * 256;
+    m->ice = s->field->type == GAS_GIANT || s->field->type == ICE ? -9000 : planet_field_ice(s->field, nb);
     m->field = 1;
 }
 /* Linear steps across a block in Q16: one division per channel per block,
    then additions per pixel (a 68k divide costs about a hundred cycles). */
-typedef struct { int64_t v[7], dv[7]; } DiscStep;
+typedef struct { int64_t v[8], dv[8]; } DiscStep;
 static void disc_step_begin(DiscStep *t, const DiscSample *a, const DiscSample *b, int len) {
-    int64_t from[7], to[7];
+    int64_t from[8], to[8];
     int i;
     for (i = 0; i < 3; i++) { from[i] = a->n[i]; to[i] = b->n[i]; }
     from[3] = a->light; to[3] = b->light;
     from[4] = a->height; to[4] = b->height;
     from[5] = a->albedo; to[5] = b->albedo;
     from[6] = a->depth; to[6] = b->depth;
-    for (i = 0; i < 7; i++) {
+    from[7] = a->ice; to[7] = b->ice;
+    for (i = 0; i < 8; i++) {
         t->v[i] = from[i] * 65536 + 32768;
         t->dv[i] = (to[i] - from[i]) * 65536 / len;
     }
 }
 static void disc_step(DiscStep *t, DiscSample *out) {
     int i;
-    for (i = 0; i < 7; i++) t->v[i] += t->dv[i];
+    for (i = 0; i < 8; i++) t->v[i] += t->dv[i];
     for (i = 0; i < 3; i++) out->n[i] = (int32_t)(t->v[i] >> 16);
     out->light = (int32_t)(t->v[3] >> 16);
     out->height = (int32_t)(t->v[4] >> 16);
     out->albedo = (int32_t)(t->v[5] >> 16);
     out->depth = (uint32_t)(t->v[6] >> 16);
+    out->ice = (int32_t)(t->v[7] >> 16);
 }
 static int disc_colour(const Disc *s, const DiscSample *m, int x, int y) {
     int mix[3], material, shade, t = bayer4[(y & 3) * 4 + (x & 3)];
-    Vec n = vec(m->n[0], m->n[1], m->n[2]);
-    material = planet_field_classify(s->field, n, m->height, mix);
+    material = planet_field_classify(s->field, m->height, m->ice, mix);
     /* Lambert into the 15-step material ramps, in sixteenths for dithering. */
     shade = m->light * 224 / 16384;
     if (material == 5) {

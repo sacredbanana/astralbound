@@ -74,7 +74,7 @@ needs optimisation; passing renderer tests is not proof of playable speed.
 | Procedural noise shared with terrain and collision | `src/noise.h` | yes |
 | Wide-range per-frame and per-row arithmetic | `src/xfloat.[ch]` | yes |
 | Exact sphere outlines, bounds and level of detail | `src/planet_view.[ch]` | yes |
-| A planet's orbital appearance: coasts, caps, albedo, land mix | `src/planet_field.[ch]` | yes |
+| A planet's orbital appearance: coasts, geographic ice, albedo, land mix | `src/planet_field.[ch]` | yes |
 | Per-pixel shading, depth, dithering, palette | `src/render_planet.inc` | Enhanced renderer only |
 
 The shared modules know nothing of frame buffers, depth buffers or palettes.
@@ -124,7 +124,12 @@ on:
 
 - **Coastlines** are terrain's own sea-level contour of the continent noise.
   That noise lives on a 10³ lattice, cached per body.
-- **Ice caps** use `terrain_material`'s latitude threshold.
+- **Polar ice** uses a shared body-fixed field: latitude sets the cold zone,
+  continental uplands extend glacial tongues equatorward, and regional
+  deposits break the edge into bays. Each seed and hemisphere has its own
+  outline. There is no longitude seam, and both geographic poles stay frozen.
+  `terrain_material` evaluates the same field on the ground. Ice worlds stay
+  entirely icy; gas giants keep their atmospheric bands.
 - **Regional albedo** is `terrain_regional_albedo`. Its coarse lattice is
   cached, and its fine lattice is filled lazily.
 
@@ -153,8 +158,10 @@ Normals match an exact double-precision intersection to 2·10⁻⁴.
 - **Sampling.** Exact samples are taken every 4, 8 or 16 pixels, depending on
   the `PLANET` graphics setting. Values between samples are interpolated by
   addition. Within an eighth of the radius of the limb, every pixel is exact.
-- **Coastlines.** Base height is interpolated, and the sea-level threshold is
-  applied per pixel, so coasts stay sub-pixel smooth.
+- **Coastlines and ice.** Base height and signed ice coverage are interpolated,
+  and their boundaries are applied per pixel. Ice uses the existing cached
+  continent and regional lattices, evaluated at sample points rather than
+  once per pixel.
 - **Field work only where it shows.** Depth is tested first, so blocks hidden
   behind ships, ports or terrain skip the field lookups.
 - **Lighting** is the sum over stars, with eclipses by other bodies, as
@@ -181,9 +188,12 @@ than the sphere's own per-pixel coastlines, so it is not drawn.
 It can reuse `planet_view` (spans, bounds, LOD), `planet_field` (coasts,
 caps, albedo, land shares) and `noise.h` unchanged. What it needs of its own
 is its fill: flat or banded spans, painter's order, and a few colours. The
-terminator, ice caps and gas bands are circles on the sphere, so they can be
-crossed per row the same way as the outline. Coastlines can be extracted as
-contours of the same continent field.
+terminator and gas bands are circles on the sphere, so they can be crossed
+per row the same way as the outline. Coastlines and polar ice are extracted
+as closed contours of their shared fields. Classic caches the ice contours
+alongside coasts, highlands and albedo, clips them at the limb and seeds fill
+parity against those same contours. Polar ice is no longer drawn as a pair
+of latitude circles.
 
 ## Measuring
 
@@ -191,6 +201,12 @@ contours of the same continent field.
 make planet-bench      # host timings of the planetary fixtures
 make planet-evidence   # PPM frames of the same fixtures, in build/evidence/planets
 ```
+
+The image set includes north/south oblique and pole-on views, plus a rotated
+north view. `tests/test_planet.c` checks irregular seeded margins, rotated
+surface agreement and contour parity. `build/renderer-tests --polar-ice`
+checks the visible ice against the field across both renderers, ECS/AGA/RTG,
+Low/Medium/High, rotation and pole-on views.
 
 Host timings do not predict 68k cost; see the 68020 notes in the commit
 history. Native measurement belongs on a cycle-exact emulator with JIT off.

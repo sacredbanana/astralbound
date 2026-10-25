@@ -943,6 +943,65 @@ static void night_and_twilight_skies(void) {
     free(f.pixels); render_shutdown();
     puts("PASS stars by night and in vacuum, hidden by day and cloud; composition-tinted sunsets");
 }
+/* The rasterised ice must follow the geographic field through north/south
+   views and body rotation, including Classic's contour parity and Enhanced's
+   interpolated samples. Ignore a small margin where LOD simplifies edges. */
+static void polar_ice_rendering(void) {
+    static Game g;
+    Frame f = {320, 200, 0, NULL, {0}};
+    Graphics saved = graphics;
+    Settings settings;
+    int renderer, mode, quality, view, scenes = 0;
+    f.pixels = malloc(640 * 480); assert(f.pixels);
+    for (renderer = 0; renderer < 2; renderer++) for (mode = 0; mode < 3; mode++)
+        for (quality = QUALITY_LOW; quality <= QUALITY_HIGH; quality++) for (view = 0; view < 6; view++) {
+        Planet *p;
+        Disc disc;
+        Vec dir = view >= 4 ? vec(0, 0, view & 1 ? -16384 : 16384) :
+                             unit(vec(1, 0, view & 1 ? -1 : 1), 16384);
+        int x, y, ice = 0, ground = 0, wrong = 0;
+        f.w = mode == 2 ? 640 : 320; f.h = mode == 2 ? 480 : mode == 1 ? 256 : 200;
+        f.enhanced = mode != 0;
+        settings_defaults(&settings, 0); settings_preset(&settings, quality);
+        settings.gfx.stars = settings.gfx.rings = settings.gfx.clouds = 0;
+        render_graphics(&settings.gfx); render_renderer(renderer); assert(render_init(&f));
+        game_init(&g, 0x53504143);
+        g.docked = g.target = -1; g.page = FLIGHT; g.ui_visible = 0;
+        g.body = g.target_body = g.frame_body = 0;
+        g.system.count = g.system.stars = 1; g.nports = 0;
+        memset(g.npc, 0, sizeof(g.npc));
+        p = &g.system.planets[0]; p->climate = VACUUM; p->atmosphere = 0;
+        set_rotation(p, view == 2 || view == 3 ? rotation_period(p) / 3 : 0);
+        g.pos = scale(add(p->center, scale(dir, (int64_t)p->radius * 3, 16384)), FP, 1);
+        aim_angles(scale(dir, -1, 1), &g.yaw, &g.pitch); g.roll = 0;
+        g.system.star[0].center = add(p->center, scale(dir, AU_METRES, 16384));
+        render_performance_scene(&g, &f);
+        assert(disc_setup(&disc, p, 0));
+        for (y = disc.view.top; y < disc.view.bottom; y++) {
+            int first, last;
+            if (!planet_row_pixels(&disc.view, y, &first, &last)) continue;
+            for (x = first + 2; x <= last - 2; x++) {
+                DiscSample sample;
+                int value, frozen, c = f.pixels[y * f.w + x];
+                disc_sample(&disc, x, y, &sample);
+                if (sample.limb) continue;
+                value = planet_field_ice(disc.field, vec(sample.n[0], sample.n[1], sample.n[2]));
+                if (abs(value) < 2000) continue;
+                frozen = f.enhanced ? c >= 112 && c <= 126 : c >= 28 && c <= 30;
+                if (value >= 0) ice++; else ground++;
+                wrong += frozen != (value >= 0);
+            }
+        }
+        if (wrong * 100 > ice + ground)
+            fprintf(stderr, "Polar ice mismatch renderer %d mode %d quality %d view %d: %d of %d\n",
+                    renderer, mode, quality, view, wrong, ice + ground);
+        assert(ice > 50 && ground > 1000 && wrong * 100 <= ice + ground);
+        scenes++;
+        render_shutdown();
+    }
+    render_renderer(RENDERER_ENHANCED); render_graphics(&saved); free(f.pixels);
+    printf("PASS geographic polar ice in %d north/south rotated ECS/AGA/RTG Low/Medium/High renders\n", scenes);
+}
 /* An orbital camera must move coast/highland edges locally. Sampling the
    original noise to seed a simplified contour's parity inverted whole
    regions whenever the bottom limb passed between the two boundaries. */
@@ -1347,10 +1406,12 @@ static void curved_ring_depth(void) {
 }
 int main(int argc, char **argv) {
     if(argc>1 && !strcmp(argv[1],"--low-graphics")) { low_city_terrain(); scaled_flight_labels(); return 0; }
+    if(argc>1 && !strcmp(argv[1],"--polar-ice")) { polar_ice_rendering(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--orbital-materials")) { classic_orbital_material_motion(); return 0; }
     curved_ring_depth();
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;
+    polar_ice_rendering();
     classic_orbital_material_motion();
     classic_intro_sun_occlusion();
     intro_frames();

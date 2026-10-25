@@ -63,11 +63,14 @@ static void land_mix(int h, int mix[3]) {
     mix[1] = forest_share[i] + ((forest_share[i + 1] - forest_share[i]) * frac >> 8);
     mix[2] = 256 - mix[0] - mix[1];
 }
-int planet_field_classify(const PlanetField *f, Vec n, int h, int mix[3]) {
+int planet_field_ice(const PlanetField *f, Vec n) {
+    if (!noise_polar_possible(n)) return -9000;
+    return noise_polar_ice(n, planet_field_continent(f, n), planet_field_region(f, n));
+}
+int planet_field_classify(const PlanetField *f, int h, int ice, int mix[3]) {
     mix[0] = mix[1] = mix[2] = 0;
     if (f->type == GAS_GIANT) return 5;
-    /* terrain_material's cap test on the Q14 normal (n is Q16). */
-    if (f->type == ICE || n.z / 4 > 14000 || n.z / 4 < -14000) return 4;
+    if (f->type == ICE || ice >= 0) return 4;
     if (f->type != OCEAN) {
         int m = f->type == DESERT || f->type == MOON || !f->flat ? 3 : 1;
         mix[m == 3 ? 2 : 0] = 256;
@@ -78,7 +81,8 @@ int planet_field_classify(const PlanetField *f, Vec n, int h, int mix[3]) {
     return mix[2] >= mix[0] && mix[2] >= mix[1] ? 3 : mix[1] >= mix[0] ? 2 : 1;
 }
 int planet_field_land(const PlanetField *f, Vec n, int mix[3]) {
-    return planet_field_classify(f, n, f->type == OCEAN ? planet_field_base_height(f, n) : 0, mix);
+    return planet_field_classify(f, f->type == OCEAN ? planet_field_base_height(f, n) : 0,
+                                 planet_field_ice(f, n), mix);
 }
 int planet_field_material(const PlanetField *f, Vec n) {
     int mix[3];

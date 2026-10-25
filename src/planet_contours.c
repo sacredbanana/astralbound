@@ -60,6 +60,7 @@ static void link(int a, int b) {
    to rock (about 260 m). Albedo: the coarse regional reflectance's mean. */
 #define HIGHLAND_HEIGHT 262
 static int contour_value(PlanetField *f, Vec n, int kind) {
+    if (kind == CONTOUR_ICE) return planet_field_ice(f, n);
     if (kind == CONTOUR_ALBEDO) return planet_field_region(f, n) - 2048;
     return planet_field_base_height(f, n) - (kind == CONTOUR_HIGHLAND ? HIGHLAND_HEIGHT : 0);
 }
@@ -72,7 +73,8 @@ int planet_contours_build(PlanetContours *c, PlanetField *f, int n, int kind) {
     if (n > 48) n = 48;
     c->seed = f->seed; c->resolution = n; c->kind = kind; c->loops = c->points = c->truncated = 0;
     c->positive_corners = 0;
-    if (kind != CONTOUR_ALBEDO && f->type != OCEAN) return 0;
+    if ((kind == CONTOUR_COAST || kind == CONTOUR_HIGHLAND) && f->type != OCEAN) return 0;
+    if (kind == CONTOUR_ICE && f->type == ICE) return 0;
     if (f->type == GAS_GIANT) return 0;
     for (i = 0; i < 8; i++) {
         Vec corner = unit(vec(i & 1 ? -n : n, i & 2 ? -n : n, i & 4 ? -n : n), 65536);

@@ -43,4 +43,22 @@ static inline int noise_value(uint32_t seed, Vec q, int shift) {
         corner[i] = noise_sample(seed, x + (i & 1), y + (i >> 1 & 1), z + (i >> 2));
     return noise_blend(corner, fx, fy, fz);
 }
+/* Signed polar ice coverage on a body-fixed Q16 direction. Continental
+   uplands carry ice farther equatorward; regional deposits cut bays and
+   glacial tongues into that margin. Cartesian fields have no longitude
+   seam or singularity at either pole. The poles remain frozen, while the
+   equator cannot acquire ice. Positive (including zero) means ice. */
+static inline int noise_polar_ice(Vec n, int continent, int region) {
+    int latitude = (int)(n.z < 0 ? -n.z : n.z);
+    return latitude - 57000 + 3 * (continent - 2048) + (region - 2048);
+}
+/* Even the strongest continental lobe cannot freeze below this latitude. */
+static inline int noise_polar_possible(Vec n) {
+    return n.z < -48000 || n.z > 48000;
+}
+static inline int noise_polar_value(uint32_t seed, Vec n) {
+    if (!noise_polar_possible(n)) return -9000;
+    return noise_polar_ice(n, noise_value(seed, n, 14),
+                           noise_value(seed ^ 0x434f4e54U, n, 13));
+}
 #endif

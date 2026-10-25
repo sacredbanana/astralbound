@@ -222,6 +222,63 @@ static void planet_fields(void) {
     assert(wet_agree * 1000 >= wet * 985 && caps_agree * 1000 >= caps * 995);
     for (i = 0; i < 3; i++) assert(llabs(share[i] / 256 - truth[i]) * 100 <= land * 3);
 }
+/* Both hemispheres need a geographic margin, with reproducible bays and
+   tongues rather than an isocircle. Exercise the cached field against raw
+   terrain noise, and sample terrain on either side of every meridian's ice
+   edge after rotating it into world space. */
+static void polar_geography(void) {
+    static PlanetField field;
+    Planet p = {0};
+    int seed, hemisphere, angle, latitude, checked = 0;
+    uint32_t previous[2] = {0, 0};
+    p.type = OCEAN; p.radius = 6000000; p.parent = -1;
+    for (seed = 1; seed <= 12; seed++) {
+        p.seed = (uint32_t)seed * 7919U;
+        planet_field_init(&field, &p);
+        set_rotation(&p, (uint32_t)seed * 173U);
+        for (hemisphere = -1; hemisphere <= 1; hemisphere += 2) {
+            int min_edge = 256, max_edge = 0;
+            uint32_t shape = 0;
+            for (angle = 0; angle < 1024; angle += 16) {
+                int edge = 0;
+                for (latitude = 128; latitude <= 256; latitude++) {
+                    Vec n = vec((int64_t)cosi(latitude) * cosi(angle) / 4096,
+                                (int64_t)cosi(latitude) * sini(angle) / 4096,
+                                (int64_t)hemisphere * sini(latitude) * 4);
+                    int value = planet_field_ice(&field, n);
+                    assert(value == noise_polar_value(p.seed, n));
+                    if (value >= 0) { edge = latitude; break; }
+                }
+                assert(edge > 128 && edge < 256);
+                if (edge < min_edge) min_edge = edge;
+                if (edge > max_edge) max_edge = edge;
+                shape = shape * 33U + (unsigned)edge;
+                /* Stay clear of the Q16 rounding boundary. */
+                for (latitude = edge - 3; latitude <= edge + 3; latitude += 6) {
+                    Vec n = vec((int64_t)cosi(latitude) * cosi(angle) / 4096,
+                                (int64_t)cosi(latitude) * sini(angle) / 4096,
+                                (int64_t)hemisphere * sini(latitude) * 4);
+                    Vec local = body_rotate(&p, radial(n, p.radius), 0);
+                    assert((terrain_material(&p, local) == 4) == (planet_field_ice(&field, n) >= 0));
+                    checked++;
+                }
+            }
+            assert(max_edge - min_edge >= 12); /* >= four degrees of coastline variation */
+            assert(shape != previous[hemisphere > 0]); /* each seed has its own geography */
+            previous[hemisphere > 0] = shape;
+        }
+        assert(planet_field_ice(&field, vec(65536, 0, 0)) < 0);
+        assert(planet_field_ice(&field, vec(0, 0, 65536)) >= 0);
+        assert(planet_field_ice(&field, vec(0, 0, -65536)) >= 0);
+        /* Planet types retain their material semantics. */
+        p.type = ICE; planet_field_init(&field, &p);
+        assert(planet_field_material(&field, vec(65536, 0, 0)) == 4);
+        p.type = GAS_GIANT; planet_field_init(&field, &p);
+        assert(planet_field_material(&field, vec(0, 0, 65536)) == 5);
+        p.type = OCEAN;
+    }
+    printf("PASS irregular north/south ice margins for 12 seeds and %d rotated surface samples\n", checked);
+}
 /* Extraction preserves the field sign at its lattice vertices. Querying
    loops must preserve that sign too, across face seams, octants and LODs. */
 static void contour_parity(void) {
@@ -233,14 +290,14 @@ static void contour_parity(void) {
     p.type = OCEAN; p.radius = 1000000; p.parent = -1;
     for (seed = 0; seed < 2; seed++) {
         p.seed = seeds[seed]; planet_field_init(&field, &p);
-        for (n = 16; n <= 32; n += 8) for (kind = 0; kind < 3; kind++) {
+        for (n = 16; n <= 32; n += 8) for (kind = 0; kind <= CONTOUR_ICE; kind++) {
             planet_contours_build(&contours, &field, n, kind);
             assert(!contours.truncated && contours.loops > 0);
             for (face = 0; face < 6; face++) for (i = 0; i <= n; i += 4) for (j = 0; j <= n; j += 4) {
                 int axis = face / 2, sign = face & 1 ? -n : n, u = -n + 2 * i, v = -n + 2 * j;
                 Vec d = unit(axis == 0 ? vec(sign, u, v) : axis == 1 ? vec(u, sign, v) : vec(u, v, sign), 65536);
                 ContourPoint q = {(int16_t)(d.x / 4), (int16_t)(d.y / 4), (int16_t)(d.z / 4)};
-                int value = kind == CONTOUR_ALBEDO ? planet_field_region(&field, d) - 2048 :
+                int value = kind == CONTOUR_ICE ? planet_field_ice(&field, d) : kind == CONTOUR_ALBEDO ? planet_field_region(&field, d) - 2048 :
                     planet_field_base_height(&field, d) - (kind == CONTOUR_HIGHLAND ? 262 : 0);
                 if (abs(value) < 16) continue; /* Q14 rounding at the boundary */
                 if (planet_contours_positive(&contours, q) != (value >= 0))
@@ -254,6 +311,7 @@ static void contour_parity(void) {
     printf("PASS contour parity at %d lattice directions across seams, octants and three resolutions\n", checked);
 }
 int main(void) {
+    polar_geography();
     contour_parity();
     xfloat_arithmetic();
     planet_culling();

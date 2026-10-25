@@ -25,8 +25,8 @@ typedef struct {
     ContourPoint point[CONTOUR_POINTS];
 } PlanetContours;
 /* Which contour: the coast (sea level), the highland edge where inland
-   rock begins to dominate, or the edge of dark regional albedo. */
-enum { CONTOUR_COAST, CONTOUR_HIGHLAND, CONTOUR_ALBEDO };
+   rock begins to dominate, the edge of dark regional albedo, or the geographic polar ice margin. */
+enum { CONTOUR_COAST, CONTOUR_HIGHLAND, CONTOUR_ALBEDO, CONTOUR_ICE };
 /* Contour loops at `resolution` cells per cube-face edge (4 to 48). Coasts
    and highlands exist only on ocean worlds. Returns the loop count. */
 int planet_contours_build(PlanetContours *c, PlanetField *f, int resolution, int kind);
