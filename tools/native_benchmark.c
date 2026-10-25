@@ -53,6 +53,7 @@ int main(void) {
         settings_defaults(&settings, 1);
         settings_preset(&settings, QUALITY_LOW);
         render_graphics(&settings.gfx);
+        render_bezier(settings.bezier);
         for (renderer = 0; renderer < 2; renderer++) {
             uint64_t total = 0;
             render_renderer(renderer);

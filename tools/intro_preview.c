@@ -44,15 +44,15 @@ static void seek(int tick) {
 int main(int argc, char **argv) {
     Frame f = {320, 256, 1, NULL, {0}};
     Settings settings;
-    int i = 1, preset = -1;
+    int i = 1, preset = -1, renderer_override = -1, bezier_override = -1;
     settings_defaults(&settings, 0);
     for (; i < argc && !strncmp(argv[i], "--", 2); i++) {
         if (!strcmp(argv[i], "--ecs")) f.enhanced = 0;
         else if (!strcmp(argv[i], "--ntsc")) f.h = 200;
         else if (!strcmp(argv[i], "--rtg")) { f.w = 640; f.h = 480; }
-        else if (!strcmp(argv[i], "--classic")) settings.renderer = RENDERER_CLASSIC;
-        else if (!strcmp(argv[i], "--enhanced")) settings.renderer = RENDERER_ENHANCED;
-        else if (!strcmp(argv[i], "--no-bezier")) settings.bezier = 0;
+        else if (!strcmp(argv[i], "--classic")) renderer_override = RENDERER_CLASSIC;
+        else if (!strcmp(argv[i], "--enhanced")) renderer_override = RENDERER_ENHANCED;
+        else if (!strcmp(argv[i], "--no-bezier")) bezier_override = 0;
         else if (!strcmp(argv[i], "--preset") && i + 1 < argc) {
             int k;
             i++;
@@ -62,8 +62,10 @@ int main(int argc, char **argv) {
         }
         else break;
     }
-    /* Keep the historical preview detail unless a preset was requested. */
-    if (preset >= 0) { settings_preset(&settings, preset); render_graphics(&settings.gfx); }
+    if (preset >= 0) settings_preset(&settings, preset);
+    if (renderer_override >= 0) settings.renderer = renderer_override;
+    if (bezier_override >= 0) settings.bezier = bezier_override;
+    render_graphics(&settings.gfx);
     render_renderer(settings.renderer);
     render_bezier(settings.bezier);
     f.pixels = malloc((size_t)f.w * f.h);

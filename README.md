@@ -71,22 +71,24 @@ Arrow keys move/change, Return selects, Escape backs out, and the mouse or a
 joystick/CD32 pad can operate the menu. Setup redraws only when needed on Amiga.
 If a selected display cannot open or allocate memory, setup lets you lower it.
 
-**Low** is the first-launch Amiga default: 320 x 200, a 2x pixel 3D view, coarse
-flat-shaded terrain, simple ports/hulls, reduced effects and no volumetric clouds,
-forests or twilight glow. **Medium** restores material sampling and some scenery.
-**High** uses full-resolution, fine textured terrain and the full visual effects.
-**Ultra** increases terrain tessellation, cloud/forest/scenery distances, stars,
-rings and geometry capacity for fast accelerators and emulators. Presets affect
-renderer work; selecting AGA or RTG by itself does not make the CPU renderer faster.
+**Medium** is the first-launch default on Amiga and host builds. It uses the
+Classic renderer with Bezier rings enabled. **Low** also uses Classic, with
+Bezier rings disabled, coarse flat terrain, simple ports/hulls and fewer
+effects. **High** and **Ultra** select Enhanced with Bezier rings enabled;
+Ultra increases terrain, cloud, forest, star, ring and geometry work for fast
+machines and emulators. Every preset renders at full output resolution.
+Selecting AGA or RTG alone does not make the CPU renderer faster.
 
-Select **Custom**, then **Custom Options**, for three pages of 18 controls: 3D
-pixel size (1x to 4x), terrain mesh, surface shading, planet facets, cloud mesh and
-distance, forests, port detail and distance, smoke/debris, stars, rings, twilight,
-weather/fog, port lights, body labels, triangle budget (512 to 16384), and ship
-detail. Custom begins with the current preset's values. The console and menus stay
-at output resolution. Minimum settings deliberately sacrifice appearance; visual
-terrain detail never changes collision, autopilot, weather physics or save data.
-Native C2P still converts the selected output size, even with a smaller 3D view.
+Open **Graphics Options** from any preset for four pages of controls. Renderer
+and Bezier Rings are on the first page, alongside terrain and surface detail.
+The remaining controls cover planets, clouds, forests, ports, effects, stars,
+rings, weather, lights, labels, triangle budget and ship detail. Changing any
+option selects **Custom**, preserving the other values. Selecting a named
+preset reapplies its renderer and Bezier defaults. Surface Shading and Triangle Budget are disabled for
+Classic, which uses flat shading and its own draw list; their values return
+when Enhanced is selected. Classic offers only the detail levels it uses.
+Pixel-size scaling is no longer an option; old saved scaling values are ignored. Visual detail never
+changes collision, autopilot, weather physics or commander save data.
 
 **Run Performance Test** runs all 14 scenes or the scene chosen in **Test Scene**:
 orbit/rings, low/desert/ice terrain, a city, an orbital station, rain/forests,

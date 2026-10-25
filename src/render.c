@@ -3853,7 +3853,7 @@ static void enlarge(const Frame *source, Frame *destination, int height) {
     }
 }
 void render_graphics(const Graphics *g) {
-    graphics=*g; graphics_configured=1;
+    graphics=*g; graphics.scale=0; graphics_configured=1;
     memset(surface_cache,0,sizeof(surface_cache)); lod_altitude=-1;
 }
 void render_game(const Game *g, Frame *f) {
@@ -3978,20 +3978,21 @@ void render_launcher(const Launcher *m, Frame *f) {
     frame=f; draw_scale=ui_scale(f); view_h=f->h;
     memset(f->pixels,0,(size_t)f->w*f->h);
     text(8,7,15,"ASTRALBOUND");
-    text(8,21,13,m->page==1 ? "CUSTOM GRAPHICS" : m->page==2 ? "PERFORMANCE RESULTS" : "LAUNCH OPTIONS");
-    if(m->page==1) snprintf(buf,sizeof(buf),"PAGE %d OF 3 - ALL CHANGES ARE CUSTOM",m->group+1);
+    text(8,21,13,m->page==1 ? "GRAPHICS OPTIONS" : m->page==2 ? "PERFORMANCE RESULTS" : "LAUNCH OPTIONS");
+    if(m->page==1) snprintf(buf,sizeof(buf),"PAGE %d OF %d - CHANGES SELECT CUSTOM",m->group+1,GRAPHICS_MENU_PAGES);
     else if(m->page==2) snprintf(buf,sizeof(buf),"%.14s %s %dX%d %s",video_names[m->latest.settings.mode],quality_names[m->latest.settings.preset],m->latest.width,m->latest.height,m->latest.complete ? "DONE" : "PARTIAL");
     else snprintf(buf,sizeof(buf),"CONFIGURE - TEST - START");
     text(8,34,7,buf);
     for(i=0;i<rows;i++) {
+        int enabled=launcher_graphics_available(m,i);
         launcher_row(m,i,name,sizeof(name),value,sizeof(value));
-        /* LAUNCHER_ROW_TOP/PITCH: fourteen rows clear the message line. */
+        /* LAUNCHER_ROW_TOP/PITCH keeps every page clear of the message. */
         if(i==m->selected) rect(6,LAUNCHER_ROW_TOP-1+i*LAUNCHER_ROW_PITCH,308,LAUNCHER_ROW_PITCH,3);
-        text(9,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,i==m->selected ? 15 : 7,name);
-        if(value[0]) text(310-(int)strlen(value)*6,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,13,value);
+        text(9,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,enabled ? (i==m->selected ? 15 : 7) : 6,name);
+        if(value[0]) text(310-(int)strlen(value)*6,LAUNCHER_ROW_TOP+1+i*LAUNCHER_ROW_PITCH,enabled ? 13 : 6,value);
     }
-    if(m->page==1 && m->selected<6) {
-        const char *hint=graphics_options[m->group*6+m->selected].help;
+    if(m->page==1 && m->selected<launcher_graphics_rows(m)) {
+        const char *hint=launcher_graphics_hint(m);
         /* Wrap once at a word boundary for the compact native menu. */
         int n=(int)strlen(hint),cut=n>49 ? 49 : n;
         while(cut>0 && cut<n && hint[cut]!=' ') cut--;

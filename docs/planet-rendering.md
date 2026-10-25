@@ -11,14 +11,22 @@ procedural data, with separate rasterisation paths.
 
 ## Selecting and previewing the renderers
 
-The launch menu's third row, **RENDERER**, switches between **ENHANCED** and
-**CLASSIC**. Graphics presets, including Ultra, control detail independently
-of that choice. Host runs also accept `--classic` and `--enhanced`.
+Open **Graphics Options** in the launch menu. Its first two settings are
+**RENDERER** (Enhanced or Classic) and **BEZIER RINGS** (On or Off). Editing
+an option selects Custom without resetting the other settings.
 
-The next row, **BEZIER RINGS**, toggles cubic ring curves on or off in both renderers.
-Off draws polygonal ring boundaries. The option defaults to On, is saved in
-the settings file, and is independent of presets.
-Host and intro previews accept `--no-bezier` for comparison.
+Medium is the new-install default on all builds. Low and Medium select
+Classic; High and Ultra select Enhanced. Low disables Bezier rings; Medium,
+High and Ultra enable them. All presets render at full resolution, and old
+saved pixel-size overrides are ignored. Surface Shading and Triangle
+Budget are unavailable with Classic; their saved values remain intact for
+Enhanced. Classic terrain/cloud controls omit unused detail levels, and
+curved ring detail is automatic (the rings control becomes On/Off). Custom preserves manual renderer
+and curve choices. Named presets reapply their complete defaults on load.
+
+Host runs also accept `--classic`, `--enhanced` and `--no-bezier`; explicit
+renderer/curve flags override a named preset and select Custom. Intro previews
+accept the same overrides for comparison.
 
 Rebuild the host with `make` after updating the source. `./package.sh`
 rebuilds the Amiga binaries and refreshes the ZIP, LHA and boot ADF; an old

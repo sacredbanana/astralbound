@@ -7,17 +7,17 @@
 static Game g;
 int main(int argc, char **argv) {
     Frame f={320,200,0,NULL,{0}};
-    Settings s; int preset,scene,i,j,renderer=RENDERER_ENHANCED,bezier=1;
+    Settings s; int preset,scene,i,j,renderer=RENDERER_ENHANCED,bezier=-1;
     for(i=1;i<argc;i++) {
         if(!strcmp(argv[i],"--classic")) renderer=RENDERER_CLASSIC;
         if(!strcmp(argv[i],"--no-bezier")) bezier=0;
     }
-    render_bezier(bezier);
     f.pixels=malloc(320*200); if(!f.pixels) return 1;
     printf("Host CPU, %s renderer only, ECS 320x200. Excludes C2P, sync, audio and physics.\n", renderer_names[renderer]);
     puts("preset scene ms/frame indexed-hash");
     for(preset=0;preset<4;preset++) {
         settings_defaults(&s,1); settings_preset(&s,preset); render_graphics(&s.gfx); render_renderer(renderer);
+        render_bezier(bezier>=0 ? bezier : s.bezier);
         if(!render_init(&f)) return 1;
         for(scene=0;scene<PERFORMANCE_SCENES;scene++) {
             clock_t start; uint32_t hash=2166136261U;

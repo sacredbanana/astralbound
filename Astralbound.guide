@@ -68,20 +68,23 @@
   A failed display/memory allocation returns to setup to lower options.
 
   GRAPHICS PRESET:
-  Low is the first-launch Amiga default, using 320 x 200, 2x 3D pixels,
-  coarse flat terrain, simple ports/hulls and fewer effects. Clouds,
-  forests, twilight and visual weather are off. Medium restores some
-  detail. High uses the full textured renderer. Ultra increases terrain,
-  cloud, forest, star, ring and geometry work for fast machines/emulators.
+  Medium is the first-launch default on all builds: Classic renderer,
+  Bezier rings on, and full-resolution rendering. Low also uses Classic,
+  with Bezier rings off, coarse flat terrain and reduced scenery/effects.
+  High and Ultra use Enhanced with Bezier rings on. Ultra increases
+  terrain, cloud, forest, star, ring and geometry work for fast machines.
+  Every preset renders at full output resolution.
 
-  Choose Custom, then CUSTOM OPTIONS to open three pages of controls:
-  3D pixel size (1x-4x), terrain mesh, surface shading, planet facets,
-  cloud mesh/distance, forests, port detail/distance, smoke/debris,
-  stars, rings, twilight, rain/fog, port lights, body labels, triangle
-  budget (512-16384) and ship detail. Custom begins at the current preset.
-  The console stays sharp. Minimum options can look deliberately ugly.
+  Open GRAPHICS OPTIONS from any preset for four pages of controls.
+  Renderer and Bezier Rings are on the first page. Other controls cover
+  terrain, shading, planets, clouds, forests, ports, effects, stars,
+  rings, weather, lights, labels, triangle budget and ship detail.
+  Editing an option selects Custom and keeps the remaining values.
+  Selecting a named preset reapplies its renderer and Bezier defaults.
+  Classic disables Surface Shading and Triangle Budget, retaining their
+  values for Enhanced. Classic offers only detail levels that it uses.
+  Pixel size is no longer selectable; old saved scaling is ignored.
   Visual detail does not change collision, autopilot or flight physics.
-  Lower 3D resolution still needs C2P at the selected native output size.
 
   TEST SCENE chooses all 14 scenes or one scene. RUN PERFORMANCE TEST
   measures orbit/rings, low/desert/ice terrain, a city, an orbital port,

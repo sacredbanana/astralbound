@@ -157,9 +157,33 @@ static void bezier_option(void) {
     render_bezier(1);
     puts("PASS Bezier ring toggle changes both renderers in ECS/AGA/RTG");
 }
+/* Pixel-size overrides from old settings must not degrade either backend. */
+static void full_resolution(void) {
+    static uint8_t first[320*256];
+    Settings s;
+    int renderer;
+    Frame f={320,256,1,NULL,{0}};
+    for(renderer=0;renderer<2;renderer++) {
+        settings_defaults(&s,0); settings_preset(&s,QUALITY_HIGH);
+        render_renderer(renderer); render_bezier(s.bezier); render_graphics(&s.gfx);
+        f.pixels=frame_pixels(); memset(buffer,0xA5,GUARD*2+640*480);
+        assert(render_init(&f)); performance_scene(&g,1);
+        render_performance_scene(&g,&f); memcpy(first,f.pixels,sizeof(first));
+        s.gfx.scale=3; render_graphics(&s.gfx); render_performance_scene(&g,&f);
+        assert(!memcmp(first,f.pixels,sizeof(first))); guards(f.w,f.h);
+        if(renderer==RENDERER_CLASSIC) {
+            s.gfx.texture=0; s.gfx.triangles=0; render_graphics(&s.gfx);
+            assert(render_init(&f)); render_performance_scene(&g,&f);
+            assert(!memcmp(first,f.pixels,sizeof(first))); guards(f.w,f.h);
+        }
+        render_shutdown();
+    }
+    puts("PASS legacy pixel-size overrides keep both renderers at full resolution");
+}
 int main(void) {
     buffer = malloc(GUARD * 2 + 640 * 480);
     assert(buffer);
+    full_resolution();
     planet_outlines();
     bezier_option();
     scenes();

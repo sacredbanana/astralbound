@@ -121,6 +121,7 @@ int main(int argc, char **argv) {
     if (images) {
         Settings s;
         settings_defaults(&s, 0); settings_preset(&s, QUALITY_HIGH); render_graphics(&s.gfx);
+        render_bezier(s.bezier);
         render_renderer(renderer);
         for (mode = 0; mode < 3; mode++) {
             Frame f = {modes[mode].w, modes[mode].h, modes[mode].enhanced, NULL, {0}};
@@ -147,6 +148,7 @@ int main(int argc, char **argv) {
             int run;
             settings_defaults(&s, 0); settings_preset(&s, preset ? QUALITY_HIGH : QUALITY_LOW);
             render_graphics(&s.gfx);
+            render_bezier(s.bezier);
             render_renderer(renderer);
             f.pixels = malloc((size_t)f.w * f.h);
             if (!f.pixels || !render_init(&f)) return 1;

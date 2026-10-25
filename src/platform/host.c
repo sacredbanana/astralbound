@@ -441,6 +441,7 @@ done:
 }
 int main(int argc, char **argv) {
     Launcher menu; const char *path="astralbound.cfg"; int i,skip_menu=0,preview=0,action,result;
+    int renderer_override=-1,bezier_override=-1;
     for(i=1;i<argc;i++) {
         if(!strcmp(argv[i],"--config") && i+1<argc) path=argv[++i];
         if(!strcmp(argv[i],"--render") || !strcmp(argv[i],"--render-intro") || !strcmp(argv[i],"--render-menu")) preview=1;
@@ -457,17 +458,19 @@ int main(int argc, char **argv) {
         if(!strcmp(argv[i],"--lowres") || !strcmp(argv[i],"--ntsc")) preferences.compact=1;
         if(!strcmp(argv[i],"--nosound")) preferences.sound=0;
         if(!strcmp(argv[i],"--nointro")) preferences.intro=0;
-        if(!strcmp(argv[i],"--classic")) preferences.renderer=RENDERER_CLASSIC;
-        if(!strcmp(argv[i],"--enhanced")) preferences.renderer=RENDERER_ENHANCED;
-        if(!strcmp(argv[i],"--no-bezier")) preferences.bezier=0;
+        if(!strcmp(argv[i],"--classic")) renderer_override=RENDERER_CLASSIC;
+        if(!strcmp(argv[i],"--enhanced")) renderer_override=RENDERER_ENHANCED;
+        if(!strcmp(argv[i],"--no-bezier")) bezier_override=0;
         if(!strcmp(argv[i],"--preset") && i+1<argc) {
             int k; i++; for(k=0;k<5;k++) if(!strcasecmp(argv[i],quality_names[k])) settings_preset(&preferences,k);
         }
     }
+    if(renderer_override>=0) { preferences.renderer=renderer_override; preferences.preset=QUALITY_CUSTOM; }
+    if(bezier_override>=0) { preferences.bezier=bezier_override; preferences.preset=QUALITY_CUSTOM; }
     if(preview && argc>2 && !strcmp(argv[1],"--render-menu")) {
         Frame f={320,200,0,NULL,{0}};
         launcher_init(&menu,&preferences,1,1);
-        if(argc>3 && !strcmp(argv[3],"--custom")) { settings_preset(&menu.settings,QUALITY_CUSTOM); menu.page=1; }
+        if(argc>3 && !strcmp(argv[3],"--custom")) menu.page=1;
         f.pixels=malloc(320*200); if(!f.pixels || !render_init(&f)) return 1;
         render_launcher(&menu,&f); ppm(&f,argv[2]); free(f.pixels); render_shutdown(); return 0;
     }

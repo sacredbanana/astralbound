@@ -10,62 +10,132 @@ static Game g;
 static void persistence(void) {
     Settings original,loaded; int i; FILE *file;
     const char *path="build/settings-test.cfg";
-    settings_defaults(&original,1); assert(original.mode==VIDEO_ECS && original.preset==QUALITY_LOW && original.compact);
-#ifdef ASTRALBOUND_FPU
-    assert(original.renderer==RENDERER_ENHANCED); /* FPU builds default to Enhanced */
-#else
-    assert(original.renderer==RENDERER_CLASSIC);  /* plain 68k builds default to Classic */
-#endif
-    settings_defaults(&loaded,0); assert(loaded.renderer==RENDERER_ENHANCED && loaded.bezier==1);
+    settings_defaults(&original,1);
+    assert(original.mode==VIDEO_ECS && original.preset==QUALITY_MEDIUM && original.compact);
+    assert(original.renderer==RENDERER_CLASSIC && original.bezier && !original.gfx.scale);
+    settings_defaults(&loaded,0);
+    assert(loaded.preset==QUALITY_MEDIUM && loaded.renderer==RENDERER_CLASSIC && loaded.bezier && !loaded.gfx.scale);
     original.renderer^=1; original.bezier=0; /* both choices persist */
     original.test_scene=11; original.mode=VIDEO_RTG16; original.rtg_size=3; original.intro=original.sound=0;
     for(i=0;i<GRAPHICS_OPTIONS;i++) { graphics_change(&original,i,1); graphics_change(&original,i,1); }
     assert(settings_save(&original,path)); settings_defaults(&loaded,0); assert(settings_load(&loaded,path));
     assert(!memcmp(&original,&loaded,sizeof(original)));
-    original.gfx.scale=3; assert(settings_save(&original,path)); assert(settings_load(&loaded,path)); assert(loaded.gfx.scale==3);
+    original.gfx.scale=3; assert(settings_save(&original,path)); assert(settings_load(&loaded,path)); assert(loaded.gfx.scale==0);
     file=fopen(path,"w"); assert(file); fputs("ASTRALBOUND_SETTINGS 1\nmode 999\npreset 4\ngraphics_0 2147483647\ngraphics_2 -1\ngraphics_7 1\ngraphics_6 2garbage\nfuture_option 7\n",file); fclose(file);
     assert(settings_load(&loaded,path)); assert(loaded.mode==VIDEO_ECS && loaded.gfx.scale==0 && loaded.gfx.ports==1);
+    /* Legacy scale keys retain their numbering but can no longer reduce resolution. */
+    file=fopen(path,"w"); assert(file);
+    fputs("ASTRALBOUND_SETTINGS 1\npreset 4\nrenderer 0\nbezier 0\ngraphics_0 3\ngraphics_7 2\n",file); fclose(file);
+    assert(settings_load(&loaded,path));
+    assert(!loaded.gfx.scale && loaded.gfx.ports==2 && loaded.renderer==RENDERER_ENHANCED && !loaded.bezier);
+    file=fopen(path,"w"); assert(file);
+    fputs("ASTRALBOUND_SETTINGS 1\npreset 0\nrenderer 0\nbezier 1\ngraphics_0 3\n",file); fclose(file);
+    assert(settings_load(&loaded,path));
+    assert(loaded.renderer==RENDERER_CLASSIC && !loaded.bezier && !loaded.gfx.scale);
     file=fopen(path,"w"); assert(file); fputs("ASTRALBOUND_SETTINGS 77\n",file); fclose(file);
     original=loaded; assert(!settings_load(&loaded,path)); assert(!memcmp(&original,&loaded,sizeof(original)));
     assert(!settings_save(&loaded,"build/nonexistent-settings-directory/file.cfg"));
     remove(path);
     puts("PASS settings roundtrip, replacement, bounded custom values and future version rejection");
 }
+static void presets(void) {
+    Settings s; int preset;
+    settings_defaults(&s,0);
+    for(preset=0;preset<QUALITY_CUSTOM;preset++) {
+        s.renderer=RENDERER_ENHANCED; s.bezier=0; s.gfx.scale=3;
+        settings_preset(&s,preset);
+        assert(s.preset==preset && !s.gfx.scale);
+        assert(s.renderer==(preset<=QUALITY_MEDIUM ? RENDERER_CLASSIC : RENDERER_ENHANCED));
+        assert(s.bezier==(preset!=QUALITY_LOW));
+        s.renderer^=1; s.bezier^=1; s.gfx.scale=3;
+        settings_validate(&s);
+        assert(s.renderer==(preset<=QUALITY_MEDIUM ? RENDERER_CLASSIC : RENDERER_ENHANCED));
+        assert(s.bezier==(preset!=QUALITY_LOW) && !s.gfx.scale);
+    }
+    s.preset=QUALITY_CUSTOM; s.renderer=RENDERER_CLASSIC; s.bezier=0; s.gfx.scale=3;
+    settings_validate(&s); assert(s.renderer==RENDERER_CLASSIC && !s.bezier && !s.gfx.scale);
+    puts("PASS Medium defaults, preset renderer/Bezier mapping, full resolution and Custom overrides");
+}
 static void menus(void) {
-    Settings s; Launcher m; int i;
+    Settings s; Launcher m; int i,preset;
+    char name[48],value[48];
     settings_defaults(&s,1); launcher_init(&m,&s,0,0);
     m.selected=1; launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.mode==VIDEO_ECS);
-    /* The renderer row toggles between Enhanced and Classic. */
-    m.selected=2; { int r=m.settings.renderer; launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.renderer==!r);
-        launcher_key(&m,LAUNCH_LEFT); assert(m.settings.renderer==r); }
-    { char name[32],value[32]; launcher_row(&m,2,name,sizeof(name),value,sizeof(value));
-      assert(!strcmp(name,"RENDERER") && !strcmp(value,renderer_names[m.settings.renderer])); }
-    /* Curves are explicit, independent of presets, available in both backends. */
-    m.settings.renderer=RENDERER_CLASSIC; m.selected=3;
-    assert(m.settings.bezier==1); launcher_key(&m,LAUNCH_RIGHT); assert(!m.settings.bezier);
-    settings_preset(&m.settings,QUALITY_ULTRA); assert(!m.settings.bezier);
-    settings_preset(&m.settings,QUALITY_LOW);
-    launcher_pointer(&m,200,LAUNCHER_ROW_TOP+3*LAUNCHER_ROW_PITCH+1,1);
-    assert(m.selected==3 && m.settings.bezier); launcher_pointer(&m,200,0,0);
-    m.settings.renderer=RENDERER_ENHANCED; launcher_key(&m,LAUNCH_RIGHT);
-    assert(!m.settings.bezier && !m.message[0]);
-    { char name[32],value[32]; launcher_row(&m,3,name,sizeof(name),value,sizeof(value));
-      assert(!strcmp(name,"BEZIER RINGS") && !strcmp(value,"OFF")); }
-    assert(launcher_rows(&m)==14);
-    m.selected=6; launcher_key(&m,'\r'); assert(m.page==0); /* Presets gate Custom. */
-    m.selected=5; for(i=0;i<4;i++) launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.preset==QUALITY_CUSTOM);
-    m.selected=6; launcher_key(&m,'\r'); assert(m.page==1);
-    for(i=0;i<GRAPHICS_OPTIONS;i++) {
-        int value=graphics_value(&m.settings.gfx,i);
-        m.group=i/6; m.selected=i%6; launcher_key(&m,LAUNCH_RIGHT);
-        assert(graphics_value(&m.settings.gfx,i)==(value+1)%(graphics_options[i].maximum+1));
+    assert(launcher_rows(&m)==12);
+    for(i=0;i<launcher_rows(&m);i++) {
+        launcher_row(&m,i,name,sizeof(name),value,sizeof(value));
+        assert(strcmp(name,"RENDERER") && strcmp(name,"BEZIER RINGS") && strcmp(name,"3D PIXEL SIZE"));
     }
-    launcher_key(&m,27); assert(m.page==0);
+    /* Graphics Options opens from every preset without changing it. */
+    for(preset=0;preset<QUALITY_CUSTOM;preset++) {
+        settings_preset(&m.settings,preset); m.page=0; m.selected=4;
+        launcher_key(&m,'\r'); assert(m.page==1 && m.settings.preset==preset);
+        launcher_key(&m,27);
+    }
+    settings_preset(&m.settings,QUALITY_MEDIUM); m.selected=4; launcher_key(&m,'\r');
+    assert(m.page==1 && m.group==0);
+    launcher_row(&m,0,name,sizeof(name),value,sizeof(value));
+    assert(!strcmp(name,"RENDERER") && !strcmp(value,"CLASSIC"));
+    launcher_key(&m,LAUNCH_RIGHT);
+    assert(m.settings.renderer==RENDERER_ENHANCED && m.settings.preset==QUALITY_CUSTOM);
+    m.selected=1; launcher_key(&m,LAUNCH_RIGHT); assert(!m.settings.bezier);
+    launcher_row(&m,1,name,sizeof(name),value,sizeof(value));
+    assert(!strcmp(name,"BEZIER RINGS") && !strcmp(value,"OFF"));
+    for(i=0;i<GRAPHICS_MENU_OPTIONS;i++) {
+        int before;
+        m.group=i/6; m.selected=i%6;
+        before=i==0 ? m.settings.renderer : i==1 ? m.settings.bezier : graphics_value(&m.settings.gfx,i-1);
+        launcher_row(&m,m.selected,name,sizeof(name),value,sizeof(value));
+        assert(strcmp(name,"3D PIXEL SIZE") && strcmp(name,"RESERVED"));
+        assert(launcher_graphics_hint(&m)[0]);
+        launcher_key(&m,LAUNCH_RIGHT);
+        if(i==0) assert(m.settings.renderer==!before);
+        else if(i==1) assert(m.settings.bezier==!before);
+        else if(!graphics_available(&m.settings,i-1)) assert(graphics_value(&m.settings.gfx,i-1)==before);
+        else assert(graphics_value(&m.settings.gfx,i-1)!=before);
+        assert(m.settings.preset==QUALITY_CUSTOM && !m.settings.gfx.scale);
+    }
+    /* Last page has one setting; navigation stays on valid rows as pages shrink. */
+    assert(m.group==GRAPHICS_MENU_PAGES-1 && launcher_rows(&m)==4);
+    m.selected=launcher_graphics_rows(&m)+1; launcher_key(&m,'\r');
+    assert(m.group==0 && m.selected<launcher_rows(&m));
+    m.selected=launcher_graphics_rows(&m); launcher_key(&m,'\r');
+    assert(m.group==GRAPHICS_MENU_PAGES-1 && m.selected<launcher_rows(&m));
+    m.selected=launcher_graphics_rows(&m)+2; launcher_key(&m,'\r');
+    assert(m.page==0 && m.selected==4);
     assert(launcher_pointer(&m,200,49,1)==LAUNCH_PLAY);
     assert(launcher_pointer(&m,200,49,1)==0); launcher_pointer(&m,200,49,0);
-    m.selected=7; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
+    m.selected=5; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
     launcher_key(&m,LAUNCH_LEFT); assert(m.test_scene==-1);
-    puts("PASS capability filtering, Custom gating, every option and pointer edge activation");
+    m.selected=11; assert(launcher_key(&m,'\r')==LAUNCH_QUIT);
+    puts("PASS graphics-only renderer/Bezier controls, all four pages, preset entry and pointer activation");
+}
+static void capabilities(void) {
+    Settings s; Launcher m; int i;
+    char name[48],value[48];
+    settings_defaults(&s,0); launcher_init(&m,&s,1,1); m.page=1;
+    for(i=0;i<2;i++) {
+        int option=i ? 16 : 2;
+        m.group=(option+1)/6; m.selected=(option+1)%6;
+        assert(!launcher_graphics_available(&m,m.selected));
+        launcher_row(&m,m.selected,name,sizeof(name),value,sizeof(value));
+        assert(!strcmp(value,"ENHANCED RENDERER ONLY"));
+        { Settings before=m.settings;
+          launcher_key(&m,LAUNCH_RIGHT); assert(!memcmp(&before,&m.settings,sizeof(before)) && m.message[0]);
+          graphics_change(&m.settings,option,1); assert(!memcmp(&before,&m.settings,sizeof(before))); }
+        m.settings.renderer=RENDERER_ENHANCED;
+        assert(launcher_graphics_available(&m,m.selected));
+        { int before=graphics_value(&m.settings.gfx,option);
+          launcher_key(&m,LAUNCH_RIGHT); assert(graphics_value(&m.settings.gfx,option)!=before);
+          m.settings.renderer=RENDERER_CLASSIC;
+          launcher_key(&m,LAUNCH_RIGHT); assert(graphics_value(&m.settings.gfx,option)!=before); }
+    }
+    m.settings.renderer=RENDERER_CLASSIC;
+    m.settings.gfx.terrain=4; graphics_change(&m.settings,1,1); assert(m.settings.gfx.terrain==1);
+    m.settings.gfx.clouds=3; graphics_change(&m.settings,4,1); assert(!m.settings.gfx.clouds);
+    m.settings.gfx.rings=4; graphics_change(&m.settings,11,1); assert(!m.settings.gfx.rings);
+    graphics_change(&m.settings,11,1); assert(m.settings.gfx.rings);
+    puts("PASS Classic disables Enhanced-only options, preserves values and uses applicable detail ranges");
 }
 static void rendering(void) {
     Settings s; Frame f={320,200,0,NULL,{0}}; int preset,scene,i,w,h;
@@ -256,4 +326,4 @@ static void weather_flights(void) {
     }
     puts("PASS upright planetary horizons, timed flight through rain/snow, cloud entry/core/exit and terrain clearance");
 }
-int main(void) { persistence(); menus(); timing(); weather_flights(); orbit_view(); benchmark_audio(); rendering(); performance_views(); return 0; }
+int main(void) { presets(); persistence(); menus(); capabilities(); timing(); weather_flights(); orbit_view(); benchmark_audio(); rendering(); performance_views(); return 0; }

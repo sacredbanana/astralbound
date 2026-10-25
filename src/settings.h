@@ -25,6 +25,7 @@ int settings_load(Settings *s, const char *path);
 int settings_save(const Settings *s, const char *path);
 int graphics_value(const Graphics *g, int option);
 void graphics_change(Settings *s, int option, int direction);
+int graphics_available(const Settings *s, int option);
 void settings_dimensions(const Settings *s, int pal, int *w, int *h);
 void render_graphics(const Graphics *g);
 void render_renderer(int renderer);

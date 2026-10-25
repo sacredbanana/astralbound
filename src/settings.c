@@ -9,10 +9,11 @@ const char *video_names[4] = {"ECS 32 COLOURS", "AGA 256 COLOURS", "RTG 8 BIT", 
 const char *renderer_names[2] = {"ENHANCED", "CLASSIC"};
 #define OPT(member, title, hint, max, ...) {title, hint, offsetof(Graphics,member), max, {__VA_ARGS__}}
 const GraphicsOption graphics_options[GRAPHICS_OPTIONS] = {
-    OPT(scale,"3D PIXEL SIZE","LARGER PIXELS SAVE FILL WORK. HUD STAYS SHARP.",3,"1X","2X","3X","4X"),
+    /* Keep the legacy graphics_0 slot for old configuration files only. */
+    OPT(scale,"RESERVED","",0,"1X"),
     OPT(terrain,"TERRAIN MESH","COARSE LAND STILL USES EXACT FLIGHT COLLISION.",4,"MINIMUM","COARSE","MEDIUM","FINE","EXTREME"),
     OPT(texture,"SURFACE SHADING","FLAT REMOVES PER PIXEL TERRAIN SAMPLING.",3,"FLAT","MATERIAL","TEXTURED","FULL"),
-    OPT(planets,"PLANET FACETS","DISTANT SPHERES: 8 TO 32 LONGITUDE FACETS.",2,"8","16","32"),
+    OPT(planets,"PLANET DETAIL","DETAIL IN PLANET SURFACES AND CURVED BOUNDARIES.",2,"LOW","MEDIUM","HIGH"),
     OPT(clouds,"CLOUD MESH","OFF REMOVES VOLUMETRIC CLOUD GEOMETRY.",3,"OFF","LOW","HIGH","EXTREME"),
     OPT(cloud_range,"CLOUD DISTANCE","NUMBER OF CLOUD CELL RINGS AROUND THE VIEW.",4,"1","2","3","5","8"),
     OPT(trees,"FORESTS","DECORATIVE TREES. NO EFFECT ON LAND HEIGHT.",3,"OFF","SPARSE","NORMAL","DENSE"),
@@ -29,8 +30,8 @@ const GraphicsOption graphics_options[GRAPHICS_OPTIONS] = {
     OPT(ships,"SHIP DETAIL","SIMPLE HULLS SAVE TRANSFORM AND CLIPPING WORK.",1,"SIMPLE","FULL")
 };
 static const Graphics presets[4] = {
-    {1,1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,1,0},
-    {1,2,1,1,1,1,1,1,2,1,2,2,0,1,1,0,2,1},
+    {0,1,0,0,0,0,0,0,1,0,1,1,0,0,0,0,1,0},
+    {0,2,1,1,1,1,1,1,2,1,2,2,0,1,1,0,2,1},
     {0,3,3,2,2,3,2,2,3,3,3,3,1,1,1,1,3,1},
     {0,4,3,2,3,4,3,2,4,3,4,4,1,1,1,1,5,1}
 };
@@ -42,25 +43,34 @@ static int *graphics_slot(Graphics *g, int o) { return (int *)((char *)g+graphic
 void settings_preset(Settings *s, int preset) {
     if(preset<0 || preset>QUALITY_CUSTOM) return;
     s->preset=preset;
-    if(preset<QUALITY_CUSTOM) s->gfx=presets[preset];
+    if(preset<QUALITY_CUSTOM) {
+        s->gfx=presets[preset];
+        s->renderer=preset<=QUALITY_MEDIUM ? RENDERER_CLASSIC : RENDERER_ENHANCED;
+        s->bezier=preset!=QUALITY_LOW;
+    }
+    s->gfx.scale=0;
 }
 void settings_defaults(Settings *s, int amiga) {
     memset(s,0,sizeof(*s)); s->mode=amiga ? VIDEO_ECS : VIDEO_AGA;
     s->compact=amiga; s->intro=1; s->sound=1; s->rtg_size=1; s->bezier=1;
-    /* Machines without an FPU get the Classic renderer; the FPU builds
-       (020+881, 040, 060) and accelerated hosts default to Enhanced. */
-#ifdef ASTRALBOUND_FPU
-    s->renderer=RENDERER_ENHANCED;
-#else
-    s->renderer=amiga ? RENDERER_CLASSIC : RENDERER_ENHANCED;
-#endif
-    settings_preset(s,amiga ? QUALITY_LOW : QUALITY_HIGH);
+    settings_preset(s,QUALITY_MEDIUM);
+}
+int graphics_available(const Settings *s, int o) {
+    return o>0 && o<GRAPHICS_OPTIONS &&
+        (s->renderer!=RENDERER_CLASSIC || (o!=2 && o!=16));
 }
 void graphics_change(Settings *s, int o, int direction) {
     int *value;
-    if(o<0 || o>=GRAPHICS_OPTIONS) return;
+    if(!graphics_available(s,o)) return;
     value=graphics_slot(&s->gfx,o);
-    *value=(*value+graphics_options[o].maximum+1+direction)%(graphics_options[o].maximum+1);
+    if(o==11 && (s->renderer==RENDERER_CLASSIC || s->bezier)) *value=*value ? 0 : 2;
+    else if(s->renderer==RENDERER_CLASSIC && o==1) {
+        int v=*value<1 ? 1 : *value>3 ? 3 : *value;
+        *value=1+(v-1+3+direction)%3;
+    } else if(s->renderer==RENDERER_CLASSIC && o==4) {
+        int v=*value>2 ? 2 : *value;
+        *value=(v+3+direction)%3;
+    } else *value=(*value+graphics_options[o].maximum+1+direction)%(graphics_options[o].maximum+1);
     s->preset=QUALITY_CUSTOM;
 }
 static int bounded(int v,int max,int fallback) { return v>=0 && v<=max ? v : fallback; }
@@ -72,7 +82,7 @@ void settings_validate(Settings *s) {
     s->renderer=bounded(s->renderer,1,0);
     s->bezier=bounded(s->bezier,1,1);
     for(i=0;i<GRAPHICS_OPTIONS;i++) *graphics_slot(&s->gfx,i)=bounded(graphics_value(&s->gfx,i),graphics_options[i].maximum,0);
-    if(s->preset<QUALITY_CUSTOM) s->gfx=presets[s->preset];
+    settings_preset(s,s->preset);
 }
 void settings_dimensions(const Settings *s, int pal, int *w, int *h) {
     static const int widths[]={320,640,800,1024}, heights[]={240,480,600,768};

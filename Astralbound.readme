@@ -70,7 +70,8 @@ Installed Play shortcuts use a selected build.
 
 Open the appropriate CPU icon or Play-AGA, Play-RTG or Play-RTG16.
 The setup menu lets you choose graphics, resolution and detail before
-starting. Low detail is the initial Amiga default. CLI example:
+starting. Medium is the default, using Classic with Bezier rings enabled.
+Renderer and Bezier controls are in Graphics Options. CLI example:
 
   Astralbound.020 --aga --lowres
 
