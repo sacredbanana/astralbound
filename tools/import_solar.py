@@ -31,6 +31,11 @@ for r in read(sys.argv[1]):
 # Keep the final published solution for each NAIF identity.
 selected=set(json.load(open('data/solar-selection.json'))['moons'])
 rows=[row for row in {row[2]:row for row in rows}.values() if row[0] in selected]
+# Atmospheric classifications are curated physical metadata, not orbital
+# elements. Preserve them when refreshing the JPL satellite extract.
+with open('data/solar-moons.csv') as f:
+ atmosphere={r['name']:[r[k] for k in ('climate','atmosphere_km','gases','haze')] for r in csv.DictReader(f)}
+rows=[r+atmosphere.get(r[0],['VACUUM','0','AIR_NONE','HAZE_NONE']) for r in rows]
 with open('data/solar-moons.csv','w') as f:
- w=csv.writer(f,lineterminator='\n');w.writerow(['name','parent','naif','a_km','period_days','inclination_deg','mean_anomaly_deg','radius_km','gm_km3_s2','frame','epoch_tdb','eccentricity','periapsis_deg','node_deg','pole_ra_deg','pole_dec_deg']);w.writerows(rows)
+ w=csv.writer(f,lineterminator='\n');w.writerow(['name','parent','naif','a_km','period_days','inclination_deg','mean_anomaly_deg','radius_km','gm_km3_s2','frame','epoch_tdb','eccentricity','periapsis_deg','node_deg','pole_ra_deg','pole_dec_deg','climate','atmosphere_km','gases','haze']);w.writerows(rows)
 print(len(rows),'moons;',len(physical),'physical records')

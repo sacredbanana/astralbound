@@ -121,3 +121,26 @@ commander to Earth; removed systems relocate to Hetha. Removed rigs refund 500 C
 contracts to removed destinations cancel without a reputation penalty. Historical
 exploration and trade records remain. Native regression fixtures need a 1 MiB stack;
 the game retains its documented 256 KiB CLI/Workbench stack requirement.
+
+
+### Atmospheric metadata
+
+The primary and moon CSVs explicitly record bulk gas family and visible haze.
+These are separate from the climate category used by bounded density/weather
+rules. Pluto's `THIN` atmosphere is explicitly N2/CH4 (with trace CO in its
+composition sheet), with blue haze; it is not inferred to be CO2. Titan has a
+cold N2/CH4 atmosphere with organic haze, and Triton has thin N2/CH4/CO air with
+blue haze. Titan and Triton no longer receive the default vacuum assigned to
+other moons. Uranus/Neptune explicitly include methane absorption, distinct
+from the hydrogen/helium giants.
+
+The catalogue compiler consumes these fields and the JPL importer preserves
+them during orbital-data refreshes. `atmosphere_km` remains a finite gameplay
+cutoff, not a measured outer boundary; Titan uses 600 km and Triton 50 km.
+Airless bodies may still have trace exospheres listed in their physical sheets;
+these are not treated as bulk scattering atmospheres.
+
+Sources: [NASA Pluto facts](https://science.nasa.gov/dwarf-planets/pluto/facts/),
+[NASA Pluto composition sheet](https://nssdc.gsfc.nasa.gov/planetary/factsheet/plutofact.html),
+[NASA Titan facts](https://science.nasa.gov/saturn/moons/titan/facts/),
+[NASA Triton](https://science.nasa.gov/neptune/moons/triton/).

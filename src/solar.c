@@ -12,6 +12,8 @@ typedef struct {
     int known;
     int32_t basis[6];
     int legacy_index;
+    AtmosphereGas gases;
+    AtmosphereHaze haze;
 } SolarBody;
 #include "solar_catalog.inc"
 /* NASA planetary/satellite fact sheets: mass (3 figures, exponent), gravity
@@ -34,7 +36,7 @@ static const SolarFacts solar_facts[] = {
     {"Uranus",868,25,8870,127,76,-1,"83% H2 15% HE 2% CH4"},
     {"Neptune",102,26,11150,164,72,-1,"80% H2 19% HE 1% CH4"},
     {"Ceres",938,20,280,216,168,0,"NONE"},
-    {"Pluto",130,22,620,185,44,1,"N2 CH4 CO"},
+    {"Pluto",130,22,620,185,44,1,"99% N2 0.5% CH4 0.05% CO"},
     {"Eris",166,22,820,252,43,0,"NONE"},
     {"Haumea",401,21,440,202,50,0,"NONE"},
     {"Makemake",310,21,400,203,40,0,"NONE"},
@@ -57,9 +59,31 @@ static const SolarFacts solar_facts[] = {
     {"Titania",340,21,367,171,70,0,"NONE"},
     {"Oberon",308,21,346,163,75,0,"NONE"},
     {"Miranda",629,19,79,120,60,0,"NONE"},
-    {"Triton",214,22,779,206,38,1,"99.9% N2 TRACE CH4"},
+    {"Triton",214,22,779,206,38,1,"99.9% N2 TRACE CH4 CO"},
     {"Charon",159,21,288,170,53,0,"NONE"},
 };
+/* The physical catalogue can distinguish gases that a density-oriented
+   climate cannot (Pluto is THIN but nitrogen-rich; Neptune contains methane).
+   Generated gas families match the composition printed by body_facts(). */
+AtmosphereGas atmosphere_gases(const Planet *p) {
+    static const AtmosphereGas generated[] = {
+        AIR_NONE, AIR_NITROGEN_OXYGEN, AIR_CARBON_DIOXIDE,
+        AIR_CARBON_DIOXIDE, AIR_NITROGEN_METHANE, AIR_HYDROGEN_HELIUM
+    };
+    int i;
+    if (p->catalog) for (i=0;i<(int)(sizeof(solar_bodies)/sizeof(solar_bodies[0]));i++)
+        if (!strcmp(p->name,solar_bodies[i].name)) return solar_bodies[i].gases;
+    return (unsigned)p->climate < sizeof(generated)/sizeof(generated[0]) ? generated[p->climate] : AIR_NONE;
+}
+AtmosphereHaze atmosphere_haze(const Planet *p) {
+    static const AtmosphereHaze generated[] = {
+        HAZE_NONE, HAZE_NONE, HAZE_DUST, HAZE_SULPHUR, HAZE_ORGANIC, HAZE_AMMONIA
+    };
+    int i;
+    if (p->catalog) for (i=0;i<(int)(sizeof(solar_bodies)/sizeof(solar_bodies[0]));i++)
+        if (!strcmp(p->name,solar_bodies[i].name)) return solar_bodies[i].haze;
+    return (unsigned)p->climate < sizeof(generated)/sizeof(generated[0]) ? generated[p->climate] : HAZE_NONE;
+}
 int solar_body_count(void) { return sizeof(solar_bodies)/sizeof(solar_bodies[0]); }
 int solar_legacy_body(int body) {
     return body>=0 && body<(int)(sizeof(solar_v8_to_current)/sizeof(solar_v8_to_current[0]))?solar_v8_to_current[body]:-1;

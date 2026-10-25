@@ -116,6 +116,7 @@ static void aurora_body(const Planet *p, int painter) {
     Tri *saved_triangles = triangles;
     int saved_limit = triangle_limit;
     Disc globe;
+    const AtmosphereEmission *emission = &atmosphere_emission[atmosphere_gases(p)];
     AuroraDirection (*profile)[256];
     const Disc *blocker = NULL;
     const Planet *saved_surface = terrain_surface;
@@ -155,8 +156,7 @@ static void aurora_body(const Planet *p, int painter) {
         strength = aurora_strength[fade][fold - 120];
         for (layer = 2; layer >= 0; layer--) {
             static const int levels[] = {0, 32, 112, 256};
-            static const uint8_t ecs[] = {11, 13, 27}, aga[] = {11, 13, 186};
-            int density = aurora_density[layer][strength];
+            int density = aurora_transmission[emission->transmission[layer]][aurora_density[layer][strength]];
             Vec a, b, c, d;
             if (density < 1) continue;
             a = add(p->center, aurora_radial(n0, p->radius + base + tall * levels[layer] / 256));
@@ -167,7 +167,7 @@ static void aurora_body(const Planet *p, int painter) {
                 have_upper = 1;
             }
             c = upper1; d = upper0;
-            aurora_quad(a, b, c, d, frame->enhanced ? aga[layer] : ecs[layer], density, blocker, painter);
+            aurora_quad(a, b, c, d, emission->colour[frame->enhanced != 0][layer], density, blocker, painter);
             upper0 = a; upper1 = b;
         }
     }

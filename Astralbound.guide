@@ -87,10 +87,12 @@
   Visual detail does not change collision, autopilot or flight physics.
 
   PLANETARY AURORAE defaults to ON in Ultra and OFF in other presets.
-  Toggle it in Custom with either renderer. Animated green, cyan and
-  violet curtains follow both polar ovals on atmospheric worlds. They
-  are visible from the surface and orbit, fade into daylight, and are
-  hidden by terrain and foreground objects. Airless bodies have none.
+  Toggle it in Custom with either renderer. Animated curtains follow
+  both polar ovals, visible from the surface and orbit. Gas composition
+  selects the colours: nitrogen pink/blue, oxygen green/red and hydrogen
+  dim red/purple. Skies and orbital halos also follow gases and haze.
+  They fade into daylight and are hidden by terrain and foreground
+  objects. Airless bodies have none. Indexed palettes approximate colours.
 
   TEST SCENE chooses all 14 scenes or one scene. RUN PERFORMANCE TEST
   measures orbit/rings, low/desert/ice terrain, a city, an orbital port,

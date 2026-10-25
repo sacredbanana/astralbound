@@ -85,10 +85,9 @@ static void title_sequence(void) {
     }
     puts("PASS title sequence through both renderers, frames in bounds");
 }
-/* Ocean world at three ranges, stars off: both renderers take the outline
-   from planet_view, so every interior pixel Enhanced covers Classic covers
-   too, and Classic adds nothing beyond its atmosphere halo, a band a few
-   percent of the radius wide. */
+/* Solid ocean-world silhouettes at three ranges, stars and atmosphere off.
+   Translucent, differently shaded halos are tested separately; they must not
+   become part of the solid-disc interior mask. */
 static void planet_outlines(void) {
     static const int ranges[] = {3 * 16, 8 * 16, 22};
     static uint8_t covered[2][320 * 256];
@@ -107,6 +106,7 @@ static void planet_outlines(void) {
             game_init(&g, 0x53504143);
             g.docked = -1; g.page = FLIGHT; g.ui_visible = 0; g.target = -1; g.body = 0;
             p = &g.system.planets[0];
+            p->atmosphere = 0;
             sun = unit(sub(g.system.star[0].center, p->center), 16384);
             offset = scale(sun, (int64_t)p->radius * ranges[k], 16384 * 16LL);
             g.pos = scale(add(p->center, offset), FP, 1);
@@ -131,7 +131,7 @@ static void planet_outlines(void) {
                     k, interior, missing, area[0], area[1]);
         assert(interior > 100 && !missing && area[1] >= area[0] - area[0] / 50 && area[1] <= area[0] * 5 / 4 + 400);
     }
-    puts("PASS planet discs agree between renderers at three ranges (Classic adds only its halo)");
+    puts("PASS solid planet discs agree between renderers at three ranges, independent of translucent halos");
 }
 /* The launcher option must change the actual ring rasteriser, in both
    backends. The scripted 148 s shot frames the rings. */

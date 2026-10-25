@@ -44,6 +44,9 @@ def generate():
     parts.append(table('aurora_density', 'uint8_t', '[3][17]', [
         '    {' + ','.join(str(opacity * s // 16) for s in range(17)) + '}'
         for opacity in (16, 12, 7)]))
+    parts.append(table('aurora_transmission', 'uint8_t', '[17][17]', [
+        '    {' + ','.join(str(t * d // 16) for d in range(17)) + '}'
+        for t in range(17)]))
     parts.append('#endif\n')
     return '\n'.join(parts)
 

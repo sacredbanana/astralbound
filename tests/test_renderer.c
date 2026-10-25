@@ -1428,6 +1428,7 @@ static void aurora_lookup_tables(void) {
         assert(aurora_wave[i].fold24 == sini(i)*24/16384);
     }
     for (i = 0; i <= 5000; i++) assert(aurora_fade[i] == i*16/5000);
+    for (i = 0; i <= 16; i++) for (j = 0; j <= 16; j++) assert(aurora_transmission[i][j] == i*j/16);
     for (f = 0; f <= 16; f++) for (fold = 120; fold <= 264; fold++)
         assert(aurora_strength[f][fold-120] == f*fold/256);
     for (layer = 0; layer < 3; layer++) for (i = 0; i <= 16; i++) {
@@ -1534,12 +1535,134 @@ static void planetary_aurorae(void) {
     render_renderer(RENDERER_ENHANCED);
     puts("PASS animated polar aurorae in surface/orbit, both poles, ECS/AGA/RTG and both renderers; vacuum, clipping, occlusion and HUD bounds");
 }
+/* Regression for night/day previews rendered at the same simulation tick:
+   cached night tiles once formed dark squares among newly lit cache misses. */
+static void terrain_lighting_history(void) {
+    static Game g;
+    Frame f={320,200,0,NULL,{0}};
+    Settings settings; Graphics saved=graphics;
+    uint8_t *warm=malloc(640*480);
+    int mode,texture,pass;
+    f.pixels=malloc(640*480); assert(warm && f.pixels);
+    settings_defaults(&settings,0); settings_preset(&settings,QUALITY_ULTRA);
+    settings.gfx.clouds=settings.gfx.weather=settings.gfx.trees=settings.gfx.aurorae=0;
+    render_renderer(RENDERER_ENHANCED);
+    for(mode=0;mode<3;mode++) for(texture=1;texture<=3;texture++) {
+        f.w=mode==2?640:320; f.h=mode==2?480:mode?256:200; f.enhanced=mode!=0;
+        settings.gfx.texture=texture; render_graphics(&settings.gfx); assert(render_init(&f));
+        aurora_fixture(&g,1,1);
+        render_performance_scene(&g,&f);
+        for(pass=0;pass<2;pass++) {
+            g.system.star[0].center=pass ? vec(AU_METRES,AU_METRES,0) : radial(g.pos,AU_METRES);
+            render_performance_scene(&g,&f); memcpy(warm,f.pixels,(size_t)f.w*f.h);
+            memset(surface_cache,0,sizeof(surface_cache));
+            render_performance_scene(&g,&f);
+            assert(!memcmp(warm,f.pixels,(size_t)f.w*f.h));
+        }
+        /* Warm albedo remains available when only the lighting changes. */
+        {
+            const Planet *p=&g.system.planets[0];
+            unsigned slot=surface_lookup_level(p,4,1544700,-3089400,0);
+            uint32_t epoch=surface_light_epoch;
+            int8_t albedo[25];
+            surface_albedo(p,slot); memcpy(albedo,surface_cache[slot].albedo,sizeof(albedo));
+            g.system.star[0].type=ST_BLACK_HOLE;
+            surface_lighting_prepare(p);
+            assert(surface_light_epoch!=epoch);
+            assert(surface_lookup_level(p,4,1544700,-3089400,0)==slot);
+            assert(surface_cache[slot].albedo_ready);
+            assert(!memcmp(albedo,surface_cache[slot].albedo,sizeof(albedo)));
+        }
+        render_shutdown();
+    }
+    free(warm);free(f.pixels);render_graphics(&saved);
+    puts("PASS identical warm/cold terrain through same-tick night/day changes in ECS/AGA/RTG and all sampled shading levels; retained geology cache");
+}
+static void atmospheric_gas_colours(void) {
+    static Game g;
+    static const char *names[] = {"Earth","Mars","Venus","Pluto","Titan","Jupiter","Neptune"};
+    static const int sky_lo[] = {32,192,128,32,128,192,32};
+    Frame f={320,256,1,NULL,{0}};
+    Settings settings; Graphics saved=graphics;
+    uint8_t *off=malloc(640*480);
+    int renderer,mode,body,surface,i,n,colour;
+    assert(off); f.pixels=malloc(640*480); assert(f.pixels);
+    settings_defaults(&settings,0); settings_preset(&settings,QUALITY_ULTRA);
+    settings.gfx.clouds=settings.gfx.weather=settings.gfx.trees=0;
+    render_graphics(&settings.gfx);
+    for(renderer=0;renderer<2;renderer++) for(mode=0;mode<3;mode++) {
+        f.w=mode==2?640:320; f.h=mode==2?480:mode?256:200; f.enhanced=mode!=0;
+        render_renderer(renderer); assert(render_init(&f));
+        for(body=0;body<7;body++) {
+            Planet *p;
+            const AtmosphereEmission *emission;
+            /* Identical geometry and climate: only catalogue chemistry varies. */
+            for(surface=0;surface<2;surface++) {
+                aurora_fixture(&g,surface,1); p=&g.system.planets[0]; p->catalog=1;
+                snprintf(p->name,sizeof(p->name),"%s",names[body]);
+                emission=&atmosphere_emission[atmosphere_gases(p)];
+                graphics.aurorae=0; render_performance_scene(&g,&f); memcpy(off,f.pixels,(size_t)f.w*f.h);
+                graphics.aurorae=1; render_performance_scene(&g,&f); n=0;
+                for(i=0;i<f.w*f.h;i++) if(off[i]!=f.pixels[i]) {
+                    colour=f.pixels[i];
+                    assert(colour==emission->colour[f.enhanced][0] || colour==emission->colour[f.enhanced][1] || colour==emission->colour[f.enhanced][2]);
+                    n++;
+                }
+                assert(n>5);
+            }
+            graphics.aurorae=0;
+            sky_view(&g,&f,TEMPERATE,100,0,200); p=&g.system.planets[0]; p->catalog=1;
+            snprintf(p->name,sizeof(p->name),"%s",names[body]); render_game(&g,&f);
+            if(body==4) assert(!sky_pixels(&f,0,0,1));
+            if(f.enhanced) assert(sky_pixels(&f,sky_lo[body],sky_lo[body]+31,0)>1000);
+            else for(i=0;i<f.w*f.h;i++) assert(f.pixels[i]<32);
+            /* The base sky is spatially solid at every palette level, even
+               for thin warm air. Twilight is independently optional here. */
+            graphics.sky=0; sky();
+            for(i=0;i<view_h;i++) {
+                int x;
+                for(x=1;x<f.w;x++) assert(f.pixels[i*f.w+x]==f.pixels[i*f.w]);
+            }
+            graphics.sky=settings.gfx.sky;
+            /* The orbital halo uses the same gas profile in both backends. */
+            aurora_fixture(&g,0,1); p=&g.system.planets[0]; p->catalog=1;
+            snprintf(p->name,sizeof(p->name),"%s",names[body]);
+            g.system.star[0].center=radial(g.pos,AU_METRES);
+            render_game(&g,&f); memset(f.pixels,0,(size_t)f.w*f.h);
+            memset(depth_buffer,0,depth_capacity*sizeof(*depth_buffer));
+            atmosphere_halo(p,renderer); n=0;
+            {
+                Disc globe;
+                assert(disc_setup(&globe,p,-1));
+                for(i=0;i<f.w*view_h;i++) if(f.pixels[i]) {
+                    int first,last,x=i%f.w,y=i/f.w;
+                    assert(!planet_row_pixels(&globe.view,y,&first,&last) || x<first || x>last);
+                    n++;
+                }
+            }
+            assert(n>0);
+            for(i=f.w*view_h;i<f.w*f.h;i++) assert(!f.pixels[i]);
+            if(!renderer) {
+                memset(f.pixels,0,(size_t)f.w*f.h);
+                for(i=0;i<f.w*view_h;i++) depth_buffer[i]=1073741824U/8;
+                atmosphere_halo(p,0);
+                for(i=0;i<f.w*f.h;i++) assert(!f.pixels[i]);
+            }
+        }
+    }
+    free(off);free(f.pixels);render_shutdown();render_graphics(&saved);render_renderer(RENDERER_ENHANCED);
+    puts("PASS chemistry-driven aurorae, daytime skies and lit orbital halos in both renderers and ECS/AGA/RTG; catalogue overrides, depth and HUD bounds");
+}
 int main(int argc, char **argv) {
+    if(argc>1 && !strcmp(argv[1],"--atmosphere-colours")) { atmospheric_gas_colours(); return 0; }
+    if(argc>1 && !strcmp(argv[1],"--terrain-lighting")) { terrain_lighting_history(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--aurorae")) { planetary_aurorae(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--low-graphics")) { low_city_terrain(); scaled_flight_labels(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--polar-ice")) { polar_ice_rendering(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--orbital-materials")) { classic_orbital_material_motion(); return 0; }
     planetary_aurorae();
+    atmospheric_gas_colours();
+    terrain_lighting_history();
     curved_ring_depth();
     port_scenery();
     if(argc>1 && !strcmp(argv[1],"--ports")) return 0;

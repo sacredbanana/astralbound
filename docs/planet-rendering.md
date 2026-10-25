@@ -234,12 +234,12 @@ independent triangle scratch buffer avoids consuming the scenery budget.
 
 `tools/gen_aurora.py` generates exact integer lookup tables from `trig.h` for
 waveforms, circle/latitude/tilt directions, daylight fading, brightness and
-opacity (about 12.4 KiB of read-only data). `--check` verifies reproducibility.
+opacity (about 12.7 KiB of read-only data). `--check` verifies reproducibility.
 A 4 KiB pose table caches rotated directions and their lazily evaluated norms;
 phase, magnetic tilt and both spin components invalidate it. Adjacent height
 bands reuse radial endpoints. These preserve the original C99 truncation and
-both radial normalization stages; the 12 deterministic previews remain
-byte-identical. View-dependent clipping and depth still use the existing
+both radial normalization stages. Reference tests check exact geometry across
+magnetic tilts, animation phases, spin states and body scales. View-dependent clipping and depth still use the existing
 fixed-point arithmetic.
 
 `make aurora-preview` writes deterministic polar-night surface and orbital
@@ -247,3 +247,55 @@ PPMs for Enhanced and Classic in ECS 320x200, AGA 320x256 and RTG 640x480 to
 `build/evidence/aurora-*.ppm`. `build/renderer-tests --aurorae` checks both
 poles, animation and repeatability, toggle/vacuum behavior, clipping,
 foreground depth, far-globe occlusion and HUD bounds.
+
+
+## Gas-based sky, halo and aurora colours
+
+`render_atmosphere.inc` holds small visible-light colour tables shared by
+Enhanced and Classic. `atmosphere_gases()` and `atmosphere_haze()` read the
+catalogue's explicit physical metadata; generated worlds use the same gas
+families as their composition sheets. Density/weather categories such as
+THIN no longer imply a specific gas: Pluto is thin nitrogen/methane, while
+Mars is thin CO2. Organic haze uses a dense optical column without changing
+the flight-density model. It hides stars through Titan-like smog.
+
+Earth-like aurorae put nitrogen pink near the bottom, oxygen green in the
+main curtain and oxygen red above. CO2 atmospheres include fainter visible
+oxygen from dissociation. Nitrogen/methane atmospheres use nitrogen pink,
+blue and violet without an invented green oxygen band. Hydrogen atmospheres
+use dim red below and violet above. Only visible emission is drawn; ultraviolet
+and infrared observations are not assigned false visible colours.
+
+Low skies include dust, sulphur cloud or organic haze where those constituents
+are present. Above the lower haze, molecular scattering and methane absorption
+favour blue. Both backends draw the same sunlit atmospheric shell; Enhanced
+checks world depth, while Classic uses flat light samples per side and row in
+its painter order. Night-side halos fade rather than glow uniformly. Colour
+and transmission choices use lookup tables. The base sky uses solid horizontal
+colour bands, including ECS warm skies; ordered mixing is confined to the
+local twilight glow and translucent effects. These are indexed-palette
+approximations, not a full spectral radiative-transfer or auroral-activity model.
+
+`build/aurora-preview --gases` writes night surface, day surface and orbital
+fixtures for Earth, Mars, Venus, Pluto, Titan, Jupiter and Neptune in ECS/AGA/RTG
+and both renderers. `build/renderer-tests --atmosphere-colours` checks the
+chemistry override independently of climate, visible emission colours, haze,
+halos, foreground depth, viewport bounds and solid base-sky rows.
+
+Terrain lighting caches identify the star positions/types, body rotation and
+positions/radii of potential eclipse occluders as well as simulation time.
+Changing a scene's illumination at the same tick therefore refreshes tile
+colours and slope lighting, while retaining material and geological lookup
+samples. `build/renderer-tests --terrain-lighting` compares warm-cache frames
+against cold-cache frames through night/day changes in ECS/AGA/RTG, for
+Material, Textured and Full shading. This catches the square night-coloured
+tiles previously visible in daylight comparison previews.
+
+Physical references:
+
+- [NASA: auroral gases and altitude-dependent colours](https://science.nasa.gov/sun/auroras/)
+- [NASA/JPL: visible green aurora at Mars](https://www.jpl.nasa.gov/news/nasa-observes-first-visible-light-auroras-at-mars/)
+- [NASA: Saturn's visible hydrogen aurora](https://science.nasa.gov/resource/saturns-colorful-aurora-annotated/)
+- [NASA: methane absorption and ice-giant colours](https://science.nasa.gov/solar-system/planets/neptune/why-uranus-and-neptune-are-different-colors/)
+- [NASA: Titan's nitrogen/methane atmosphere and organic haze](https://science.nasa.gov/saturn/moons/titan/facts/)
+- [NASA: Pluto's blue haze](https://www.nasa.gov/image-article/plutos-blue-sky/)

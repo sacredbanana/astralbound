@@ -510,82 +510,6 @@ static void cl_body_rows_of(const PlanetView *v) {
     cl_row_store(v, bottom, b0, b1);
     cl_rows_between(v, top, t0, t1, bottom, b0, b1);
 }
-/* The halo's thickness in pixels where the disc's edge is on screen: both
-   outlines are convex and the halo's holds the disc's, so its first row
-   above the disc's top (or below its bottom) is a binary search, or, for a
-   disc filling the view's height, its span on the middle row. */
-static int cl_halo_thickness(const ClBodyInfo *b, const PlanetView *halo) {
-    int y, top = -1, bottom = -1, lo, hi;
-    int32_t a, z;
-    for (y = b->view.top; y < b->view.bottom; y++) if (cl_first[y] <= cl_last[y]) { if (top < 0) top = y; bottom = y; }
-    if (top < 0) return 0;
-    /* A whole disc on screen: the angular radii's difference, to a pixel. */
-    if (top > cl.surface.top && bottom < cl.surface.bottom - 1 && b->view.centre_x > cl.surface.left * 256 &&
-        b->view.centre_x < cl.surface.right * 256 && halo->radius_px - b->view.radius_px < 64 * 256)
-        return (halo->radius_px - b->view.radius_px + 128) >> 8;
-    if (top > cl.surface.top) {
-        lo = cl.surface.top; hi = top; /* row hi is in the halo */
-        if (planet_row(halo, lo, &a, &z)) return top - lo;
-        while (hi - lo > 1) { int mid = (lo + hi) / 2; if (planet_row(halo, mid, &a, &z)) hi = mid; else lo = mid; }
-        return top - hi;
-    }
-    if (bottom < cl.surface.bottom - 1) {
-        lo = bottom; hi = cl.surface.bottom - 1; /* row lo is in the halo */
-        if (planet_row(halo, hi, &a, &z)) return hi - bottom;
-        while (hi - lo > 1) { int mid = (lo + hi) / 2; if (planet_row(halo, mid, &a, &z)) lo = mid; else hi = mid; }
-        return lo - bottom;
-    }
-    {
-        int first, last, t = 0;
-        y = (top + bottom) / 2;
-        if (!planet_row_pixels(halo, y, &first, &last)) return 0;
-        if (cl_first[y] > cl.surface.left) t = cl_first[y] - first;
-        if (cl_last[y] < cl.surface.right - 1 && last - cl_last[y] > t) t = last - cl_last[y];
-        return t;
-    }
-}
-/* The atmosphere: Frontier's halo bands, here a dithered band round the
-   limb in the climate's sky colour. The band is the disc's own rows grown
-   by the halo's thickness in pixels, which planet_view's extents of the
-   larger sphere give once, rather than a second conic per row. */
-static void cl_atmosphere(const ClBodyInfo *b, const Planet *p) {
-    PlanetView halo;
-    Projection proj = b->view.proj;
-    int64_t thick = b->radius / 40, r2, d;
-    Vec c = vec(b->c[0], b->c[1], b->c[2]);
-    int y, colour, t, top, bottom;
-    if (p->climate == VACUUM || b->view.radius_px < 4 * 256) return;
-    if (p->atmosphere * b->q4 * 16 / 16 > thick) thick = (int64_t)p->atmosphere * 16 / b->q4;
-    r2 = b->radius + thick;
-    d = length(c);
-    if (planet_view(&halo, &proj, c, r2, d - r2) != PLANET_DISC) return;
-    t = cl_halo_thickness(b, &halo);
-    if (t < 1) t = 1;
-    if (t > 48) t = 48;
-    colour = frame->enhanced ? sky_tint[p->climate].day + 14 : ecs_glow[sky_tint[p->climate].warm][1];
-    top = b->view.top - t; bottom = b->view.bottom + t;
-    if (top < cl.surface.top) top = cl.surface.top;
-    if (bottom > cl.surface.bottom) bottom = cl.surface.bottom;
-    for (y = top; y < bottom; y++) {
-        int a = INT32_MAX, z = INT32_MIN, k, x;
-        uint8_t *line;
-        /* The rows within t of this one, widened by t. */
-        for (k = y - t; k <= y + t; k++) {
-            if (k < b->view.top || k >= b->view.bottom || cl_first[k] > cl_last[k]) continue;
-            if (cl_first[k] < a) a = cl_first[k];
-            if (cl_last[k] > z) z = cl_last[k];
-        }
-        if (a > z) continue;
-        a -= t; z += t;
-        if (a < cl.surface.left) a = cl.surface.left;
-        if (z >= cl.surface.right) z = cl.surface.right - 1;
-        line = frame->pixels + (size_t)y * frame->w;
-        for (x = a; x <= z; x++) {
-            if (y >= b->view.top && y < b->view.bottom && x >= cl_first[y] && x <= cl_last[y]) { x = cl_last[y]; continue; }
-            if (bayer4[(y & 3) * 4 + (x & 3)] < 10) line[x] = (uint8_t)colour;
-        }
-    }
-}
 static void cl_draw_planet(ClBodyInfo *b) {
     const Planet *p = &game->system.planets[b->body];
     int k, light_axis[3], segments;
@@ -595,7 +519,7 @@ static void cl_draw_planet(ClBodyInfo *b) {
         return;
     }
     cl_body_rows_of(&b->view);
-    cl_atmosphere(b, p);
+    atmosphere_halo(p, 1);
     cl_body_extremes(b);
     cl_body_begin(&cl_body, b->view.top, b->view.bottom);
     cl_circle_count = 0;

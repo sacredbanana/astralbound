@@ -139,6 +139,22 @@ static void solar(void) {
     assert(solar_body_index(&s,"Vesta")==-1 && solar_body_index(&s,"Sedna")==-1);
     assert(solar_body_index(&s,"Nix")==-1 && solar_body_index(&s,"Puck")==-1);
     assert(solar_body_index(&s,"Titan")>=0 && solar_body_index(&s,"Triton")>=0);
+    {
+        int pluto=solar_body_index(&s,"Pluto"),titan=solar_body_index(&s,"Titan"),triton=solar_body_index(&s,"Triton");
+        BodyFacts facts;
+        assert(atmosphere_gases(&s.planets[earth])==AIR_NITROGEN_OXYGEN);
+        assert(atmosphere_gases(&s.planets[solar_body_index(&s,"Mars")])==AIR_CARBON_DIOXIDE);
+        assert(atmosphere_gases(&s.planets[pluto])==AIR_NITROGEN_METHANE);
+        assert(atmosphere_haze(&s.planets[pluto])==HAZE_BLUE);
+        assert(atmosphere_gases(&s.planets[titan])==AIR_NITROGEN_METHANE && atmosphere_haze(&s.planets[titan])==HAZE_ORGANIC);
+        assert(atmosphere_gases(&s.planets[triton])==AIR_NITROGEN_METHANE && atmosphere_haze(&s.planets[triton])==HAZE_BLUE);
+        assert(s.planets[titan].climate!=VACUUM && s.planets[titan].atmosphere==600000);
+        assert(s.planets[triton].climate!=VACUUM && s.planets[triton].atmosphere>0);
+        assert(atmosphere_gases(&s.planets[solar_body_index(&s,"Neptune")])==AIR_HYDROGEN_METHANE);
+        assert(atmosphere_gases(&s.planets[solar_body_index(&s,"Jupiter")])==AIR_HYDROGEN_HELIUM);
+        body_facts(&s,pluto,&facts); assert(strstr(facts.air,"99% N2") && strstr(facts.air,"CO"));
+        body_facts(&s,titan,&facts); assert(strstr(facts.air,"N2") && facts.pressure>100000);
+    }
     game_init(&g,123); setup_system(&g,sol); g.target=-1; g.target_body=eris; g.docked=-1;
     g.frame_body=g.body=eris; g.pos=add(scale(g.system.planets[eris].center,FP,1),vec(0,(g.system.planets[eris].radius+200000LL)*FP,0));
     { Vec origin; int64_t extent; int parent;

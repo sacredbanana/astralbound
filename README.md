@@ -92,10 +92,14 @@ Pixel-size scaling is no longer an option; old saved scaling values are ignored.
 changes collision, autopilot, weather physics or commander save data.
 
 **Planetary Aurorae** is enabled by default in Ultra and can be toggled in
-Custom with either renderer. Animated green, cyan and violet curtains follow
-both magnetic polar ovals on atmospheric worlds, visible above the surface
-and across the globe from orbit. They fade into daylight, remain behind
-terrain and foreground objects, and are absent on airless bodies.
+Custom with either renderer. Animated curtains follow both magnetic polar
+ovals on atmospheric worlds, visible above the surface and from orbit.
+Colours follow the gases: nitrogen gives pink/blue, oxygen green with red
+higher up, and hydrogen a dimmer red/purple. Skies and orbital halos also
+follow the gas and haze composition: blue molecular scattering, dusty CO2,
+sulphur clouds, orange organic haze and methane absorption. They fade into
+daylight, remain behind terrain and foreground objects, and are absent on
+airless bodies. ECS and AGA use approximations within their indexed palettes.
 
 **Run Performance Test** runs all 14 scenes or the scene chosen in **Test Scene**:
 orbit/rings, low/desert/ice terrain, a city, an orbital station, rain/forests,

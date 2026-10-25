@@ -110,8 +110,8 @@ static int disc_setup(Disc *s, const Planet *p, int backdrop) {
     proj.left = view_left; proj.top = view_top; proj.right = frame->w - view_right_inset; proj.bottom = view_h;
     if (planet_view(&s->view, &proj, c, r, alt) == PLANET_HIDDEN) return 0;
     s->p = p;
-    s->field = planet_field_for(p);
-    s->backdrop = backdrop;
+    s->field = backdrop < 0 ? NULL : planet_field_for(p);
+    s->backdrop = backdrop > 0;
     s->block = graphics.planets >= 2 ? 4 : graphics.planets == 1 ? 8 : 16;
     if (alt < 1) alt = 1;
     s->ch[0] = muldiv(c.x, 1LL << 28, d); s->ch[1] = muldiv(c.y, 1LL << 28, d); s->ch[2] = muldiv(c.z, 1LL << 28, d);
@@ -145,7 +145,7 @@ static int disc_setup(Disc *s, const Planet *p, int backdrop) {
        sphere's ground win the depth test over real grass a metre above it.
        The drop grows towards grazing views, where that sag matters most. */
     s->kappa_depth = s->kappa;
-    if (backdrop) {
+    if (s->backdrop) {
         int64_t drop = BACKDROP_DROP * unit_m, ra = r - drop, aa = alt + drop;
         s->kappa_depth = muldiv(muldiv(aa, ra + d, d), 1LL << 28, d);
         if (s->kappa_depth >= 1LL << 28) s->kappa_depth = (1LL << 28) - 1;
@@ -153,6 +153,7 @@ static int disc_setup(Disc *s, const Planet *p, int backdrop) {
     /* inverse depth = 2^30 unit_m den / (D kappa f), den in Q14 pixels. */
     depth = xf_div(xf_fixed(unit_m, 44), xf_mul(xf_mul(xf_int(d), xf_int(s->kappa_depth)), xf_int(proj.focal)));
     s->depth_m = (uint32_t)depth.m; s->depth_s = -depth.e;
+    if (backdrop < 0) return 1; /* atmosphere: geometry and light only */
     /* Eclipses: bodies that can cross the line from this one to a star. */
     {
         int64_t reach = p->radius;

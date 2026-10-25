@@ -1369,6 +1369,41 @@ static struct {
 } surface_cache[SURFACE_CACHE_SIZE];
 static uint32_t surface_seed, surface_system;
 static int surface_enhanced, surface_radius, surface_type;
+static uint32_t surface_light_epoch, surface_light_key;
+/* A tick alone cannot identify illumination: a restored/preview scene can
+   move its sun or an eclipsing body without advancing time. Hash the light
+   inputs once per terrain pass, never per pixel. Refresh colour and slope
+   lazily, retaining the expensive material and geological sample tables. */
+static uint32_t surface_light_vec(uint32_t key, Vec v) {
+    key=hash32(key ^ (uint32_t)v.x ^ (uint32_t)((uint64_t)v.x>>32));
+    key=hash32(key ^ (uint32_t)v.y ^ (uint32_t)((uint64_t)v.y>>32));
+    return hash32(key ^ (uint32_t)v.z ^ (uint32_t)((uint64_t)v.z>>32));
+}
+static void surface_lighting_prepare(const Planet *p) {
+    const System *system=&game->system;
+    uint32_t key=hash32(game->tick/HZ ^ system->seed ^ (uint32_t)system->stars);
+    int i;
+    key=surface_light_vec(key,p->center);
+    key=hash32(key ^ (uint32_t)p->spin_sin);
+    key=hash32(key ^ (uint32_t)p->spin_cos);
+    for(i=0;i<system->stars;i++) {
+        key=surface_light_vec(key,system->star[i].center);
+        key=hash32(key ^ (uint32_t)system->star[i].type);
+    }
+    for(i=0;i<system->count;i++) if(&system->planets[i]!=p) {
+        key=surface_light_vec(key,system->planets[i].center);
+        key=hash32(key ^ (uint32_t)system->planets[i].radius);
+    }
+    if(!surface_light_epoch || key!=surface_light_key) {
+        surface_light_key=key;
+        if(!++surface_light_epoch) {
+            /* Reserve zero for uninitialised entries, including wraparound. */
+            memset(surface_cache,0,sizeof(surface_cache));
+            surface_light_epoch=1;
+        }
+    }
+}
+
 /* lod_depth[i]: pixels at or beyond this reciprocal depth use level i + 1. */
 static uint32_t lod_depth[SURFACE_LEVELS];
 static int64_t lod_altitude = -1;
@@ -1379,6 +1414,7 @@ static int lod_radius, lod_width;
 static void surface_lod_prepare(const Planet *p, int64_t altitude) {
     int64_t d;
     int level = 0;
+    surface_lighting_prepare(p);
     if (altitude < 50) altitude = 50;
     if (lod_radius == p->radius && lod_width == frame->w && lod_altitude >= 0 &&
         llabs(altitude - lod_altitude) <= lod_altitude / 32)
@@ -1408,7 +1444,7 @@ static unsigned surface_lookup_level(const Planet *p, int face, int u, int v, in
     /* Floor division by the power-of-two tile size, without a per-pixel DIVS. */
     int tile_u = u >= 0 ? u >> shift : ~(~u >> shift);
     int tile_v = v >= 0 ? v >> shift : ~(~v >> shift);
-    uint32_t epoch = game->tick / HZ;
+    uint32_t epoch = surface_light_epoch;
     Vec fixed, local;
     if (surface_seed != p->seed || surface_system != game->system.seed ||
         surface_enhanced != frame->enhanced || surface_radius != p->radius ||
@@ -1466,7 +1502,7 @@ static void surface_albedo(const Planet *p, unsigned slot) {
 static void surface_slope(const Planet *p, unsigned slot, int face, int tu, int tv) {
     Vec a, b, d, normal, local, up;
     int star, slope=0;
-    uint32_t epoch=game->tick/HZ;
+    uint32_t epoch=surface_light_epoch;
     if (surface_cache[slot].slope_ready && surface_cache[slot].slope_epoch == epoch) return;
     a=terrain_fixed_vertex(p,face,tu*256,tv*256);
     b=terrain_fixed_vertex(p,face,tu*256+256,tv*256);
@@ -2405,6 +2441,7 @@ static void destruction_effects(void) {
 }
 
 #include "render_planet.inc"
+#include "render_atmosphere.inc"
 #include "render_aurora.inc"
 
 #include "render_weapons.inc"
@@ -2541,6 +2578,7 @@ static void world(void) {
         }
         if (nt) draw_triangles(); /* clipped close-up fallback only */
     }
+    for (b = 0; b < game->system.count; b++) atmosphere_halo(&game->system.planets[b], 0);
     if (graphics.aurorae) for (b = 0; b < game->system.count; b++)
         aurora_body(&game->system.planets[b], 0);
     if(graphics.lights) port_draw_lights();
@@ -3528,20 +3566,6 @@ static void system_body_labels(void) {
         text(lx, ly, star ? 12 : 7, name);
     }
 }
-/* Sky. Day ramps follow each air's main scatterer: Rayleigh blue for N2/O2 and
-   nitrogen-methane, suspended dust over thin CO2, sulphur-yellowed CO2 cloud,
-   ammonia haze over hydrogen. Low sun lights a horizon band in what survives
-   the long path: N2/O2 leaves orange-red, Martian dust forward-scatters blue
-   round the sun, SO2 deepens to ochre, methane hazes absorb red and turn blue.
-   Bands are sines of elevation (Q14); DENSE glow fills most of the sky. */
-static const struct { uint8_t day, glow, steps, warm; uint16_t band; } sky_tint[] = {
-    {32, 32, 32, 0, 0},       /* VACUUM */
-    {32, 128, 32, 1, 4800},   /* TEMPERATE */
-    {192, 160, 32, 0, 3600},  /* THIN */
-    {128, 96, 16, 1, 11000},  /* DENSE */
-    {32, 160, 32, 0, 3000},   /* FROZEN */
-    {192, 80, 16, 0, 8000}};  /* HYDROGEN */
-static const uint8_t ecs_glow[2][4] = {{25, 26, 27, 20}, {21, 22, 14, 12}};
 #define SKY_COLUMNS 40
 #define SKY_ROWS 128
 static struct {
@@ -3582,22 +3606,31 @@ static int sky_daylight(const Planet *p, Vec local) {
 }
 static int sky_row(int tint, int y) {
     int intensity = sky_intensity(y);
-    return !intensity ? 0 : frame->enhanced ? sky_tint[tint].day + intensity : 1 + intensity * 6 / 31;
+    return !intensity ? 0 : frame->enhanced ? sky_tint[tint].day + intensity : ecs_sky[tint][1 + intensity * 6 / 31];
 }
 static void sky(void) {
     const Planet *p = &game->system.planets[game->body];
+    Planet haze_air;
+    const Planet *air = p;
     Vec local = sub(scale(viewer(), 1, FP), p->center), cu, cs, eye;
-    int tint = p->climate, w = frame->w, x, y, bw = w / SKY_COLUMNS, bh = bw / 2, cx, cy;
+    int tint = atmosphere_sky_tint(p, length(local) - p->radius), w = frame->w, x, y, bw = w / SKY_COLUMNS, bh = bw / 2, cx, cy;
     int columns = bw ? (w + bw - 1) / bw : 0, rows = bh ? (view_h + bh - 1) / bh : 0;
-    sky_state.scatter = rayleigh_scattering(&game->system, p, local, forward(camera_yaw, camera_pitch));
-    sky_state.opacity = sky_opacity(p, length(local) - p->radius);
+    /* Dense organic smog (Titan and generated N2/CH4 worlds) has a large
+       optical depth even though its weather category is named FROZEN.
+       Keep this optical column separate from the flight-density model. */
+    if (atmosphere_haze(p) == HAZE_ORGANIC) {
+        haze_air = *p; haze_air.climate = DENSE; air = &haze_air;
+    }
+    sky_state.scatter = rayleigh_scattering(&game->system, air, local, forward(camera_yaw, camera_pitch));
+    sky_state.opacity = sky_opacity(air, length(local) - p->radius);
     sky_state.up = unit(local, 16384);
-    sky_state.glow = twilight(&game->system, p, local, &sky_state.sun);
+    sky_state.glow = twilight(&game->system, air, local, &sky_state.sun);
     sky_state.band = sky_tint[tint].band;
-    sky_state.daylight = sky_daylight(p, local);
+    sky_state.daylight = sky_daylight(air, local);
     if (!graphics.sky || bw < 4 || bh > 16 || columns > SKY_COLUMNS || rows > SKY_ROWS) sky_state.glow = 0;
     if (!sky_state.glow) {
-        for (y = 0; y < view_h; y++) memset(frame->pixels + y * w, sky_row(tint, y), (size_t)w);
+        for (y = 0; y < view_h; y++)
+            memset(frame->pixels + y * w,sky_row(tint,y),(size_t)w);
         return;
     }
     /* Blocks bound the cost on 68k: one elevation and sun angle each from the
@@ -3621,7 +3654,7 @@ static void sky(void) {
         int16_t ry = (int16_t)(view_h / 2 - (cy * bh + bh / 2));
         int up_y = ry * uy + up_z, sun_y = ry * sy + sun_z, top = cy * bh;
         uint8_t base[16];
-        for (y = top; y < top + bh && y < view_h; y++) base[y - top] = (uint8_t)sky_row(tint, y);
+        for (y = top; y < top + bh && y < view_h; y++) base[y-top]=(uint8_t)sky_row(tint,y);
         for (cx = 0; cx < columns; cx++) {
             int16_t rx = (int16_t)(cx * bw + bw / 2 - w / 2);
             int len = sky_ray[cy][cx], left = cx * bw;
