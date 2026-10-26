@@ -667,8 +667,10 @@ static void cl_terrain(void) {
     int step = 256, inner_u0 = 0, inner_u1 = 0, inner_v0 = 0, inner_v1 = 0;
     if (altitude > CL_TERRAIN_ALTITUDE || p->type == GAS_GIANT || (p->catalog && p->radius < 100000)) return;
     fixed = body_rotate(p, local, 1);
-    fixed4 = body_rotate(p, vec(floor_shift(viewer().x - p->center.x * FP, 4), floor_shift(viewer().y - p->center.y * FP, 4),
-                                floor_shift(viewer().z - p->center.z * FP, 4)), 1);
+    /* Into the body frame at Q8 first, as ray_eye: rounding the world
+       offset to Q4 before turning it shook the ground around a walker. */
+    fixed4 = body_rotate(p, sub(viewer(), scale(p->center, FP, 1)), 1);
+    fixed4 = vec(floor_shift(fixed4.x, 4), floor_shift(fixed4.y, 4), floor_shift(fixed4.z, 4));
     direction[0] = fixed.x; direction[1] = fixed.y; direction[2] = fixed.z;
     surface_uv(p, direction, &face, &cu, &cv);
     for (j = 0; j < 3; j++) {

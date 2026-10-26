@@ -20,7 +20,6 @@ void render_renderer(int renderer) { classic_mode = renderer == RENDERER_CLASSIC
 
 /* ---------------------------------------------------------------- view */
 /* Camera space is Q4 metres (x right, y up, z ahead). */
-typedef struct { int32_t x, y, z; } ClV;
 static struct {
     int16_t m[3][3];        /* world to camera, Q14 */
     Vec cam4;               /* camera position, Q4 metres */
@@ -271,7 +270,6 @@ static void cl_flush(void) {
    once: a direct-mapped cache from world point to camera point, outcode
    and projection. A triangle inside the guard band then goes straight to
    the draw list with no clipping. */
-typedef struct { ClV v; int32_t x, y; int ok, outcode; } ClVertex;
 static void cl_vertex_get(Vec w, ClVertex *out) {
     unsigned h = ((uint32_t)w.x * 0x9e3779b1U ^ (uint32_t)w.y * 0x85ebca6bU ^ (uint32_t)w.z * 0xc2b2ae35U) >> 23;
     if (cl_vertex[h].frame != cl_vertex_frame || cl_vertex[h].w.x != w.x || cl_vertex[h].w.y != w.y || cl_vertex[h].w.z != w.z) {
@@ -285,11 +283,17 @@ static void cl_vertex_get(Vec w, ClVertex *out) {
     out->v = cl_vertex[h].v; out->x = cl_vertex[h].x; out->y = cl_vertex[h].y;
     out->ok = cl_vertex[h].ok; out->outcode = cl_vertex[h].outcode;
 }
-static void cl_triangle_world(Vec a, Vec b, Vec c, int colour) {
+/* A Q8 point, transformed afresh rather than cached by whole metre. */
+static void cl_vertex_q8(Vec w, ClVertex *out) {
+    out->ok = (uint8_t)cl_world_q8(w, &out->v);
+    out->outcode = out->ok ? (uint8_t)cl_outcode(&out->v) : 0;
+    if (out->ok && !out->outcode && !cl_project(&out->v, &out->x, &out->y)) out->outcode = 1;
+}
+static void cl_triangle_vertices(const ClVertex *a, const ClVertex *b, const ClVertex *c, int colour) {
     ClV v[16];
     ClVertex t[3];
     int i;
-    cl_vertex_get(a, &t[0]); cl_vertex_get(b, &t[1]); cl_vertex_get(c, &t[2]);
+    t[0] = *a; t[1] = *b; t[2] = *c;
     for (i = 0; i < 3; i++) if (!t[i].ok) return;
     for (i = 0; i < 3; i++) v[i] = t[i].v;
     if (v[0].z < CL_NEAR && v[1].z < CL_NEAR && v[2].z < CL_NEAR) return;
@@ -307,6 +311,11 @@ static void cl_triangle_world(Vec a, Vec b, Vec c, int colour) {
         return;
     }
     cl_polygon(v, 3, colour, cl_bias + cl_emit++ * 2);
+}
+static void cl_triangle_world(Vec a, Vec b, Vec c, int colour) {
+    ClVertex t[3];
+    cl_vertex_get(a, &t[0]); cl_vertex_get(b, &t[1]); cl_vertex_get(c, &t[2]);
+    cl_triangle_vertices(&t[0], &t[1], &t[2], colour);
 }
 static uint32_t cl_isqrt(uint32_t n) {
     uint32_t r = 0, b = 1U << 30;

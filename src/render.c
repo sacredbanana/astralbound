@@ -32,6 +32,10 @@ static int cl_emit;
    per metre at the port being built (Q8), 0 when not drawing Classic. */
 static int32_t cl_port_px;
 static void cl_triangle_world(Vec a, Vec b, Vec c, int colour);
+typedef struct { int32_t x, y, z; } ClV;
+typedef struct { ClV v; int32_t x, y; int ok, outcode; } ClVertex;
+static void cl_vertex_q8(Vec w, ClVertex *out);
+static void cl_triangle_vertices(const ClVertex *a, const ClVertex *b, const ClVertex *c, int colour);
 static void cl_ship(int ship, Vec origin, Vec right, Vec up, Vec front, Vec light);
 static void cl_line_world(Vec a, Vec b, int colour, int thick);
 typedef struct {
@@ -277,6 +281,18 @@ static Vec camera_poly(Vec p) {
     r = sub(p, scale(camera_position, 1, FP));
     if (llabs(r.x) < 1000000 && llabs(r.y) < 1000000 && llabs(r.z) < 1000000) {
         Vec q = view_rotate(sub(scale(p, FP, 1), camera_position));
+        int64_t d = FP / camera_unit;
+        return vec(round_div(q.x, d), round_div(q.y, d), round_div(q.z, d));
+    }
+    return scale(view_rotate(r), camera_unit, 1);
+}
+/* The same for a Q8 point. */
+static Vec camera_poly_q8(Vec p) {
+    Vec r;
+    if (camera_unit == 1) return camera_q8(p);
+    r = sub(scale(p, 1, FP), scale(camera_position, 1, FP));
+    if (llabs(r.x) < 1000000 && llabs(r.y) < 1000000 && llabs(r.z) < 1000000) {
+        Vec q = view_rotate(sub(p, camera_position));
         int64_t d = FP / camera_unit;
         return vec(round_div(q.x, d), round_div(q.y, d), round_div(q.z, d));
     }
@@ -577,6 +593,13 @@ static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u,
 }
 /* Reconstruct the hit from the pixel ray and subpixel depth. Rounded polygon
    vertices must not move the colour plane independently of the camera ray. */
+/* The eye's Q8 offset turns into the body frame before any rounding: a
+   Q4 world offset rounded afresh as the body turned shook the ground's
+   texture around a walker. */
+static Vec ray_eye(const Planet *p) {
+    Vec q = body_rotate(p, sub(camera_position, scale(p->center, FP, 1)), 1);
+    return vec(round_div(q.x, 16), round_div(q.y, 16), round_div(q.z, 16));
+}
 #ifdef ASTRALBOUND_FPU
 /* camera_to_local folded into one matrix: camera roll/pitch/yaw, then the
    inverse body spin, applied to the Q4 ray and planet offset. It is rebuilt
@@ -605,7 +628,7 @@ static void fpu_body_inverse(const Planet *p, double v[3]) {
     v[0] = x;
 }
 static void ray_prepare(const Planet *p) {
-    Vec offset = sub(scale(camera_position, 1, FP / 16), scale(p->center, 16, 1));
+    Vec offset = ray_eye(p);
     int i, j;
     for (i = 0; i < 3; i++) {
         double basis[3] = {i == 0, i == 1, i == 2}, column[3];
@@ -616,7 +639,6 @@ static void ray_prepare(const Planet *p) {
     ray.t[0] = fpu_double(offset.x);
     ray.t[1] = fpu_double(offset.y);
     ray.t[2] = fpu_double(offset.z);
-    fpu_body_inverse(p, ray.t);
     ray.planet = p; ray.camera = camera_position; ray.center = p->center;
     ray.serial = view_matrix.serial;
     ray.spin_sin = p->spin_sin; ray.spin_cos = p->spin_cos; ray.radius = p->radius;
@@ -665,7 +687,7 @@ static struct {
 } ray;
 static void ray_prepare(const Planet *p) {
     int64_t sn = -(int64_t)p->spin_sin, cs = p->spin_cos;
-    Vec offset = body_rotate(p, sub(scale(camera_position, 1, FP / 16), scale(p->center, 16, 1)), 1);
+    Vec offset = ray_eye(p);
     int i;
     view_current();
     if (!sn && !cs) cs = 1LL << 30;
@@ -1014,9 +1036,13 @@ static Vec cross(Vec a, Vec b) {
     return vec((a.y * b.z - a.z * b.y) / 16384, (a.z * b.x - a.x * b.z) / 16384,
                (a.x * b.y - a.y * b.x) / 16384);
 }
-static void box(Vec center, Vec up, int size, int height, int color) {
+/* A box standing on a Q8 point, size and height in metres. Q8 keeps a
+   ground site beside a walker from stepping between whole metres as the
+   body turns; each corner transforms once for its five or six triangles. */
+static void box_q8(Vec center, Vec up, int size, int height, int color) {
     Vec right = unit(cross(up, vec(0, 0, 16384)), 16384), f;
-    Vec v[8];
+    Vec v[8], world[8], eye[8];
+    ClVertex corner[8];
     int i;
     static const int faces[12][3] = {{0, 1, 2}, {0, 2, 3}, {4, 6, 5}, {4, 7, 6},
                                      {0, 4, 5}, {0, 5, 1}, {1, 5, 6}, {1, 6, 2},
@@ -1024,14 +1050,24 @@ static void box(Vec center, Vec up, int size, int height, int color) {
     if (!length(right))
         right = vec(16384, 0, 0);
     f = cross(right, up);
-    for (i = 0; i < 8; i++)
+    for (i = 0; i < 8; i++) {
         v[i] =
             add(center,
-                add(scale(up, i >= 4 ? height : 0, 16384),
-                    add(scale(right, (i == 1 || i == 2 || i == 5 || i == 6) ? size : -size, 16384),
-                        scale(f, (i == 2 || i == 3 || i == 6 || i == 7) ? size : -size, 16384))));
-    for (i = 0; i < 12; i++)
-        triangle(v[faces[i][0]], v[faces[i][1]], v[faces[i][2]], color + (i / 2) % 3);
+                add(scale(up, i >= 4 ? (int64_t)height * FP : 0, 16384),
+                    add(scale(right, ((i == 1 || i == 2 || i == 5 || i == 6) ? size : -size) * (int64_t)FP, 16384),
+                        scale(f, ((i == 2 || i == 3 || i == 6 || i == 7) ? size : -size) * (int64_t)FP, 16384))));
+        if (cl_active) cl_vertex_q8(v[i], &corner[i]);
+        else { world[i] = scale(v[i], 1, FP); eye[i] = camera_poly_q8(v[i]); }
+    }
+    for (i = 0; i < 12; i++) {
+        const int *t = faces[i];
+        if (cl_active) cl_triangle_vertices(&corner[t[0]], &corner[t[1]], &corner[t[2]], color + (i / 2) % 3);
+        else if (nt < triangle_limit)
+            triangle_clip(eye[t[0]], eye[t[1]], eye[t[2]], world[t[0]], world[t[1]], world[t[2]], color + (i / 2) % 3);
+    }
+}
+static void box(Vec center, Vec up, int size, int height, int color) {
+    box_q8(scale(center, FP, 1), up, size, height, color);
 }
 /* Hulls are lofts: a convex profile swept through up to four stations, nose
    to tail. Units are sixteenths of the ShipSpec half-width (x), height (y)
@@ -2539,18 +2575,18 @@ static void ground_markers(void) {
     if (altitude_at(game, viewer()) > 3000) return;
     n = ground_sites(game, viewer(), sites, GROUND_SITES);
     for (i = 0; i < n; i++) {
-        Vec base = scale(site_position(game, &sites[i]), 1, FP);
-        Vec up = unit(sub(base, game->system.planets[sites[i].body].center), 16384);
-        if (length(sub(base, eye)) > 2500) continue;
+        Vec base = site_position(game, &sites[i]);
+        Vec up = unit(sub(base, scale(game->system.planets[sites[i].body].center, FP, 1)), 16384);
+        if (length(sub(scale(base, 1, FP), eye)) > 2500) continue;
         if (sites[i].kind == SITE_OUTCROP) {
-            box(base, up, 4, 3, 6);
-            box(add(base, scale(up, 3, 16384)), up, 2, 2, 7);
+            box_q8(base, up, 4, 3, 6);
+            box_q8(add(base, scale(up, 3 * FP, 16384)), up, 2, 2, 7);
         } else if (sites[i].kind == SITE_WRECKAGE) {
-            box(base, up, 9, 2, 22);
-            box(add(base, scale(up, 2, 16384)), up, 3, 4, 21);
+            box_q8(base, up, 9, 2, 22);
+            box_q8(add(base, scale(up, 2 * FP, 16384)), up, 3, 4, 21);
         } else {
-            box(base, up, 1, 7, 23);
-            box(add(base, scale(up, 7, 16384)), up, 1, 1, 13);
+            box_q8(base, up, 1, 7, 23);
+            box_q8(add(base, scale(up, 7 * FP, 16384)), up, 1, 1, 13);
         }
     }
 }
