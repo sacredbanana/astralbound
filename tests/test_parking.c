@@ -141,9 +141,50 @@ static void land_in_place(void) {
                (long long)(speed * 100 / FP), g.hull);
     }
     assert(g.docked == -2 && !g.dead && g.hull == 100 && !g.landing);
-    assert(speed < 4 * FP && llabs(rest_height(&g) - 12) <= 1);
+    assert(speed < 4 * FP && rest_height(&g) >= ship_specs[g.ship].keel + REST_CLEARANCE - 1);
     assert(g.ground_anchor.x == anchor.x && g.ground_anchor.y == anchor.y && g.ground_anchor.z == anchor.z);
     assert(park_mode(&g, NULL) == PARK_NONE);
+    /* The keel clears the ground under the whole footprint, and the hull
+       turns with the body: an hour later it stands on the ground as it did. */
+    {
+        const Planet *p = &g.system.planets[body];
+        Planet still = *p;
+        const ShipSpec *s = &ship_specs[g.ship];
+        Vec up = g.ground_up, f = g.ground_front, r, hull, radial_up;
+        int64_t lean, keel_ground;
+        int u, w, i;
+        set_rotation(&still, 0);
+        r = vec((up.y * f.z - up.z * f.y) / 16384, (up.z * f.x - up.x * f.z) / 16384, (up.x * f.y - up.y * f.x) / 16384);
+        for (u = -2; u <= 2; u++)
+            for (w = -2; w <= 2; w++) {
+                Vec q = add(g.ground_anchor, add(scale(f, (int64_t)s->depth * FP * u, 4 * 16384),
+                                                 scale(r, (int64_t)s->width * FP * w, 4 * 16384)));
+                q = radial(q, (int64_t)p->radius * FP + terrain_height_fine(&still, q));
+                keel_ground = dot_raw(sub(g.ground_anchor, q), up) / 16384;
+                assert(keel_ground >= (int64_t)s->keel * FP + FP / 2);
+            }
+        radial_up = unit(g.ground_anchor, 16384);
+        lean = dot_raw(up, radial_up) / 16384;
+        for (i = 0; i < 3600 * HZ; i++) game_tick(&g, (Controls){0});
+        assert(g.docked == -2);
+        p = &g.system.planets[body];
+        hull = forward(g.yaw, g.pitch);
+        assert(dot_raw(hull, body_rotate(p, g.ground_front, 0)) / 16384 > 16300);
+        assert(llabs(dot_raw(body_rotate(p, g.ground_up, 0), body_rotate(p, radial_up, 0)) / 16384 - lean) < 8);
+        printf("landed an hour: hull leans %d table units off radial, unchanged\n",
+               attitude_angle(isqrt64((uint64_t)(16384LL * 16384 - lean * lean)), lean));
+    }
+    /* A tall hull rests high above its footprint, yet a commander stepping
+       out can board again at once: reach is measured along the ground. */
+    {
+        int ship = g.ship;
+        g.ship = 2;
+        landed_pose(&g);
+        assert(rest_height(&g) >= ship_specs[2].keel + REST_CLEARANCE - 1);
+        assert(disembark(&g) && walker_ship_distance(&g) <= board_reach(&g) && embark(&g));
+        g.ship = ship;
+        landed_pose(&g);
+    }
     /* Aborting a landing hands back an assisted hover. */
     game_action(&g, 'l');
     place_over_land(&g, body, 2500);

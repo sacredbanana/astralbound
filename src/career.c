@@ -5,12 +5,12 @@
 #include <stdio.h>
 #include <string.h>
 const ShipSpec ship_specs[SHIPS] = {
-    {"CINDER", 30, 60, 20, 0, 3, 2, 35, 70, 12, 0},
-    {"LOOM", 85, 48, 60, 1, 3, 4, 60, 75, 25, 8000},
-    {"HEARTH", 220, 36, 140, 2, 3, 6, 110, 110, 45, 16000},
-    {"KESTREL", 50, 90, 35, 1, 1, 8, 65, 100, 9, 22000},
-    {"QUARRY", 160, 42, 90, 2, 2, 4, 45, 140, 35, 26000},
-    {"WAYFARER", 300, 30, 180, 3, 3, 8, 95, 170, 55, 40000}
+    {"CINDER", 30, 60, 20, 0, 3, 2, 35, 70, 12, 0, 11},
+    {"LOOM", 85, 48, 60, 1, 3, 4, 60, 75, 25, 8000, 19},
+    {"HEARTH", 220, 36, 140, 2, 3, 6, 110, 110, 45, 16000, 48},
+    {"KESTREL", 50, 90, 35, 1, 1, 8, 65, 100, 9, 22000, 8},
+    {"QUARRY", 160, 42, 90, 2, 2, 4, 45, 140, 35, 26000, 27},
+    {"WAYFARER", 300, 30, 180, 3, 3, 8, 95, 170, 55, 40000, 42}
 };
 const char *faction_names[FACTIONS] = {"AURORA UNION", "MERIDIAN LEAGUE", "FREE REACH"};
 const char *equipment_names[EQUIP_TYPES] = {"PASSENGER CABIN", "MINING LASER/RIG", "FUEL SCOOP",

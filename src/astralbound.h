@@ -133,9 +133,11 @@ typedef struct {
     uint32_t last_tick;
     int stock[GOODS];
 } Market;
+/* keel: metres from the hull's origin down to its lowest point, which a
+   landed hull holds REST_CLEARANCE above the ground beneath it. */
 typedef struct {
     const char *name;
-    int mass, acceleration, capacity, crew, mounts, missiles, width, depth, height, cost;
+    int mass, acceleration, capacity, crew, mounts, missiles, width, depth, height, cost, keel;
 } ShipSpec;
 typedef enum { CABIN, MINING, SCOOP, MISSILE_RACK, COUNTERMEASURE, DORSAL, VENTRAL, ESCAPE_POD, EQUIP_TYPES } Equipment;
 typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
@@ -159,6 +161,7 @@ typedef enum { RAIDER, POLICE, CIVILIAN, INSTALLATION_TARGET } NpcRole;
    the ship at WALK_SPEED m/s and use ground sites within SITE_REACH metres. */
 #define DOCK_RANGE 20000
 #define LAND_CEILING 30000
+#define REST_CLEARANCE 1
 #define WALK_SPEED 6
 #define WALK_RANGE 1500
 #define EYE_HEIGHT 2
@@ -256,6 +259,10 @@ typedef struct {
        touchdown point is body-fixed Q8 at the landed rest height. */
     int landing;
     Vec land_anchor;
+    /* Transient Q14 body-fixed attitude: land_up is the ground plane fitted
+       under a landing hull; ground_up/front hold a landed hull to the turning
+       ground (zero until first needed, as ground_anchor). */
+    Vec land_up, ground_up, ground_front;
     /* Transient excursion on foot: body-fixed Q8 feet position, heading from
        local north toward east and look pitch (table angles), used sites. The
        pose a tick earlier and draw_lag, the Q8 part of a tick the display is
@@ -412,6 +419,7 @@ const char *land_refusal(const Game *g);
 /* The DOCK/LAND/EXIT/USE/BOARD button's label, state and key. */
 const char *park_label(const Game *g, int *enabled, int *active);
 int park_key(const Game *g);
+void landed_pose(Game *g);
 /* On foot (ground.c). Positions are Q8 in the system frame. */
 extern const char *site_names[SITE_KINDS];
 const char *disembark_refusal(const Game *g);

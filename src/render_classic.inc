@@ -73,6 +73,11 @@ static int cl_rotate(int64_t ox, int64_t oy, int64_t oz, ClV *v) {
 static int cl_world(Vec w, ClV *v) {
     return cl_rotate(w.x * 16 - cl.cam4.x, w.y * 16 - cl.cam4.y, w.z * 16 - cl.cam4.z, v);
 }
+/* A Q8 point to the camera's sixteenth of a metre. */
+static int cl_world_q8(Vec w, ClV *v) {
+    return cl_rotate(floor_shift(w.x, 4) - cl.cam4.x, floor_shift(w.y, 4) - cl.cam4.y,
+                     floor_shift(w.z, 4) - cl.cam4.z, v);
+}
 /* Perspective by reciprocal: z is normalised to 15 bits, one 32-bit
    division gives 2^30/z, and x, y take one widening multiply each.
    Output is Q4 screen coordinates. */
@@ -348,7 +353,7 @@ static void cl_ship(int ship, Vec origin, Vec right, Vec up, Vec front, Vec ligh
     int32_t lc[3];
     ClV o;
     int a, c, i, side, reach = spec->width + spec->height + spec->depth;
-    if (!cl_world(origin, &o)) return;
+    if (!cl_world_q8(origin, &o)) return;
     if (o.z + reach * 16 < CL_NEAR) return;
     if (llabs(o.x) - reach * 16 > (int64_t)CL_GUARD * o.z || llabs(o.y) - reach * 16 > (int64_t)CL_GUARD * o.z) return;
     /* coef: camera-space Q4 per model unit, Q18 (model units are 1/256 of

@@ -570,9 +570,63 @@ int park_mode(const Game *g, int *port) {
 }
 /* Body-fixed rest point beneath a Q8 body-relative position: 12 m above the
    terrain, the landed datum shared with saves and open-ground touchdowns. */
-static Vec rest_anchor(const Planet *p, Vec local) {
-    int64_t height = terrain_height(p, scale(local, 1, FP));
-    return body_rotate(p, radial(local, ((int64_t)p->radius + height + 12) * FP), 1);
+static Vec cross14(Vec a, Vec b) {
+    return vec((a.y * b.z - a.z * b.y) / 16384, (a.z * b.x - a.x * b.z) / 16384,
+               (a.x * b.y - a.y * b.x) / 16384);
+}
+/* The landed rest pose beneath a Q8 offset from the body's centre, for a
+   hull heading along a Q14 world direction. Its up is the ground plane
+   fitted under the footprint, so a hull on a hillside lies along it instead
+   of burying its uphill side. The anchor stays straight above the ground
+   point and rises until the keel clears the highest of 5x5 samples under
+   the hull by REST_CLEARANCE. Anchor Q8 and up Q14, both body-fixed; the
+   samples are Q8, as whole metres would misplace the plane by a metre. */
+static Vec rest_pose(const Planet *p, int ship, Vec local, Vec heading, Vec *up) {
+    const ShipSpec *s = &ship_specs[ship];
+    Planet still = *p;
+    Vec fixed = body_rotate(p, local, 1), n0, f, r, c, n, a, b;
+    int64_t need = 0, tilt, e;
+    int i, j;
+    set_rotation(&still, 0);
+#define REST_GROUND(x) radial((x), (int64_t)p->radius * FP + terrain_height_fine(&still, (x)))
+    n0 = unit(fixed, 16384);
+    heading = body_rotate(p, heading, 1);
+    f = sub(heading, scale(n0, along(heading, n0), 16384));
+    if (length(f) < 4096) f = sub(vec(16384, 0, 0), scale(n0, n0.x, 16384));
+    if (length(f) < 4096) f = sub(vec(0, 16384, 0), scale(n0, n0.y, 16384));
+    f = unit(f, 16384);
+    r = cross14(n0, f);
+    c = REST_GROUND(fixed);
+    a = sub(REST_GROUND(add(c, scale(f, s->depth * FP / 2, 16384))), REST_GROUND(sub(c, scale(f, s->depth * FP / 2, 16384))));
+    b = sub(REST_GROUND(add(c, scale(r, s->width * FP / 2, 16384))), REST_GROUND(sub(c, scale(r, s->width * FP / 2, 16384))));
+    /* Spans under 2^16: the unscaled cross product stays inside 64 bits. */
+    n = unit(vec(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x), 16384);
+    tilt = along(n, n0);
+    if (tilt < 8192) { n = n0; tilt = 16384; } /* steeper than 60 degrees: stand level */
+    for (i = -2; i <= 2; i++)
+        for (j = -2; j <= 2; j++) {
+            Vec probe = add(c, add(scale(f, (int64_t)s->depth * FP * i, 4 * 16384),
+                                   scale(r, (int64_t)s->width * FP * j, 4 * 16384)));
+            e = along(sub(REST_GROUND(probe), c), n);
+            if (e > need) need = e;
+        }
+#undef REST_GROUND
+    need += (int64_t)(s->keel + REST_CLEARANCE) * FP;
+    *up = n;
+    return radial(fixed, length(c) + need * 16384 / tilt);
+}
+/* Table angles of a hull whose Q14 world forward and up are f and u. */
+static void hull_angles(Vec f, Vec u, int *yaw, int *pitch, int *roll) {
+    Vec r;
+    aim_angles(f, yaw, pitch);
+    r = vec(cosi(*yaw), 0, -sini(*yaw));
+    *roll = attitude_angle(along(u, r), along(u, cross14(forward(*yaw, *pitch), r)));
+}
+/* Q14 world up of the hull as its table angles stand. */
+static Vec hull_up(const Game *g) {
+    Vec f = forward(g->yaw, g->pitch), r = vec(cosi(g->yaw), 0, -sini(g->yaw));
+    Vec level = cross14(f, r);
+    return add(scale(r, sini(g->roll), 16384), scale(level, cosi(g->roll), 16384));
 }
 /* NULL when the ground beneath is safe to land on: dry, no steeper than about
    1:2 under the hull, with engines able to hover and no hostiles nearby. */
@@ -628,7 +682,8 @@ static Vec landing_thrust(Game *g, Vec gravity, int64_t thrust) {
     off = sub(g->pos, site);
     height = along(off, up);
     drift = sub(off, scale(up, height, 16384));
-    level_attitude(g, up);
+    /* Settle onto the slope the hull will rest on. */
+    level_attitude(g, length(g->land_up) ? body_rotate(&g->system.planets[g->landing - 1], g->land_up, 0) : up);
     if (length(drift) > 40LL * FP + (height > 0 ? height / 4 : 0)) {
         int64_t hold = height > 300LL * FP ? height : 300LL * FP;
         Vec goal = sub(add(site, scale(up, hold, 16384)), scale(site_vel, 1, HZ));
@@ -638,18 +693,42 @@ static Vec landing_thrust(Game *g, Vec gravity, int64_t thrust) {
     return settle_thrust(g, off, up, site_vel, gravity, thrust, 120 * FP,
                          5 * FP + (height > 0 ? height / 64 : 0));
 }
-static void settle_on_ground(Game *g, int body, Vec anchor) {
+/* Hold the landed hull body-fixed: forward is the heading laid along the
+   ground plane under it. */
+static void hold_attitude(Game *g, const Planet *p, Vec up) {
+    Vec f = body_rotate(p, forward(g->yaw, g->pitch), 1);
+    f = sub(f, scale(up, along(f, up), 16384));
+    if (length(f) < 4096) f = cross14(up, vec(0, 0, 16384));
+    if (length(f) < 4096) f = cross14(up, vec(16384, 0, 0));
+    g->ground_up = up;
+    g->ground_front = unit(f, 16384);
+    hull_angles(body_rotate(p, g->ground_front, 0), body_rotate(p, up, 0), &g->yaw, &g->pitch, &g->roll);
+}
+static void settle_on_ground(Game *g, int body, Vec anchor, Vec up) {
     const Planet *p = &g->system.planets[body];
     Vec local = body_rotate(p, anchor, 0);
     g->pos = add(scale(p->center, FP, 1), local);
     g->vel = surface_velocity(p, scale(local, 1, FP));
     g->ground_anchor = anchor;
+    hold_attitude(g, p, up);
     g->frame_body = g->body = body;
     g->docked = -2;
     g->autopilot = g->landing = 0;
     g->warp = 1;
     g->throttle = 0;
     say(g, "LANDED - K DISEMBARK / L LAUNCH");
+}
+/* Re-rest a hull landed on open ground, as a loaded save needs: the pose
+   over its ground point at its present heading. */
+void landed_pose(Game *g) {
+    const Planet *p = &g->system.planets[g->body];
+    Vec up, anchor;
+    char message[sizeof(g->message)];
+    if (g->docked != -2) return;
+    memcpy(message, g->message, sizeof(message));
+    anchor = rest_pose(p, g->ship, sub(g->pos, scale(p->center, FP, 1)), forward(g->yaw, g->pitch), &up);
+    settle_on_ground(g, g->body, anchor, up);
+    memcpy(g->message, message, sizeof(message));
 }
 static int landing_touchdown(Game *g) {
     Vec site, up, site_vel;
@@ -659,7 +738,7 @@ static int landing_touchdown(Game *g) {
     if (along(sub(g->pos, site), up) >= 1 * FP ||
         length(sub(g->vel, site_vel)) >= 8 * FP)
         return 0;
-    settle_on_ground(g, g->landing - 1, g->land_anchor);
+    settle_on_ground(g, g->landing - 1, g->land_anchor, g->land_up);
     return 1;
 }
 /* Resting on solid ground - open ground or a surface pad - the hatch can open. */
@@ -740,7 +819,8 @@ static void park(Game *g) {
             return;
         }
         p = &g->system.planets[body];
-        g->land_anchor = rest_anchor(p, sub(g->pos, scale(p->center, FP, 1)));
+        g->land_anchor = rest_pose(p, g->ship, sub(g->pos, scale(p->center, FP, 1)),
+                                   forward(g->yaw, g->pitch), &g->land_up);
         g->landing = body + 1;
         g->autopilot = g->drive_manual = g->entry_brake = 0;
         g->throttle = 0;
@@ -828,6 +908,19 @@ void game_tick(Game *g, Controls c) {
             g->pos = g->ports[g->docked].pos;
             g->vel = port_relative_velocity(g, g->docked);
         }
+        /* On the ground the hull turns with the body, as its position does;
+           a world-fixed attitude leaned into the ground by the hour. */
+        if (g->docked == -2 || g->ports[g->docked].surface) {
+            const Planet *p = &g->system.planets[g->body];
+            if (!length(g->ground_up)) {
+                Planet before = *p;
+                set_rotation(&before, g->tick - 1);
+                g->ground_up = body_rotate(&before, hull_up(g), 1);
+                g->ground_front = body_rotate(&before, forward(g->yaw, g->pitch), 1);
+            }
+            hull_angles(body_rotate(p, g->ground_front, 0), body_rotate(p, g->ground_up, 0),
+                        &g->yaw, &g->pitch, &g->roll);
+        }
         if (g->on_foot)
             ground_tick(g, c);
         if (g->tick % HZ == 0)
@@ -836,6 +929,7 @@ void game_tick(Game *g, Controls c) {
         return;
     }
     drive_watchdog(g);
+    g->ground_up = g->ground_front = vec(0, 0, 0);
     g->body = nearest_body(g, g->pos);
     planet = &g->system.planets[g->body];
     {
@@ -1104,7 +1198,8 @@ void game_tick(Game *g, Controls c) {
                 Vec lc = sub(g->pos, scale(p->center, FP, 1));
                 /* Any slow contact with solid ground is a landing. */
                 if (p->type != GAS_GIANT && length(sub(g->vel, surface_velocity(p, scale(lc, 1, FP)))) < 8 * FP) {
-                    settle_on_ground(g, i, rest_anchor(p, lc));
+                    Vec up, anchor = rest_pose(p, g->ship, lc, forward(g->yaw, g->pitch), &up);
+                    settle_on_ground(g, i, anchor, up);
                 } else {
                     g->hull = 0;
                     impact_body = i;
@@ -1642,7 +1737,7 @@ void game_action(Game *g, int k) {
             g->clearance = -1;
             g->dock_stage = 0;
             g->docked = -1;
-            g->ground_anchor = vec(0, 0, 0);
+            g->ground_anchor = g->ground_up = g->ground_front = vec(0, 0, 0);
             g->page = FLIGHT;
             g->throttle = 0;
             say(g, "LAUNCHED - P AUTOPILOT / H HELP");

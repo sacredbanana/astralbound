@@ -258,6 +258,15 @@ static Vec camera(Vec p) {
     }
     return view_rotate(r);
 }
+/* The same for a Q8 point, which keeps its place to the 256th of a metre. */
+static Vec camera_q8(Vec p) {
+    Vec r = sub(scale(p, 1, FP), scale(camera_position, 1, FP));
+    if (fine_camera && llabs(r.x) < 1000000 && llabs(r.y) < 1000000 && llabs(r.z) < 1000000) {
+        Vec q = view_rotate(sub(p, camera_position));
+        return vec(round_div(q.x, FP), round_div(q.y, FP), round_div(q.z, FP));
+    }
+    return view_rotate(r);
+}
 /* Camera space in camera_unit steps per metre for polygons: 1/16 m on foot,
    where whole-metre vertices clipped at a 1 m near plane would bend the
    depth plane that ground texturing reconstructs each pixel from. */
@@ -1119,19 +1128,21 @@ static void direction14(int64_t x, int64_t y, int64_t z, int32_t *out) {
     out[2] = (int32_t)floor_shift(z, s);
 }
 static int32_t dot32(const int32_t *a, const int32_t *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-/* Model coordinates are 256ths of the spec extents. Returns 0 when the
-   hull's bounding sphere lies wholly outside the view. */
+/* Model coordinates are 256ths of the spec extents; the origin is Q8, so a
+   landed hull beside a walker does not jump between whole metres as the
+   body turns. Returns 0 when the hull's bounding sphere lies wholly outside
+   the view. */
 static int ship_view(ShipView *v, int ship, Vec origin, Vec right, Vec up, Vec front, int unit, Vec light) {
     const ShipSpec *spec = &ship_specs[ship];
     const Vec axes[3] = {right, up, front};
     const int64_t size[3] = {spec->width, spec->height, spec->depth};
     int64_t p[3][3], largest = 0, reach = 0, radius;
-    Vec d = sub(origin, scale(camera_position, 1, FP));
+    Vec d = sub(scale(origin, 1, FP), scale(camera_position, 1, FP));
     int a, c, t = 0, ex, ey, ez[2];
     /* Keep the camera's sub-unit position for the origin; otherwise a slowly
        moving chase camera shifts the whole hull in whole steps. */
     if (llabs(d.x) < (1LL << 30) && llabs(d.y) < (1LL << 30) && llabs(d.z) < (1LL << 30)) {
-        Vec q = view_rotate(sub(scale(origin, FP, 1), camera_position));
+        Vec q = view_rotate(sub(origin, camera_position));
         v->origin = vec(round_div(q.x * camera_unit, 16), round_div(q.y * camera_unit, 16),
                         round_div(q.z * camera_unit, 16));
     } else
@@ -1660,8 +1671,8 @@ static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v) {
     }
     return terrain_vertices[slot].point;
 }
-static Vec terrain_grid_vertex(const Planet *p, int face, int u, int v, int step,
-                               int camera_u, int camera_v) {
+static Vec terrain_grid_point(const Planet *p, int face, int u, int v, int step,
+                              int camera_u, int camera_v) {
     Vec point = terrain_fixed_vertex(p, face, u, v);
     int distance = abs(u - camera_u), dv = abs(v - camera_v);
     int parent_step = step * 2, blend;
@@ -1690,7 +1701,37 @@ static Vec terrain_grid_vertex(const Planet *p, int face, int u, int v, int step
         blend = (int)((int64_t)blend * blend * (196608 - 2 * blend) / 4294967296LL);
         point = add(point, scale(sub(parent, point), blend, 65536));
     }
-    return add(p->center, body_rotate(p, point, 0));
+    return point;
+}
+static Vec terrain_grid_vertex(const Planet *p, int face, int u, int v, int step,
+                               int camera_u, int camera_v) {
+    return add(p->center, body_rotate(p, terrain_grid_point(p, face, u, v, step, camera_u, camera_v), 0));
+}
+/* A clipmap vertex in the world (whole metres, for shading) and in camera
+   space. Rounded afresh each tick as the body turns, whole-metre vertices
+   shook the ground by up to a metre around a walker's 2 m eye, so on foot
+   the camera-space point comes from the exact body-fixed offset to the eye. */
+typedef struct { Vec world, eye; } TerrainVertex;
+static struct { const Planet *p; Vec eye; } terrain_eye;
+static TerrainVertex clip_vertex(const Planet *p, Vec point) {
+    TerrainVertex t;
+    t.world = add(p->center, body_rotate(p, point, 0));
+    if (terrain_eye.p == p) {
+        Vec r = sub(scale(point, FP, 1), terrain_eye.eye);
+        if (llabs(r.x) < 1000000LL * FP && llabs(r.y) < 1000000LL * FP && llabs(r.z) < 1000000LL * FP) {
+            Vec q = view_rotate(body_rotate(p, r, 0));
+            int64_t d = FP / camera_unit;
+            t.eye = vec(round_div(q.x, d), round_div(q.y, d), round_div(q.z, d));
+            return t;
+        }
+    }
+    t.eye = camera_poly(t.world);
+    return t;
+}
+static void terrain_triangle(TerrainVertex a, TerrainVertex b, TerrainVertex c, int color) {
+    if (cl_active) { cl_triangle_world(a.world, b.world, c.world, color); return; }
+    if (nt >= triangle_limit) return;
+    triangle_clip(a.eye, b.eye, c.eye, a.world, b.world, c.world, color);
 }
 /* Above the detail altitude the same lattice continues as flat facets, each
    coloured by a ground sample at its centroid, so coasts hold still while
@@ -1746,8 +1787,11 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
     int64_t direction[3] = {fixed.x, fixed.y, fixed.z};
     int face, camera_u, camera_v, x, y, first = step, flat = !terrain_surface;
     int inner_u0 = 0, inner_v0 = 0, inner_u1 = 0, inner_v1 = 0;
-    Vec rows[2][TERRAIN_GRID * 2 + 1];
+    TerrainVertex rows[2][TERRAIN_GRID * 2 + 1];
     surface_uv(p, direction, &face, &camera_u, &camera_v);
+    terrain_eye.p = fine_camera && game->on_foot && p == &game->system.planets[game->body] ? p : NULL;
+    if (terrain_eye.p)
+        terrain_eye.eye = body_rotate(p, sub(camera_position, scale(p->center, FP, 1)), 1);
     if (flat) {
         /* span arrives as the tangent distance D to the horizon. The face
            projection stretches it radially away from the face centre: a
@@ -1773,26 +1817,26 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
                 int u = u0 + x * step;
                 if (step != first && u > inner_u0 && u < inner_u1 &&
                     v > inner_v0 && v < inner_v1) continue;
-                rows[y % 2][x] = terrain_grid_vertex(p,face,u,v,step,camera_u,camera_v);
+                rows[y % 2][x] = clip_vertex(p, terrain_grid_point(p,face,u,v,step,camera_u,camera_v));
             }
             if (y) for (x = 0; x < grid * 2; x++) {
                 int u = u0 + x * step;
                 if (step != first && u >= inner_u0 && u + step <= inner_u1 &&
                     v - step >= inner_v0 && v <= inner_v1) continue;
-                Vec a = rows[(y - 1) % 2][x], b = rows[(y - 1) % 2][x + 1];
-                Vec c = rows[y % 2][x + 1], d = rows[y % 2][x];
+                TerrainVertex a = rows[(y - 1) % 2][x], b = rows[(y - 1) % 2][x + 1];
+                TerrainVertex c = rows[y % 2][x + 1], d = rows[y % 2][x];
                 if (flat) {
                     const uint8_t *sample;
                     int shade;
-                    if (!patch_visible(p, local, a, b, c, d)) continue;
+                    if (!patch_visible(p, local, a.world, b.world, c.world, d.world)) continue;
                     sample = patch_samples(p, face, u, v - step, step);
                     /* One illumination at the cell centre serves both halves. */
-                    shade = surface_light(&game->system, p, sub(scale(add(a,c),1,2),p->center)) * 14 / 16384;
+                    shade = surface_light(&game->system, p, sub(scale(add(a.world,c.world),1,2),p->center)) * 14 / 16384;
                     if (!frame->enhanced) shade = shade / 6 * 6;
-                    triangle(a,b,c,ground_shade(shade,sample[0]));
-                    triangle(a,c,d,ground_shade(shade,sample[1]));
+                    terrain_triangle(a,b,c,ground_shade(shade,sample[0]));
+                    terrain_triangle(a,c,d,ground_shade(shade,sample[1]));
                 } else {
-                    triangle(a,b,c,0); triangle(a,c,d,0);
+                    terrain_triangle(a,b,c,0); terrain_triangle(a,c,d,0);
                 }
             }
         }
@@ -2269,7 +2313,7 @@ static void npc_ship(const Npc *n, int ship, Vec p) {
         triangle(a, c, b, 21);
         return;
     }
-    ship_mesh(ship, p, right, up, front, 1, unit(sub(game->system.star[0].center, p), 16384));
+    ship_mesh(ship, n->pos, right, up, front, 1, unit(sub(game->system.star[0].center, p), 16384));
 }
 /* Depth-tested billboard particles use the existing indexed palette on ECS,
    AGA and RTG. All random directions are seeded once per event. */
@@ -2358,14 +2402,15 @@ static void destruction_geometry(void) {
     int i, j;
     for (i = 0; i <= MAX_NPC; i++) {
         const Wreck *w = &game->wrecks[i];
-        Vec p, front, right, up, r;
+        Vec p, q, front, right, up, r;
         if (w->state != 1) continue;
-        p = scale(destruction_position(game, w->pos, w->body), 1, FP);
+        q = destruction_position(game, w->pos, w->body);
+        p = scale(q, 1, FP);
         front = forward(w->yaw, w->pitch); r = vec(cosi(w->yaw), 0, -sini(w->yaw));
         up = unit(cross(front, r), 16384);
         right = sub(scale(r, cosi(w->roll), 16384), scale(up, sini(w->roll), 16384));
         up = add(scale(r, sini(w->roll), 16384), scale(up, cosi(w->roll), 16384));
-        ship_mesh(w->ship, p, right, up, front, 1, unit(sub(game->system.star[0].center, p), 16384));
+        ship_mesh(w->ship, q, right, up, front, 1, unit(sub(game->system.star[0].center, p), 16384));
     }
     for (i = 0; i < MAX_BLASTS; i++) {
         const Blast *b = &game->blasts[i];
@@ -2474,7 +2519,15 @@ static void commander_hull(void) {
     Vec level_right = right;
     right = sub(scale(right, cosi(game->roll), 16384), scale(up, sini(game->roll), 16384));
     up = add(scale(level_right, sini(game->roll), 16384), scale(up, cosi(game->roll), 16384));
-    ship_mesh(game->ship, p, right, up, f, 1, unit(sub(game->system.star[0].center, p), 16384));
+    /* On the ground the exact body-fixed axes, not table angles stepping a
+       third of a degree as the body turns, keep the hull still on its slope. */
+    if (game->docked != -1 && length(game->ground_up)) {
+        const Planet *b = &game->system.planets[game->body];
+        f = body_rotate(b, game->ground_front, 0);
+        up = body_rotate(b, game->ground_up, 0);
+        right = cross(up, f);
+    }
+    ship_mesh(game->ship, game->pos, right, up, f, 1, unit(sub(game->system.star[0].center, p), 16384));
 }
 /* Ground sites near a low or landed ship: the outcrop, wreck or beacon
    that a commander on foot walks to. */
@@ -2513,7 +2566,7 @@ static void world_objects(void) {
         if (cinema->escort) {
             const IntroHull *h = &cinema->ally;
             Vec p = scale(h->pos, 1, FP);
-            ship_mesh(h->ship, p, cross(h->up, h->front), h->up, h->front, 1,
+            ship_mesh(h->ship, h->pos, cross(h->up, h->front), h->up, h->front, 1,
                       unit(sub(game->system.star[0].center, p), 16384));
         }
     }
@@ -2954,7 +3007,7 @@ static void ship_preview(int ship, int x, int y, int w, int h) {
     f = forward(spin, 0);
     right = vec(cosi(spin), 0, -sini(spin));
     centre = scale(f, -(int64_t)(front_z + back_z) * spec->depth / 2, 16384);
-    ship_mesh(ship, centre, right, vec(0, 16384, 0), f, 16, unit(vec(-7000, 12000, -9000), 16384));
+    ship_mesh(ship, scale(centre, FP, 1), right, vec(0, 16384, 0), f, 16, unit(vec(-7000, 12000, -9000), 16384));
     draw_triangles();
     nt = 0;
     view_h = old_h; view_top = view_left = view_right_inset = proj_dx = proj_dy = 0;
@@ -3703,13 +3756,13 @@ static void foot_hud(void) {
     int64_t metres;
     char s[48];
     int x, y;
-    target_marker_position(camera(scale(game->pos, 1, FP)), 30, &x, &y);
+    target_marker_position(camera_q8(game->pos), 30, &x, &y);
     line(x - 6, y - 4, x + 6, y - 4, 15); line(x - 6, y + 4, x + 6, y + 4, 15);
     line(x - 6, y - 4, x - 6, y + 4, 15); line(x + 6, y - 4, x + 6, y + 4, 15);
     snprintf(s, sizeof(s), "SHIP %ld M", (long)walker_ship_distance(game));
     text(x - 24 < 2 ? 2 : x - 24, y + 8, 15, s);
     if (nearest_site(game, &site, &metres)) {
-        target_marker_position(camera(scale(site_position(game, &site), 1, FP)), 30, &x, &y);
+        target_marker_position(camera_q8(site_position(game, &site)), 30, &x, &y);
         line(x - 6, y, x, y - 6, 12); line(x, y - 6, x + 6, y, 12);
         line(x + 6, y, x, y + 6, 12); line(x, y + 6, x - 6, y, 12);
         snprintf(s, sizeof(s), "%s %ld M", site_names[site.kind], (long)metres);

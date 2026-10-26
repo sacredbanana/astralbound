@@ -1653,7 +1653,27 @@ static void atmospheric_gas_colours(void) {
     free(off);free(f.pixels);render_shutdown();render_graphics(&saved);render_renderer(RENDERER_ENHANCED);
     puts("PASS chemistry-driven aurorae, daytime skies and lit orbital halos in both renderers and ECS/AGA/RTG; catalogue overrides, depth and HUD bounds");
 }
+/* Each ShipSpec keel reaches the lowest point of its hull's lofts, within a
+   metre, so a landed hull rests on its keel rather than sinking or floating. */
+static void ship_keels(void) {
+    int s, i, k, p;
+    for (s = 0; s < SHIPS; s++) {
+        int low = 0;
+        for (i = 0; i < SHIP_LOFTS; i++) {
+            const ShipLoft *l = &ship_lofts[s][i];
+            for (k = 0; k < l->count; k++)
+                for (p = 0; p < ship_profile_points[l->profile]; p++) {
+                    int y = l->s[k].y * 16 + ship_profile[l->profile][p][1] * l->s[k].h;
+                    if (y < low) low = y;
+                }
+        }
+        low = -low * ship_specs[s].height; /* 256ths of a metre */
+        assert(ship_specs[s].keel * 256 >= low && ship_specs[s].keel * 256 < low + 256);
+    }
+    puts("PASS ship keels match their lofts");
+}
 int main(int argc, char **argv) {
+    ship_keels();
     if(argc>1 && !strcmp(argv[1],"--atmosphere-colours")) { atmospheric_gas_colours(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--terrain-lighting")) { terrain_lighting_history(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--aurorae")) { planetary_aurorae(); return 0; }

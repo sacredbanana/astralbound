@@ -503,17 +503,20 @@ int load_game(Game *g, const char *path) {
        Re-seat ground saves and lift buried airborne saves before flight resumes. */
     if (copy.docked < 0) {
         int64_t clearance = altitude_at(&copy,copy.pos);
-        if ((copy.docked == -2 && llabs(clearance-12)>3) || clearance<0) {
+        if (copy.docked != -2 && clearance<0) {
             const Planet *p=&copy.system.planets[copy.body];
             Vec local=sub(scale(copy.pos,1,FP),p->center);
-            local=radial(local,p->radius+terrain_height(p,local)+(copy.docked == -2 ? 12 : 50));
+            local=radial(local,p->radius+terrain_height(p,local)+50);
             copy.pos=scale(add(p->center,local),FP,1);
             copy.vel=surface_velocity(p,local);
         }
     }
+    /* A landed hull lying below its keel's rest height - an older save of a
+       larger hull, or regenerated ground - rests again where it stands. */
     if (copy.docked == -2) {
         const Planet *p = &copy.system.planets[copy.body];
-        copy.ground_anchor = body_rotate(p, sub(copy.pos, scale(p->center, FP, 1)), 1);
+        if (altitude_at(&copy, copy.pos) < ship_specs[copy.ship].keel + REST_CLEARANCE - 1) landed_pose(&copy);
+        else copy.ground_anchor = body_rotate(p, sub(copy.pos, scale(p->center, FP, 1)), 1);
     }
     if (copy.docked >= 0) {
         copy.pos = copy.ports[copy.docked].pos;

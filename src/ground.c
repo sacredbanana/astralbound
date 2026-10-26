@@ -91,8 +91,10 @@ int disembark(Game *g) {
     say(g, "ON FOOT - WASD WALK / ARROWS LOOK / E USE / K BOARD");
     return 1;
 }
+/* Along the ground: a tall hull rests high above its footprint. */
 int64_t walker_ship_distance(const Game *g) {
-    return length(sub(g->walker, ship_anchor(g))) / FP;
+    Vec d = sub(g->walker, ship_anchor(g)), up = unit(g->walker, 16384);
+    return length(sub(d, scale(up, dot(d, up), 16384))) / FP;
 }
 int board_reach(const Game *g) {
     const ShipSpec *s = &ship_specs[g->ship];
