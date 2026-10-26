@@ -228,7 +228,8 @@ static int host_run(int argc, char **argv) {
                 SDL_SetRelativeMouseMode(SDL_FALSE);
                 mouse_stick(&mouse, 0, 0, 0);
             }
-            if (e.type == SDL_MOUSEWHEEL && e.wheel.y && g.page==MAP && !g.ui_quit) game_action(&g,e.wheel.y>0?'+':'-');
+            if (e.type == SDL_MOUSEWHEEL && e.wheel.y && !g.ui_quit &&
+                (g.page==MAP || (g.page==SYSTEM_MAP && g.system_display==1))) game_action(&g,e.wheel.y>0?'+':'-');
             if (e.type == SDL_MOUSEMOTION) {
                 if (!mouse_right) {
                     ui_move(&g, &f, e.motion.x, e.motion.y);

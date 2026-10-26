@@ -2792,77 +2792,154 @@ static void panel(const char *title) {
 static int selected_body(void) {
     return game->target >= 0 ? game->ports[game->target].body : game->target_body;
 }
-/* A top-down true-scale projection. Local mode resolves moons and ports that
-   are necessarily coincident at AU scale. All arithmetic stays in metres. */
-static void map_point(Vec p, Vec origin, int64_t extent, int *x, int *y) {
-    ui_map_point(p, origin, extent, x, y);
-}
-static void orbit_path(Vec origin, Vec center, int64_t radius, int inclination,
-                       int64_t extent) {
-    int a, px = 0, py = 0;
-    for (a = 0; a <= 1024; a += 16) {
-        Vec p = add(center, scale(vec(sini(a), 0, (int64_t)cosi(a) * cosi(inclination) / 16384),
-                                  radius, 16384));
-        int x, y;
-        map_point(p, origin, extent, &x, &y);
-        if (a && x >= 12 && x < frame->w - 12 && y >= 30 && y <= 162 &&
-            px >= 12 && px < frame->w - 12 && py >= 30 && py <= 162)
-            line(px, py, x, y, 3);
-        px = x;
-        py = y;
+/* The system map through its 3D camera (ui_sysmap_project), in metres.
+   Orbits are the bodies' own 3D paths; markers grow into discs as the camera
+   closes; names avoid each other, the target's first; ports separate from
+   their bodies as the zoom resolves them. */
+static int map_clip_top, map_clip_bottom;
+static void map_line(int x1, int y1, int x2, int y2, int c) {
+    int64_t t0 = 0, t1 = 65536, dx = x2 - x1, dy = y2 - y1;
+    int64_t p[4] = {-dx, dx, -dy, dy}, q[4] = {x1 - SYSMAP_LEFT, SYSMAP_RIGHT - 1 - x1,
+                                                 y1 - map_clip_top, map_clip_bottom - 1 - y1};
+    int i;
+    for (i = 0; i < 4; i++) {
+        if (!p[i]) { if (q[i] < 0) return; continue; }
+        {
+            int64_t r = q[i] * 65536 / p[i];
+            if (p[i] < 0) { if (r > t1) return; if (r > t0) t0 = r; }
+            else { if (r < t0) return; if (r < t1) t1 = r; }
+        }
     }
+    line((int)(x1 + dx * t0 / 65536), (int)(y1 + dy * t0 / 65536),
+         (int)(x1 + dx * t1 / 65536), (int)(y1 + dy * t1 / 65536), c);
+}
+static void map_path(Vec centre, const Planet *p, const Star *star, int h, int c) {
+    int a, px = 0, py = 0, pv = -1;
+    for (a = 0; a <= 1024; a += 16) {
+        Vec q = p ? body_orbit_sample(p, a & 1023)
+                  : scale(vec(sini(a), 0, cosi(a)), star->orbit, 16384);
+        int x, y, d, v = ui_sysmap_project(game, h, add(centre, q), &x, &y, &d);
+        if (v >= 0 && pv >= 0) map_line(px, py, x, y, c);
+        px = x; py = y; pv = v;
+    }
+}
+/* A body's on-screen radius at its depth, in logical pixels. */
+static int map_radius(int64_t radius, int depth) {
+    Vec c; int64_t e, d, r; int yaw, pitch;
+    ui_sysmap_view(game, &c, &e, &yaw, &pitch);
+    d = 3 * e + (int64_t)depth * e / 100;
+    if (d <= 0) return 0;
+    r = radius * 3 * ui_sysmap_scale(frame->h / draw_scale) / d;
+    return r > 200 ? 200 : (int)r;
+}
+static void map_disc(int x, int y, int r, int c) {
+    int a, px = x + r, py = y;
+    for (a = 64; a <= 1024; a += 64) {
+        int nx = x + (int)((int64_t)r * cosi(a) / 16384), ny = y - (int)((int64_t)r * sini(a) / 16384);
+        map_line(px, py, nx, ny, c);
+        px = nx; py = ny;
+    }
+}
+#define MAP_LABELS 48
+static int map_boxes[MAP_LABELS][3], map_labels;
+static void map_label(int x, int y, int c, const char *name) {
+    int w = (int)strlen(name) * 6, l = x + 5, t = y - 3, j;
+    if (w > 120) w = 120;
+    if (l + w > SYSMAP_RIGHT) l = x - w - 5;
+    if (map_labels >= MAP_LABELS || l < SYSMAP_LEFT || t < map_clip_top || t + 8 > map_clip_bottom) return;
+    for (j = 0; j < map_labels; j++)
+        if (l < map_boxes[j][0] + map_boxes[j][2] + 3 && l + w > map_boxes[j][0] - 3 &&
+            t < map_boxes[j][1] + 10 && t + 8 > map_boxes[j][1] - 2) return;
+    map_boxes[map_labels][0] = l; map_boxes[map_labels][1] = t; map_boxes[map_labels][2] = w; map_labels++;
+    text(l, t, c, name);
 }
 static void orbital_map(void) {
-    int i, x, y, b = selected_body(), parent = -1;
-    int64_t extent = 1;
-    Vec origin = vec(0, 0, 0);
+    int i, x, y, d, b = selected_body(), h = frame->h / draw_scale, yaw, pitch, pass;
+    int64_t extent;
+    Vec centre;
     char s[96];
-    ui_orbit_geometry(game, &origin, &extent, &parent);
-    panel(game->map_local ? "LOCAL ORBITS / TOP DOWN" : "SYSTEM ORBITS / TOP DOWN");
+    ui_sysmap_view(game, &centre, &extent, &yaw, &pitch);
+    map_clip_top = SYSMAP_TOP; map_clip_bottom = SYSMAP_BOTTOM(h); map_labels = 0;
+    panel("SYSTEM MAP");
+    rect(SYSMAP_LEFT, SYSMAP_TOP, SYSMAP_RIGHT - SYSMAP_LEFT, map_clip_bottom - SYSMAP_TOP, 0);
+    /* Orbits first, so markers and names sit over them. */
     for (i = 0; i < game->system.count; i++) {
         const Planet *p = &game->system.planets[i];
-        Vec center = p->parent >= 0 ? game->system.planets[p->parent].center : vec(0, 0, 0);
-        if (game->map_local && i != parent && p->parent != parent)
+        Vec at = p->parent >= 0 ? game->system.planets[p->parent].center : vec(0, 0, 0);
+        int px, py, pd;
+        /* A moon's orbit only once the zoom spreads it over a few pixels. */
+        if (p->parent >= 0 && (ui_sysmap_project(game, h, at, &px, &py, &pd) < 0 || map_radius(p->orbit, pd) < 4))
             continue;
-        if ((!game->map_local || i != parent) && p->catalog && p->orbit*62/extent>=2) {
-            int a,x1,y1,x2,y2;
-            for(a=0;a<1024;a+=32) {
-                map_point(add(center,body_orbit_sample(p,a)),origin,extent,&x1,&y1);
-                map_point(add(center,body_orbit_sample(p,a+32)),origin,extent,&x2,&y2);
-                line(x1,y1,x2,y2,3);
-            }
-        } else if ((!game->map_local || i != parent) && !p->catalog)
-            orbit_path(origin, center, p->orbit, p->inclination, extent);
-        map_point(p->center, origin, extent, &x, &y);
-        rect(x - 2, y - 2, 5, 5, i == b ? 12 : p->settled ? 11 : 13);
-        if (i == b || game->map_local)
-            text(x + 5, y - 3, i == b ? 12 : 7, p->name);
+        map_path(at, p, NULL, h, i == b ? 12 : 3);
     }
-    if (!game->map_local)
-        for (i = 0; i < game->system.stars; i++) {
-            orbit_path(origin, vec(0, 0, 0), game->system.star[i].orbit, 0, extent);
-            map_point(game->system.star[i].center, origin, extent, &x, &y);
-            rect(x - 2, y - 2, 5, 5, 15);
+    for (i = 0; i < game->system.stars; i++)
+        if (game->system.star[i].orbit) map_path(vec(0, 0, 0), NULL, &game->system.star[i], h, 3);
+    for (i = 0; i < game->system.stars; i++)
+        if (ui_sysmap_project(game, h, game->system.star[i].center, &x, &y, &d) == 1) {
+            int r = map_radius(game->system.star[i].radius, d);
+            if (r > 3) map_disc(x, y, r, 15); else rect(x - 2, y - 2, 5, 5, 15);
         }
+    /* Bodies, then ports clear of their body, then the ship; names follow
+       in priority order: the target, planets, the ship, moons, ports. */
+    for (i = 0; i < game->system.count; i++) {
+        const Planet *p = &game->system.planets[i];
+        int c = i == b && game->target < 0 ? 12 : p->settled ? 11 : 13, r;
+        if (ui_sysmap_project(game, h, p->center, &x, &y, &d) != 1) continue;
+        r = map_radius(p->radius, d);
+        if (r > 3) map_disc(x, y, r, c);
+        else if (p->parent >= 0) rect(x - 1, y - 1, 3, 3, c);
+        else rect(x - 2, y - 2, 5, 5, c);
+    }
     for (i = 0; i < game->nports; i++) {
-        if (i != game->target && (!game->map_local || game->ports[i].body != parent))
-            continue;
-        map_point(scale(game->ports[i].pos, 1, FP), origin, extent, &x, &y);
-        if (x >= 12 && x < frame->w - 12 && y >= 30 && y <= 162) {
-            line(x - 3, y, x + 3, y, i == game->target ? 12 : 7);
-            line(x, y - 3, x, y + 3, i == game->target ? 12 : 7);
-        }
+        int bx, by, bd, c = i == game->target ? 12 : 7;
+        if (ui_sysmap_project(game, h, scale(game->ports[i].pos, 1, FP), &x, &y, &d) != 1) continue;
+        if (i != game->target && ui_sysmap_project(game, h, game->system.planets[game->ports[i].body].center, &bx, &by, &bd) >= 0 &&
+            (bx - x) * (bx - x) + (by - y) * (by - y) < 25) continue;
+        line(x - 3, y, x + 3, y, c);
+        line(x, y - 3, x, y + 3, c);
     }
-    map_point(scale(game->pos, 1, FP), origin, extent, &x, &y);
-    if (x >= 12 && x < frame->w - 12 && y >= 30 && y <= 162) {
+    if (ui_sysmap_project(game, h, scale(game->pos, 1, FP), &x, &y, &d) == 1) {
         line(x - 3, y + 3, x, y - 3, 14);
         line(x, y - 3, x + 3, y + 3, 14);
     }
-    snprintf(s, sizeof(s), "RADIUS %ld %s / SHIP RED / TARGET GOLD",
-             (long)(extent / (game->map_local ? 1000 : AU_METRES / 100)),
-             game->map_local ? "KM" : "0.01 AU");
-    text(12, 161, 7, s);
-
+    /* Names in priority order: the target, planets, the ship, moons, then
+       ports once they stand clear of their body. */
+    if (game->target >= 0) {
+        if (ui_sysmap_project(game, h, scale(game->ports[game->target].pos, 1, FP), &x, &y, &d) == 1)
+            map_label(x, y, 12, game->ports[game->target].name);
+    } else if (ui_sysmap_project(game, h, game->system.planets[b].center, &x, &y, &d) == 1)
+        map_label(x, y, 12, game->system.planets[b].name);
+    for (pass = 0; pass < 3; pass++) {
+        if (pass == 1) {
+            if (ui_sysmap_project(game, h, scale(game->pos, 1, FP), &x, &y, &d) == 1) map_label(x, y, 14, "SHIP");
+            continue;
+        }
+        for (i = 0; i < game->system.count; i++) {
+            const Planet *p = &game->system.planets[i];
+            if ((p->parent >= 0) != (pass == 2) || (game->target < 0 && i == b)) continue;
+            if (ui_sysmap_project(game, h, p->center, &x, &y, &d) == 1)
+                map_label(x, y, p->parent >= 0 ? 5 : 15, p->name);
+        }
+    }
+    for (i = 0; i < game->nports; i++) {
+        int bx, by, bd;
+        if (i == game->target || ui_sysmap_project(game, h, scale(game->ports[i].pos, 1, FP), &x, &y, &d) != 1) continue;
+        if (ui_sysmap_project(game, h, game->system.planets[game->ports[i].body].center, &bx, &by, &bd) >= 0 &&
+            (bx - x) * (bx - x) + (by - y) * (by - y) < 64) continue;
+        map_label(x, y, 7, game->ports[i].name);
+    }
+    /* The span the map shows across, at the centre's depth. */
+    extent = extent * (SYSMAP_RIGHT - SYSMAP_LEFT) / ui_sysmap_scale(h);
+    if (extent >= AU_METRES / 10)
+        snprintf(s, sizeof(s), "WIDTH %ld.%02ld AU", (long)(extent / AU_METRES), (long)(extent * 100 / AU_METRES % 100));
+    else
+        snprintf(s, sizeof(s), "WIDTH %ld KM", (long)(extent / 1000));
+    text(SYSMAP_LEFT + 2, map_clip_bottom - 9, 7, s);
+    {
+        const char *hint = game->sysmap_pan_mode && game->sysmap_system == game->system.seed
+                               ? "DRAG PANS / CLICK TARGETS" : "DRAG TURNS / CLICK TARGETS";
+        text(SYSMAP_RIGHT - 2 - (int)strlen(hint) * 6, map_clip_bottom - 9, 3, hint);
+    }
 }
 /* Durations pick hours, days or years so every body fits one short field. */
 static void duration_text(char *s, size_t n, uint64_t seconds) {
@@ -3268,7 +3345,7 @@ static int gui_buttons(UiWidget *v,int n,int s) {
         if(b->action==UI_THROTTLE) {
             rect(b->x,b->y,b->w,b->h,0); rect(b->x+1,b->y+1,game->throttle*(b->w-2)/4000,b->h-2,13); continue;
         }
-        if(b->action==GAL_DRAG) continue;
+        if(b->action==GAL_DRAG || b->action==SYS_DRAG) continue;
         bevel(b->x,b->y,b->w,b->h,pressed || b->active);
         if(over && b->enabled) line(b->x+1,b->y+1,b->x+b->w-2,b->y+1,13);
         if(b->label[0]) text(b->x+(b->w-(int)strlen(b->label)*6)/2,b->y+(b->h-7)/2,b->enabled?(b->active?12:15):7,b->label);

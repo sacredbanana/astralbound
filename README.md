@@ -341,12 +341,17 @@ hull heading, with forward at the top and vertical stems showing height. The
 selected contact has a diamond, hull, range and signed closing speed; losing the
 contact removes its marker. Navigation targets and autopilot remain independent.
 
-Z opens the live top-down orbital map. C toggles system scale and local scale
-around the selected body (or its parent for a moon); Q/T and Up/Down select the
-same navigation destinations as Y. Moon and station separations are visible at
-local scale. White marks stars, green inhabited bodies, cyan other bodies, gold
-the selected destination, and red the ship. Orbits are projected at true scale;
-small bodies and ports can overlap in the system view. I, or clicking an already
+Z opens the live 3D system map, with a camera like the galaxy map's: drag (or
+Left/Right and the UP/DN buttons) to turn it, **+/-** or the mouse wheel to zoom from
+the whole system down to a few hundred kilometres, and PAN to drag the view instead.
+FOCUS (F) centres on the target and follows it round its orbit, SHIP (E) follows the
+ship, ALL frames the system and LOCAL (C) the target's neighbourhood. Click any
+planet, moon, station or surface port to target it; at system scale a planet takes
+clicks shared with its moons and ports, which separate as you zoom in. Q/T and
+Up/Down select the same navigation destinations as Y. White marks stars, green
+inhabited bodies, cyan other bodies, gold the selected destination, and red the
+ship; orbits are the bodies' true 3D paths, and names appear as the zoom gives
+them room. I, or clicking an already
 selected body in the list or orbital map, opens its data sheet: radius, density,
 mass, surface gravity, escape speed, mean temperature, surface pressure,
 atmospheric composition, day length, orbital period, distance, ports, survey

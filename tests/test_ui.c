@@ -18,6 +18,77 @@ static int click(Frame *f,int action) {
     }
     assert(!"missing action"); return 0;
 }
+/* Press, optionally move, release at logical map points. */
+static void map_gesture(Frame *f,int x,int y,int to_x,int to_y) {
+    int s=ui_scale(f);
+    ui_pointer(&g,f,x*s,y*s,1);
+    if(to_x!=x || to_y!=y) { ui_pointer(&g,f,(x+to_x)/2*s,(y+to_y)/2*s,1); ui_pointer(&g,f,to_x*s,to_y*s,1); }
+    ui_pointer(&g,f,to_x*s,to_y*s,0);
+}
+/* The orbits page: a 3D camera like the galaxy map's, whose clicks target
+   bodies and ports through the projection rendering uses. */
+static void system_map(Frame *f) {
+    int h=f->h/ui_scale(f),i,x,y,d,port,yaw,pitch,picked=0;
+    int64_t extent,before;
+    Vec centre;
+    ui_sysmap_view(&g,&centre,&extent,&yaw,&pitch);
+    before=extent;
+    /* Click an isolated body: it becomes the target; a second, its data. */
+    for(i=0;i<g.system.count && !picked;i++) {
+        int k,clear=1;
+        if(ui_sysmap_project(&g,h,g.system.planets[i].center,&x,&y,&d)!=1) continue;
+        if(g.system.planets[i].parent>=0) continue;
+        /* Its own moons and ports share its pixel and yield the click. */
+        for(k=0;k<g.system.count+g.nports;k++) {
+            int px,py,pd,own=k<g.system.count?g.system.planets[k].parent==i:g.ports[k-g.system.count].body==i;
+            Vec p=k<g.system.count?g.system.planets[k].center:scale(g.ports[k-g.system.count].pos,1,FP);
+            if(k!=i && !own && ui_sysmap_project(&g,h,p,&px,&py,&pd)==1 && abs(px-x)<9 && abs(py-y)<9) clear=0;
+        }
+        if(!clear) continue;
+        assert(ui_sysmap_pick(&g,h,x,y,&port)==i && !port);
+        map_gesture(f,x,y,x,y);
+        assert(g.target_body==i && g.target==-1 && g.system_display==1);
+        map_gesture(f,x,y,x,y);
+        assert(g.system_display==2);
+        click(f,UI_NAV+'z'); picked=1;
+    }
+    assert(picked);
+    /* A drag turns the view and targets nothing. */
+    i=g.target_body;
+    map_gesture(f,60,60,100,80);
+    ui_sysmap_view(&g,&centre,&extent,&yaw,&pitch);
+    assert(yaw!=0 && pitch!=-200 && g.target_body==i && g.system_display==1);
+    /* Zoom by button and key, then ALL frames the system again. */
+    click(f,SYS_IN); game_action(&g,'+');
+    ui_sysmap_view(&g,&centre,&extent,&yaw,&pitch); assert(extent<before*2/3);
+    click(f,SYS_OUT); ui_sysmap_view(&g,&centre,&extent,&yaw,&pitch); assert(extent<before && extent>before/3);
+    click(f,SYS_WHOLE); ui_sysmap_view(&g,&centre,&extent,&yaw,&pitch); assert(extent==before && !g.map_local);
+    /* FOCUS follows the target as it moves; a port, once resolved, is
+       clicked to target it. */
+    g.target=0; g.target_body=-1;
+    click(f,SYS_FOCUS);
+    for(i=0;i<20;i++) click(f,SYS_IN);
+    ui_sysmap_view(&g,&centre,&extent,&yaw,&pitch);
+    assert(length(sub(centre,scale(g.ports[0].pos,1,FP)))<2);
+    assert(ui_sysmap_project(&g,h,scale(g.ports[0].pos,1,FP),&x,&y,&d)==1);
+    g.target=-1; g.target_body=0;
+    map_gesture(f,x,y,x,y);
+    assert(g.target==0 && g.target_body==-1);
+    { int b=g.ports[0].body; Vec was=g.system.planets[b].center;
+      g.tick+=HZ*3600; update_world(&g);
+      ui_sysmap_view(&g,&centre,&extent,&yaw,&pitch);
+      assert(length(sub(g.system.planets[b].center,was))>0 && length(sub(centre,scale(g.ports[0].pos,1,FP)))<2); }
+    /* PAN drags the view instead of turning it, and stops following. */
+    { Vec was; ui_sysmap_view(&g,&was,&extent,&yaw,&pitch);
+      click(f,SYS_PAN); map_gesture(f,100,60,140,70);
+      { int yaw2,pitch2; ui_sysmap_view(&g,&centre,&extent,&yaw2,&pitch2);
+        assert(length(sub(centre,was))>0 && yaw2==yaw && pitch2==pitch && g.sysmap_follow==-1); }
+      click(f,SYS_PAN); }
+    /* LOCAL (C) toggles the target's neighbourhood and the whole system. */
+    game_action(&g,'c'); assert(g.map_local);
+    game_action(&g,'c'); assert(!g.map_local);
+    puts("PASS system map camera: drag turns, zoom, focus follows, clicks target bodies and ports");
+}
 static void workflow(Frame *f) {
     UiWidget v[UI_MAX_WIDGETS]; int n,i,credits,cargo;
     game_init(&g,0x53504143);
@@ -33,14 +104,7 @@ static void workflow(Frame *f) {
     click(f,UI_ROW+1); assert(g.target_body==1 && g.clearance==-1 && !g.system_display);
     click(f,UI_ROW+1); assert(g.target_body==1 && g.system_display==2); /* Second click: data sheet. */
     click(f,UI_NAV+'z'); assert(g.system_display==1);
-    /* Pick an isolated orbital marker through the same projection as rendering. */
-    n=ui_widgets(&g,f,v);
-    for(i=0;i<n;i++) if(v[i].action>=UI_BODY && v[i].action<UI_BODY+MAX_PLANETS) {
-        int j,overlap=0;
-        for(j=i+1;j<n;j++) if(v[j].action>=UI_BODY &&
-            abs(v[i].x-v[j].x)<9 && abs(v[i].y-v[j].y)<9) overlap=1;
-        if(!overlap) { click(f,v[i].action); assert(g.target_body==v[i].action-UI_BODY && g.target==-1); break; }
-    }
+    system_map(f);
     assert(click(f,UI_SAVE)==UI_SAVE); assert(click(f,UI_LOAD)==UI_LOAD);
     assert(save_game(&g, "ui-roundtrip.sav"));
     g.ui_x=31; g.ui_y=41; g.ui_down=g.ui_fire=g.ui_weapons=1;

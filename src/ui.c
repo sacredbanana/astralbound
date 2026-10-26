@@ -8,10 +8,10 @@ int ui_scale(const Frame *f) { return f->w >= 640 ? 2 : 1; }
 int ui_view_height(const Game *g, const Frame *f) {
     return g->page == FLIGHT ? f->h - (g->death_started ? 32 : 80) * ui_scale(f) : f->h;
 }
-void ui_orbit_geometry(const Game *g, Vec *origin, int64_t *extent, int *parent) {
+static void orbit_geometry(const Game *g, int local, Vec *origin, int64_t *extent, int *parent) {
     int i, b=g->target>=0?g->ports[g->target].body:g->target_body;
     *origin=vec(0,0,0); *extent=1; *parent=-1;
-    if(g->map_local) {
+    if(local) {
         *parent=g->system.planets[b].parent;
         if(*parent<0) *parent=b;
         *origin=g->system.planets[*parent].center;
@@ -19,18 +19,157 @@ void ui_orbit_geometry(const Game *g, Vec *origin, int64_t *extent, int *parent)
     }
     for(i=0;i<g->system.count;i++) {
         const Planet *p=&g->system.planets[i];
-        int64_t d=g->map_local?(p->parent==*parent?p->orbit:0):p->orbit+(p->parent>=0?g->system.planets[p->parent].orbit:0);
-        if(p->catalog && (!g->map_local || p->parent==*parent)) {
+        int64_t d=local?(p->parent==*parent?p->orbit:0):p->orbit+(p->parent>=0?g->system.planets[p->parent].orbit:0);
+        if(p->catalog && (!local || p->parent==*parent)) {
             d+=p->orbit*p->eccentricity/1000000;
-            if(!g->map_local && p->parent>=0) d+=g->system.planets[p->parent].orbit*g->system.planets[p->parent].eccentricity/1000000;
+            if(!local && p->parent>=0) d+=g->system.planets[p->parent].orbit*g->system.planets[p->parent].eccentricity/1000000;
         }
         if(d>*extent) *extent=d;
     }
-    if(g->map_local) for(i=0;i<g->nports;i++) if(g->ports[i].body==*parent) {
+    if(local) for(i=0;i<g->nports;i++) if(g->ports[i].body==*parent) {
         int64_t d=length(sub(scale(g->ports[i].pos,1,FP),*origin));
         if(d>*extent) *extent=d;
     }
     *extent=*extent*11/10;
+}
+void ui_orbit_geometry(const Game *g, Vec *origin, int64_t *extent, int *parent) {
+    orbit_geometry(g,g->map_local,origin,extent,parent);
+}
+/* ------------------------------------------------------------ system map
+   A 3D camera like the galaxy map's: perspective from three half-widths
+   back, yaw and pitch in table angles (negative pitch looks down on the
+   system plane). Until a control sets it for this system, the map shows
+   the whole system from above at a slant, so it needs no setup and
+   recentres itself after a jump. */
+#define SYSMAP_PITCH (-200)
+static int sysmap_set(const Game *g) { return g->sysmap_extent > 0 && g->sysmap_system == g->system.seed; }
+static Vec sysmap_follow_point(const Game *g, int follow, Vec otherwise) {
+    if(follow>=0 && follow<g->system.count) return g->system.planets[follow].center;
+    if(follow==-2) return scale(g->pos,1,FP);
+    if(follow<=-3 && -3-follow<g->nports) return scale(g->ports[-3-follow].pos,1,FP);
+    return otherwise;
+}
+void ui_sysmap_view(const Game *g, Vec *centre, int64_t *extent, int *yaw, int *pitch) {
+    if(!sysmap_set(g)) {
+        int parent;
+        orbit_geometry(g,0,centre,extent,&parent);
+        *yaw=0; *pitch=SYSMAP_PITCH;
+        return;
+    }
+    *centre=sysmap_follow_point(g,g->sysmap_follow,g->sysmap_center);
+    *extent=g->sysmap_extent; *yaw=g->sysmap_yaw; *pitch=g->sysmap_pitch;
+}
+static void sysmap_take(Game *g) {
+    Vec centre; int64_t extent; int yaw,pitch;
+    if(sysmap_set(g)) return;
+    ui_sysmap_view(g,&centre,&extent,&yaw,&pitch);
+    g->sysmap_center=centre; g->sysmap_extent=extent; g->sysmap_yaw=yaw; g->sysmap_pitch=pitch;
+    g->sysmap_follow=-1; g->sysmap_pan_mode=0; g->sysmap_system=g->system.seed;
+}
+int ui_sysmap_scale(int h) {
+    int half=(SYSMAP_BOTTOM(h)-SYSMAP_TOP)/2;
+    return half<(SYSMAP_RIGHT-SYSMAP_LEFT)/2 ? half : (SYSMAP_RIGHT-SYSMAP_LEFT)/2;
+}
+int ui_sysmap_project(const Game *g, int h, Vec p, int *x, int *y, int *depth) {
+    Vec centre, v; int64_t e,xx,yy,zz,d,k=3LL*ui_sysmap_scale(h); int yaw,pitch,top=SYSMAP_TOP,bottom=SYSMAP_BOTTOM(h);
+    ui_sysmap_view(g,&centre,&e,&yaw,&pitch);
+    if(e<1) e=1;
+    v=sub(p,centre);
+    xx=(v.x*cosi(yaw)-v.z*sini(yaw))/16384;
+    zz=(v.x*sini(yaw)+v.z*cosi(yaw))/16384;
+    yy=(v.y*cosi(pitch)-zz*sini(pitch))/16384;
+    zz=(v.y*sini(pitch)+zz*cosi(pitch))/16384;
+    d=3*e+zz;
+    if(d<e/4) return -1;
+    xx=160+xx*k/d; yy=(top+bottom)/2-yy*k/d;
+    *x=(int)(xx<-30000?-30000:xx>30000?30000:xx);
+    *y=(int)(yy<-30000?-30000:yy>30000?30000:yy);
+    *depth=(int)(zz*100/e<-1000000?-1000000:zz*100/e>1000000?1000000:zz*100/e);
+    return *x>=SYSMAP_LEFT && *x<SYSMAP_RIGHT && *y>=top && *y<bottom;
+}
+/* Ties go to planets, then moons, then ports, then the nearer: at system
+   scale a click on a planet takes the planet, not a moon or port sharing
+   its pixel; zoomed in, those separate and take their own clicks. */
+int ui_sysmap_pick(const Game *g, int h, int x, int y, int *port) {
+    int i,best=50,rank=3,depth=1000000,found=-1,px,py,pd;
+    *port=0;
+    for(i=0;i<g->system.count+g->nports;i++) {
+        int is_port=i>=g->system.count, k=is_port?i-g->system.count:i, d, r;
+        Vec p=is_port?scale(g->ports[k].pos,1,FP):g->system.planets[k].center;
+        if(ui_sysmap_project(g,h,p,&px,&py,&pd)!=1) continue;
+        d=(px-x)*(px-x)+(py-y)*(py-y);
+        r=is_port?2:g->system.planets[k].parent>=0;
+        if(d<best || (d==best && (r<rank || (r==rank && pd<depth)))) {
+            best=d; rank=r; depth=pd; found=k; *port=is_port;
+        }
+    }
+    return found;
+}
+/* Whole system, or the neighbourhood of the selected body's primary. */
+static void sysmap_frame(Game *g,int local) {
+    Vec origin; int64_t extent; int parent;
+    sysmap_take(g);
+    orbit_geometry(g,local,&origin,&extent,&parent);
+    g->sysmap_center=origin; g->sysmap_extent=extent; g->sysmap_follow=local?parent:-1;
+    g->map_local=local;
+}
+int ui_sysmap_key(Game *g, int key) {
+    int64_t whole; Vec origin; int parent, b=g->target>=0?g->ports[g->target].body:g->target_body;
+    if(g->page!=SYSTEM_MAP || g->system_display!=1) return 0;
+    switch(key) {
+    case SYS_LEFT: case 1003: sysmap_take(g); g->sysmap_yaw=(g->sysmap_yaw-24)&1023; return 1;
+    case SYS_RIGHT: case 1004: sysmap_take(g); g->sysmap_yaw=(g->sysmap_yaw+24)&1023; return 1;
+    case SYS_UP: case SYS_DOWN:
+        sysmap_take(g);
+        g->sysmap_pitch+=key==SYS_UP?-24:24;
+        if(g->sysmap_pitch< -250) g->sysmap_pitch=-250;
+        if(g->sysmap_pitch>250) g->sysmap_pitch=250;
+        return 1;
+    case SYS_IN: case '+': case '=':
+        sysmap_take(g);
+        g->sysmap_extent=g->sysmap_extent*2/3;
+        if(g->sysmap_extent<200000) g->sysmap_extent=200000; /* 200 km: a port and its pad apart */
+        return 1;
+    case SYS_OUT: case '-':
+        sysmap_take(g);
+        orbit_geometry(g,0,&origin,&whole,&parent);
+        g->sysmap_extent=g->sysmap_extent*3/2;
+        if(g->sysmap_extent>whole*4) g->sysmap_extent=whole*4;
+        return 1;
+    case SYS_PAN: sysmap_take(g); g->sysmap_pan_mode=!g->sysmap_pan_mode; return 1;
+    case SYS_FOCUS: case 'f':
+        /* Centre on the target and follow it, closing to its neighbourhood. */
+        sysmap_take(g);
+        g->sysmap_follow=g->target>=0?-3-g->target:b;
+        orbit_geometry(g,1,&origin,&whole,&parent);
+        if(g->sysmap_extent>whole) g->sysmap_extent=whole;
+        return 1;
+    case SYS_SHIP: case 'e': sysmap_take(g); g->sysmap_follow=-2; return 1;
+    case SYS_WHOLE: sysmap_frame(g,0); return 1;
+    case SYS_LOCAL: sysmap_frame(g,!g->map_local); return 1;
+    default: return 0;
+    }
+}
+/* Dragging turns the view, or in PAN mode moves it with the pointer. */
+void ui_sysmap_drag(Game *g, int h, int dx, int dy) {
+    Vec centre; int64_t e; int yaw,pitch;
+    sysmap_take(g);
+    if(!g->sysmap_pan_mode) {
+        g->sysmap_yaw=(g->sysmap_yaw+dx*3)&1023;
+        g->sysmap_pitch+=dy*3;
+        if(g->sysmap_pitch< -250) g->sysmap_pitch=-250;
+        if(g->sysmap_pitch>250) g->sysmap_pitch=250;
+        return;
+    }
+    ui_sysmap_view(g,&centre,&e,&yaw,&pitch);
+    {
+        int64_t sy=sini(yaw),cy=cosi(yaw),sp=sini(pitch),cp=cosi(pitch);
+        Vec right=vec(cy,0,-sy), up=vec(-sp*sy/16384,cp,-sp*cy/16384);
+        int k=ui_sysmap_scale(h);
+        centre=sub(centre,scale(right,(int64_t)dx*e/k,16384));
+        centre=add(centre,scale(up,(int64_t)dy*e/k,16384));
+    }
+    g->sysmap_center=centre; g->sysmap_follow=-1;
 }
 void ui_map_point(Vec p,Vec origin,int64_t extent,int *x,int *y) {
     Vec r=scale(sub(p,origin),62,extent);
@@ -138,20 +277,20 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
     if(g->page==EQUIPMENT || g->page==CAREER) button(v,&n,8,20,100,12,SERVICE_DIRECTORY,"SERVICES",1,0);
     if(g->page==MAP && g->mission_map_return) button(v,&n,210,h-34,104,12,MISSION_RETURN,"BRIEFING",1,0);
     if(g->page==SYSTEM_MAP && g->system_display==1) {
-        Vec origin; int64_t extent; int parent,x,y;
-        ui_orbit_geometry(g,&origin,&extent,&parent);
-        for(i=0;i<g->system.count;i++) {
-            if(g->map_local && i!=parent && g->system.planets[i].parent!=parent) continue;
-            ui_map_point(g->system.planets[i].center,origin,extent,&x,&y);
-            if(n<UI_MAX_WIDGETS-20 && x>=12 && x<308 && y>=34 && y<=136)
-                button(v,&n,x-4,y-4,9,9,UI_BODY+i,g->system.planets[i].name,1,i==(g->target<0?g->target_body:g->ports[g->target].body));
-        }
-        for(i=0;i<g->nports;i++) {
-            if(i!=g->target && (!g->map_local || g->ports[i].body!=parent)) continue;
-            ui_map_point(scale(g->ports[i].pos,1,FP),origin,extent,&x,&y);
-            if(n<UI_MAX_WIDGETS-20 && x>=12 && x<308 && y>=34 && y<=136)
-                button(v,&n,x-4,y-4,9,9,UI_PORT+i,g->ports[i].name,1,i==g->target);
-        }
+        /* The map itself: drag to turn (or pan), click a body or port to
+           target it. The camera row sits between it and the page buttons. */
+        int y=h-77;
+        button(v,&n,SYSMAP_LEFT,SYSMAP_TOP,SYSMAP_RIGHT-SYSMAP_LEFT,SYSMAP_BOTTOM(h)-SYSMAP_TOP,SYS_DRAG,"",1,0);
+        button(v,&n,6,y,20,13,SYS_LEFT,"<",1,0);
+        button(v,&n,28,y,20,13,SYS_RIGHT,">",1,0);
+        button(v,&n,50,y,20,13,SYS_UP,"UP",1,0);
+        button(v,&n,72,y,20,13,SYS_DOWN,"DN",1,0);
+        button(v,&n,94,y,20,13,SYS_IN,"+",1,0);
+        button(v,&n,116,y,20,13,SYS_OUT,"-",1,0);
+        button(v,&n,138,y,36,13,SYS_PAN,"PAN",1,g->sysmap_pan_mode && g->sysmap_system==g->system.seed);
+        button(v,&n,176,y,50,13,SYS_FOCUS,"FOCUS",1,0);
+        button(v,&n,228,y,40,13,SYS_SHIP,"SHIP",1,0);
+        button(v,&n,270,y,44,13,SYS_WHOLE,"ALL",1,0);
     }
     { int y=h-45;
       switch(g->page) {
@@ -198,7 +337,7 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
         button(v,&n,8,y,59,14,'q',"BODY",1,0);
         button(v,&n,69,y,59,14,'t',"PORT",g->nports>0,0);
         button(v,&n,130,y,59,14,UI_TAB,"PAGE",1,0);
-        button(v,&n,191,y,59,14,'c',"SCALE",1,g->map_local);
+        button(v,&n,191,y,59,14,'c',"LOCAL",1,g->map_local && g->sysmap_system==g->system.seed);
         button(v,&n,252,y,60,14,'p',"AUTO",g->docked==-1,g->autopilot);
         button(v,&n,8,20,74,12,UI_NAV+'y',"LIST",1,g->system_display==0);
         button(v,&n,84,20,74,12,UI_NAV+'z',"ORBITS",1,g->system_display==1);
@@ -209,11 +348,15 @@ int ui_widgets(const Game *g, const Frame *f, UiWidget *v) {
     return n;
 }
 void ui_move(Game *g, const Frame *f, int x, int y) {
-    if(g->page==MAP && g->ui_down && g->ui_capture==GAL_DRAG) {
+    if(g->ui_down && ((g->page==MAP && g->ui_capture==GAL_DRAG) ||
+                      (g->page==SYSTEM_MAP && g->ui_capture==SYS_DRAG))) {
         int s=ui_scale(f),dx=(x-g->ui_x)/s,dy=(y-g->ui_y)/s;
         int tx=x/s-g->galaxy_down_x,ty=y/s-g->galaxy_down_y;
         if(tx*tx+ty*ty>16) g->galaxy_dragged=1;
-        if(g->galaxy_dragged) galaxy_drag(g,dx,dy);
+        if(g->galaxy_dragged) {
+            if(g->page==MAP) galaxy_drag(g,dx,dy);
+            else ui_sysmap_drag(g,f->h/s,dx,dy);
+        }
     }
     g->ui_x = x<0?0:x>=f->w?f->w-1:x;
     g->ui_y = y<0?0:y>=f->h?f->h-1:y;
@@ -230,6 +373,7 @@ static UiWidget *pick(const Game *g,const Frame *f,UiWidget *v,int n) {
 static void activate(Game *g,int action,int x) {
     if(g->hyperspace && action!=' ') return;
     if(action>=GAL_SEARCH && action<GAL_RESULT+6) { galaxy_key(g,action); return; }
+    if(action>SYS_DRAG && action<=SYS_LOCAL) { ui_sysmap_key(g,action); return; }
     if(action==UI_RESTART) game_action(g,'r');
     else if(action>=UI_PORT && action<UI_PORT+MAX_PORTS) {
         g->target=action-UI_PORT; g->target_body=-1; g->resource_target=-1; g->clearance=-1; g->dock_stage=0;
@@ -270,7 +414,7 @@ int ui_pointer(Game *g,const Frame *f,int x,int y,int down) {
     if(down && !was) {
         g->ui_capture = b ? b->action : -1;
         g->ui_press_page=g->page;
-        if(g->page==MAP) { g->galaxy_down_x=x/ui_scale(f); g->galaxy_down_y=y/ui_scale(f); g->galaxy_dragged=0; }
+        if(g->page==MAP || g->page==SYSTEM_MAP) { g->galaxy_down_x=x/ui_scale(f); g->galaxy_down_y=y/ui_scale(f); g->galaxy_dragged=0; }
         g->ui_fire = !g->ui_quit && !b && g->page==FLIGHT && y<ui_view_height(g,f) && !g->paused && !g->dead;
         if(b && b->enabled && !g->dead && b->action==UI_THROTTLE) activate(g,b->action,g->ui_x/ui_scale(f));
     }
@@ -285,6 +429,10 @@ int ui_pointer(Game *g,const Frame *f,int x,int y,int down) {
             if(action==GAL_DRAG) {
                 Sector selected;
                 if(!g->galaxy_detail && !g->galaxy_dragged && galaxy_pick(g,f,g->ui_x/ui_scale(f),g->ui_y/ui_scale(f),&selected)) g->selected=selected;
+            } else if(action==SYS_DRAG) {
+                /* A click, not a drag, targets the body or port under it. */
+                int port,k=g->galaxy_dragged ? -1 : ui_sysmap_pick(g,f->h/ui_scale(f),g->ui_x/ui_scale(f),g->ui_y/ui_scale(f),&port);
+                if(k>=0) activate(g,(port?UI_PORT:UI_BODY)+k,0);
             } else activate(g,action,g->ui_x/ui_scale(f));
         }
     }

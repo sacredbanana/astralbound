@@ -242,6 +242,14 @@ typedef struct {
     int galaxy_detail, galaxy_pan_mode;
     int galaxy_searching, galaxy_result, galaxy_dragged, galaxy_down_x, galaxy_down_y;
     char galaxy_query[32];
+    /* Transient system map camera, set for sysmap_system's seed: table yaw
+       and pitch, a half-width in metres and a centre that follows a body
+       (>= 0), the ship (-2), a port (-3 - port) or stays at sysmap_center
+       (-1). The map shares the galaxy map's drag tracking. */
+    Vec sysmap_center;
+    int64_t sysmap_extent;
+    uint32_t sysmap_system;
+    int sysmap_yaw, sysmap_pitch, sysmap_follow, sysmap_pan_mode;
     Sector waypoint;
     int waypoint_set;
     int hyperspace; /* transient: 0 idle, else real ticks into the jump sequence */

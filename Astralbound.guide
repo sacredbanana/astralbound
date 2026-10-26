@@ -289,11 +289,12 @@
 
   Y opens the system destination list. T selects inhabited ports;
   Q selects body waypoints. Up/Down changes the selected list's target.
-  Z opens live top-down orbits. C toggles system/local scale around the
-  selected body, or its parent for moons. Q/T and Up/Down select destinations.
-  Local scale resolves moons and stations. White stars, green settled bodies,
-  cyan other bodies, gold target and red ship use true-scale projected orbits.
-  Small bodies and ports can overlap at system scale.
+  Z opens the live 3D system map. Drag or Left/Right turn it; +/- or the
+  wheel zoom; PAN drags the view. FOCUS/F follows the target, SHIP/E the
+  ship, ALL frames the system, LOCAL/C the target's neighbourhood. Click
+  any planet, moon, station or port to target it. Q/T and Up/Down select
+  destinations. White stars, green settled bodies, cyan other bodies, gold
+  target and red ship over the bodies' true 3D orbits.
   I, or a second click on the selected body, opens its data sheet: radius,
   density, mass, gravity, escape speed, mean temperature, surface pressure,
   atmospheric composition, day and orbital period, distance, ports, survey

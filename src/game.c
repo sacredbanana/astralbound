@@ -2,6 +2,7 @@
 #include "astralbound.h"
 #include "galaxy.h"
 #include "services.h"
+#include "ui.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1606,6 +1607,7 @@ void game_action(Game *g, int k) {
         return;
     if (services_key(g,k)) return;
     if (g->page==MAP && galaxy_key(g,k)) return;
+    if (ui_sysmap_key(g,k)) return;
     switch (k) {
     case 'h':
         g->page = g->page == HELP ? FLIGHT : HELP;
@@ -1675,7 +1677,7 @@ void game_action(Game *g, int k) {
         break;
     case 'c':
         if (g->page == SYSTEM_MAP && g->system_display == 1)
-            g->map_local = !g->map_local;
+            ui_sysmap_key(g, SYS_LOCAL);
         g->selected = g->system.sector;
         break;
     case 'q':

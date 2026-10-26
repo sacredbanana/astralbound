@@ -334,17 +334,25 @@ static void compact_display(void) {
         }
     }
     g.mission_detail=0;
-    /* New system panels must remain fully legible in the 200-line layout. */
+    /* New system panels must remain fully legible in the 200-line layout:
+       the data sheet line for line, and the map, which scales to the space
+       it has, keeping in view every body the taller layout shows. */
     g.page = SYSTEM_MAP;
-    for (page = 1; page <= 2; page++) {
-        g.system_display = page;
-        assert(render_init(&small));
-        render_game(&g, &small);
-        assert(render_init(&full));
-        render_game(&g, &full);
-        for (y = 20; y < 138; y++)
-            assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12, 296));
+    g.system_display = 2;
+    assert(render_init(&small));
+    render_game(&g, &small);
+    assert(render_init(&full));
+    render_game(&g, &full);
+    for (y = 20; y < 138; y++)
+        assert(!memcmp(small.pixels + y * 320 + 12, full.pixels + y * 320 + 12, 296));
+    g.system_display = 1;
+    for (y = 0; y < g.system.count; y++) {
+        int sx, sy, fx, fy, d;
+        if (ui_sysmap_project(&g, full.h, g.system.planets[y].center, &fx, &fy, &d) == 1)
+            assert(ui_sysmap_project(&g, small.h, g.system.planets[y].center, &sx, &sy, &d) == 1);
     }
+    assert(render_init(&small));
+    render_game(&g, &small);
     g.map_local = 1; g.system_display = 1;
     render_game(&g, &full);
     g.page = FLIGHT;
@@ -401,10 +409,18 @@ static void orbital_and_radar(void) {
         render_game(&g, &f);
     }
     frame = &f; game = &g; view_h = 144;
-    /* AU-sized origins must cancel before projection; a local displacement
-       of half the map radius lands exactly halfway to the edge. */
-    map_point(add(g.pos, vec(500, 0, -500)), g.pos, 1000, &x, &y);
-    assert(x == 191 && y == 109);
+    /* AU-sized origins must cancel before projection: looking straight
+       down, half a map half-width east of the centre lands exactly half of
+       the 150-pixel half-width right of the map's middle. */
+    {
+        int d, mid = (SYSMAP_TOP + SYSMAP_BOTTOM(200)) / 2;
+        g.sysmap_system = g.system.seed; g.sysmap_extent = 1000; g.sysmap_follow = -1;
+        g.sysmap_yaw = 0; g.sysmap_pitch = -256; g.sysmap_center = scale(g.pos, 1, FP);
+        assert(ui_sysmap_project(&g, 200, scale(g.pos, 1, FP), &x, &y, &d) == 1 && x == 160 && y == mid);
+        assert(ui_sysmap_project(&g, 200, add(scale(g.pos, 1, FP), vec(500, 0, 0)), &x, &y, &d) == 1 &&
+               x == 160 + ui_sysmap_scale(200) / 2 && y == mid);
+        g.sysmap_system = 0;
+    }
     g.yaw = 0;
     g.combat_target = -1;
     g.npc[0] = (Npc){add(g.pos, vec(0, 0, 10000 * FP)), vec(0, 0, 0), 100, 1, 1, -1, 0};
