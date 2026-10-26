@@ -216,11 +216,12 @@ ordinary engines. It limits speed for terrain/star detours, atmospheric flight
 and docking, and brakes for arrival. Reaching a body waypoint zeros the manual
 speed setting.
 Atmospheric flight caps air-relative speed at 1,200 m/s instead of causing
-overspeed damage. Descending into an atmosphere from space under manual
-control fires an emergency brake that always stops the descent above 10 km
-altitude (over atmospheres thinner than 20 km it arms at 20 km), then hands back
-a hover with flight assist on and zero throttle; autopilot landings fly their
-own descent. Terrain and station impacts still cause damage. The speed
+overspeed damage. Descending on any body from space under manual control
+arms an emergency brake. It lets the descent run, braking only as hard as the
+room left needs, and stops it 2,000 m above the highest ground beneath the ship
+and along its drift, then hands back a hover with flight assist on and zero
+throttle. It arms at the top of the air, or 12 km above the highest peaks over
+thin or no air; autopilot landings fly their own descent. Terrain and station impacts still cause damage. The speed
 readout uses m/s, then km/s, and switches to **c** at 0.01c.
 Hyperspace arrival places you close to the host star, 1.1 million km above its
 surface and just outside its drive exclusion shell. While in space, bodies and

@@ -419,15 +419,31 @@ static int64_t along(Vec a, Vec unit_axis) {
            scale(vec(a.y,0,0),unit_axis.y,16384).x +
            scale(vec(a.z,0,0),unit_axis.z,16384).x;
 }
-/* Descending into an atmosphere from space arms an emergency brake. It sheds
-   the air-relative descent at ENTRY_BRAKE_ACCEL, braking harder whenever the
-   room left demands it, so the descent always stops above ENTRY_BRAKE_FLOOR.
-   It corrects the integrated velocity before displacement, and caps one
-   tick's descent at the room left, so no single fast tick crosses the floor.
-   Thin shells (frozen worlds) arm at twice the floor to leave braking room. */
+/* The highest ground beneath a braking hull and along its air-relative
+   drift (Q8 m/s) over the next 16 s, so the floor clears a ridge ahead. */
+static int64_t brake_ground(const Planet *p, Vec local, Vec drift) {
+    int64_t high = terrain_height(p, local), h;
+    int s;
+    for (s = 2; s <= 16; s *= 2)
+        if ((h = terrain_height(p, add(local, scale(drift, s, FP)))) > high) high = h;
+    return high;
+}
+/* Where the brake arms: the top of the air, or above the highest peaks. */
+static int64_t brake_interface(const Planet *p) {
+    return (int64_t)p->radius + (p->atmosphere > TERRAIN_MAX_HEIGHT + 2 * ENTRY_BRAKE_FLOOR
+                                     ? p->atmosphere : TERRAIN_MAX_HEIGHT + 2 * ENTRY_BRAKE_FLOOR);
+}
+/* Descending on any body from space arms an emergency brake. It lets the
+   air-relative descent run until the room left needs ENTRY_BRAKE_ACCEL (or,
+   arming late, harder) to stop it, so the descent always stops just
+   ENTRY_BRAKE_FLOOR above the ground rather than high in the sky, and hands
+   back an assisted hover there. Climbing back out past the arming height
+   disarms it. It corrects the integrated velocity before displacement, and
+   caps one tick's descent at the room left, so no single fast tick crosses
+   the floor. Thin or no air arms above the highest peaks, leaving room. */
 static void entry_brake(Game *g) {
     const Planet *p;
-    Vec local, up, air;
+    Vec local, up, air, drift;
     int64_t descent, room, envelope, limit;
     int i;
     if (g->autopilot || g->landing) {
@@ -437,19 +453,18 @@ static void entry_brake(Game *g) {
     for (i = 0; !g->entry_brake && i < g->system.count; i++) {
         int64_t interface;
         p = &g->system.planets[i];
-        interface = (int64_t)p->radius + (p->atmosphere > 2 * ENTRY_BRAKE_FLOOR
-                                              ? p->atmosphere : 2 * ENTRY_BRAKE_FLOOR);
+        interface = brake_interface(p);
         local = sub(scale(g->pos, 1, FP), p->center);
         /* Inclusive: a tick ending exactly on the interface (whole metres)
            must still arm on the next one. Only inbound motion counts. */
-        if (p->atmosphere && length(local) >= interface &&
+        if (length(local) >= interface &&
             swept_sphere(scale(g->pos, 1, FP), scale(add(g->pos, scale(g->vel, 1, HZ)), 1, FP),
                          p->center, interface) &&
             along(sub(g->vel, sub(body_velocity(&g->system, i, g->tick), frame_velocity(g))),
                   unit(local, 16384)) < 0) {
             g->entry_brake = i + 1;
             g->throttle = 0;
-            say(g, "ATMOSPHERIC ENTRY - EMERGENCY BRAKE");
+            say(g, p->atmosphere ? "ATMOSPHERIC ENTRY - EMERGENCY BRAKE" : "SURFACE APPROACH - EMERGENCY BRAKE");
         }
     }
     if (g->entry_brake > g->system.count)
@@ -462,19 +477,25 @@ static void entry_brake(Game *g) {
     air = add(surface_velocity(p, local),
               sub(body_velocity(&g->system, g->entry_brake - 1, g->tick), frame_velocity(g)));
     descent = -along(sub(g->vel, air), up);
+    drift = sub(g->vel, air);
+    drift = sub(drift, scale(up, along(drift, up), 16384));
     /* 50 m of margin absorbs Q8 rounding and the release tick's gravity. */
-    room = length(local) - p->radius - ENTRY_BRAKE_FLOOR - 50;
+    room = length(local) - p->radius - brake_ground(p, local, drift) - ENTRY_BRAKE_FLOOR - 50;
     envelope = room > 0 ? (int64_t)isqrt64((uint64_t)(2 * ENTRY_BRAKE_ACCEL * room)) * FP : 0;
     if (envelope > room * FP * HZ)
         envelope = room > 0 ? room * FP * HZ : 0;
-    limit = descent - ENTRY_BRAKE_ACCEL * FP / HZ;
+    limit = descent;
     if (limit > envelope)
         limit = envelope;
     if (limit < 0)
         limit = 0;
     if (descent > limit)
         g->vel = add(g->vel, scale(up, descent - limit, 16384));
-    if (!limit) {
+    if (descent < 0 && length(local) > brake_interface(p)) {
+        g->entry_brake = 0;
+        return;
+    }
+    if (!envelope) {
         /* Hand back a hover: assist at zero throttle holds the air speed. */
         g->entry_brake = 0;
         g->assist = 1;

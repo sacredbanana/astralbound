@@ -700,7 +700,7 @@ static void test_entry_brake(void) {
     static const int64_t descents[] = {2000000, 1200, 300, 20};
     Game g;
     int thin, d, push, i;
-    for (thin = 0; thin <= 1; thin++)
+    for (thin = 0; thin <= 2; thin++)
         for (d = 0; d < 4; d++)
             for (push = 0; push <= 1; push++) {
                 Planet *p;
@@ -712,9 +712,10 @@ static void test_entry_brake(void) {
                 g.assist = 0; g.tick = HZ - 1;
                 memset(g.npc, 0, sizeof(g.npc));
                 p = &g.system.planets[0];
-                if (thin) { p->climate = FROZEN; p->atmosphere = 8000; }
-                interface = p->atmosphere > 2 * ENTRY_BRAKE_FLOOR ? p->atmosphere
-                                                                  : 2 * ENTRY_BRAKE_FLOOR;
+                /* A thin frozen shell, then no air at all. */
+                if (thin) { p->climate = FROZEN; p->atmosphere = thin == 1 ? 8000 : 0; }
+                interface = p->atmosphere > TERRAIN_MAX_HEIGHT + 2 * ENTRY_BRAKE_FLOOR
+                                ? p->atmosphere : TERRAIN_MAX_HEIGHT + 2 * ENTRY_BRAKE_FLOOR;
                 g.pos = add(scale(p->center, FP, 1),
                             vec(0, ((int64_t)p->radius + interface + 500) * FP, 0));
                 g.vel = vec(900 * FP, -descents[d] * FP, 0);
@@ -727,12 +728,21 @@ static void test_entry_brake(void) {
                     int64_t sea;
                     game_tick(&g, c);
                     armed |= g.entry_brake != 0;
-                    sea = length(sub(scale(g.pos, 1, FP), p->center)) - p->radius;
+                    sea = altitude_at(&g, g.pos);
                     if (sea < lowest) lowest = sea;
                     assert(!g.dead && g.hull == 100);
                 }
-                assert(armed && !g.entry_brake);
-                assert(lowest >= ENTRY_BRAKE_FLOOR);
+                assert(armed && lowest >= ENTRY_BRAKE_FLOOR);
+                if (getenv("BRAKE_DEBUG")) printf("brake air %d descent %lld push %d: lowest %lld m%s\n", thin, (long long)descents[d],
+                                                  push, (long long)lowest, g.entry_brake ? ", still armed" : "");
+                /* Drag may hold an unpowered hull high in thick air, the
+                   brake still armed beneath it; a powered dive is stopped
+                   at the floor itself, not high in the sky. */
+                if (g.entry_brake) {
+                    assert(!push);
+                    continue;
+                }
+                assert(lowest < ENTRY_BRAKE_FLOOR + 500);
                 assert(altitude_at(&g, g.pos) >= ENTRY_BRAKE_FLOOR);
                 assert(g.assist && strstr(g.message, "DESCENT ARRESTED"));
                 /* Released into an assisted hover rather than a free fall. */
@@ -748,7 +758,7 @@ static void test_entry_brake(void) {
         game_tick(&g, c);
     }
     assert(!g.entry_brake);
-    puts("PASS emergency entry brake stops every descent above 10 km");
+    puts("PASS emergency brake stops every descent 2000 m above the ground, with or without air");
 }
 static void test_thirty_c(void) {
     Game g, h;

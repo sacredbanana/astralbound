@@ -12,7 +12,7 @@
 #define SYSTEM_DRIVE_SPEED (30LL * LIGHT_SPEED)
 #define ATMOSPHERE_SPEED 1200
 /* An entry from space arms a brake that halts the descent above this floor. */
-#define ENTRY_BRAKE_FLOOR 10000
+#define ENTRY_BRAKE_FLOOR 2000
 #define ENTRY_BRAKE_ACCEL 30
 #define MAX_FRAME_STEPS 128
 #define TERRAIN_MAX_HEIGHT 8000

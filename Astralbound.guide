@@ -214,8 +214,8 @@
   Space preserves momentum. Turning does not instantly change velocity.
   With assist disabled, W/S applies forward/reverse thrust directly.
   Manual impacts can destroy the ship. Atmospheres cap air-relative speed
-  at 1,200 m/s without overspeed damage. A manual descent into an
-  atmosphere from space fires an emergency brake that stops above 10 km
+  at 1,200 m/s without overspeed damage. A manual descent on any body
+  from space arms an emergency brake that stops 2,000 m above the ground
   and leaves the ship hovering with assist on. Fast flight reads in c from 0.01c;
   1c is the speed of light. Bodies and stars in view are labelled in space;
   moons are labelled only when the ship is near their host planet.
