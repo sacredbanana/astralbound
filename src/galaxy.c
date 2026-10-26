@@ -367,7 +367,7 @@ int galaxy_key(Game *g,int k) {
     case GAL_FOCUS: case 'f': galaxy_focus(g,g->selected); break;
     case GAL_HOME: case 'c': galaxy_focus(g,g->system.sector); break;
     case GAL_OVERVIEW: g->galaxy_center=vec(0,0,0); g->galaxy_extent=14000000; g->galaxy_pitch=190; break;
-    case '+': case '=': if(g->galaxy_extent>2000) g->galaxy_extent=g->galaxy_extent*2/3; if(g->galaxy_extent<2000) g->galaxy_extent=2000; break;
+    case '+': case '=': if(g->galaxy_extent>GALAXY_ZOOM_MIN) g->galaxy_extent=g->galaxy_extent*2/3; if(g->galaxy_extent<GALAXY_ZOOM_MIN) g->galaxy_extent=GALAXY_ZOOM_MIN; break;
     case '-': if(g->galaxy_extent<60000000) g->galaxy_extent=g->galaxy_extent*3/2; if(g->galaxy_extent>60000000) g->galaxy_extent=60000000; break;
     case 1001: galaxy_rotate(g,0,-8); break;
     case 1002: galaxy_rotate(g,0,8); break;

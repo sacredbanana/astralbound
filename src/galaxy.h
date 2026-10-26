@@ -6,6 +6,7 @@
 #define GALAXY_SYSTEMS 1000000000U
 #define GALAXY_RADIUS 10000
 #define GALAXY_HEIGHT 300
+#define GALAXY_ZOOM_MIN 500 /* half a light-year: close enough to name every system */
 #define GALAXY_MARKERS 5100
 #define GALAXY_SEARCH 256
 #define GAL_SEARCH 12000

@@ -3280,6 +3280,58 @@ static void galaxy_line(Vec a,Vec b,int colour) {
     int x,y,xx,yy,d;
     if(galaxy_project(game,frame,a,&x,&y,&d) && galaxy_project(game,frame,b,&xx,&yy,&d)) line(x,y,xx,yy,colour);
 }
+/* Map labels. Out to 80 ly the catalog stars are named; zoomed in to the
+   ALL LOCAL range every system within a zoom width of the focus is too
+   (the field behind stays dots). Labels never overlap: each tries right,
+   left, above and below its star, then a row out diagonally; catalog stars, home, the selection and
+   the waypoint claim space first, then visited systems, then the rest
+   nearest the focus first, so closing in names them all. */
+#define GALAXY_LABELS 64
+static const GalaxyMarker *label_markers;
+static int label_rank(const GalaxyMarker *m) {
+    int all=game->galaxy_extent<=8000;
+    if(m->catalog>=0 || same_sector(m->sector,game->system.sector) || same_sector(m->sector,game->selected) ||
+       (game->waypoint_set && same_sector(m->sector,game->waypoint))) return 0;
+    if(!all || length(sub(galaxy_position(m->sector),game->galaxy_center))>game->galaxy_extent) return -1;
+    return exploration_index(game,m->sector)>=0 ? 1 : 2;
+}
+static int label_order(const void *a,const void *b) {
+    const GalaxyMarker *x=&label_markers[*(const int *)a],*y=&label_markers[*(const int *)b];
+    int rx=label_rank(x),ry=label_rank(y);
+    int64_t dx=length(sub(galaxy_position(x->sector),game->galaxy_center)),
+            dy=length(sub(galaxy_position(y->sector),game->galaxy_center));
+    return rx!=ry ? rx-ry : dx<dy ? -1 : dx>dy;
+}
+/* Returns the labels drawn; *wanted counts those whose label fits the map. */
+static int galaxy_labels(const GalaxyMarker *m,int n,int h,int *wanted) {
+    static int order[GALAXY_MARKERS];
+    int boxes[GALAXY_LABELS][3],labels=0,count=0,fits=0,i,j;
+    for(i=0;i<n;i++) if(label_rank(&m[i])>=0) order[count++]=i;
+    label_markers=m;
+    qsort(order,(size_t)count,sizeof(order[0]),label_order);
+    for(i=0;i<count && labels<GALAXY_LABELS;i++) {
+        const GalaxyMarker *k=&m[order[i]];
+        char name[24];
+        int w,l=0,t=0,place,fit=0,overlap=1;
+        galaxy_name(game->seed,k->sector,name);
+        w=(int)strlen(name)*6; if(w>138) w=138;
+        for(place=0;place<8 && overlap;place++) {
+            static const int8_t side[8]={1,-1,0,0,1,1,-1,-1},row[8]={0,0,-1,1,-2,1,-2,1};
+            l=side[place]>0?k->x+4:side[place]<0?k->x-w-4:k->x-w/2;
+            t=row[place]==0?k->y-9:row[place]<0?k->y-4+row[place]*9:k->y+4+(place>=4)*5;
+            if(l<10 || l+w>203 || t<40 || t+8>h-82) continue;
+            fit=1; overlap=0;
+            for(j=0;j<labels;j++) if(l<boxes[j][0]+boxes[j][2]+3 && l+w>boxes[j][0]-3 && t<boxes[j][1]+11 && t+8>boxes[j][1]-3) overlap=1;
+        }
+        fits+=fit;
+        if(!fit || overlap) continue;
+        boxes[labels][0]=l;boxes[labels][1]=t;boxes[labels][2]=w;labels++;
+        rect(l-1,t-1,w+2,9,0);
+        text(l,t,same_sector(k->sector,game->selected)?12:k->catalog>=0?7:5,name);
+    }
+    if(wanted) *wanted=fits;
+    return labels;
+}
 static void galaxy_map(void) {
     int n,i,x,y,d,h=frame->h/draw_scale;
     const GalaxyMarker *m=galaxy_markers(game,frame,&n);
@@ -3316,20 +3368,7 @@ static void galaxy_map(void) {
         else rect(x-r,y-r,2*r+1,2*r+1,c);
         if(exploration_index(game,m[i].sector)>=0) pixel(x+3,y+3,11);
     }
-    if(game->galaxy_extent<=80000) {
-        int boxes[8][4],labels=0,j;
-        for(i=0;i<n && labels<8;i++) if(m[i].catalog>=0) {
-            const char *name=star_catalog[m[i].catalog].name;
-            int w=(int)strlen(name)*6,l=m[i].x+4,t=m[i].y-9,overlap=0;
-            if(w>138) w=138;
-            if(l+w>203) l=m[i].x-w-4;
-            if(l<10 || t<40 || t+8>h-82) continue;
-            for(j=0;j<labels;j++) if(l<boxes[j][0]+boxes[j][2]+3 && l+w>boxes[j][0]-3 && t<boxes[j][1]+11 && t+8>boxes[j][1]-3) overlap=1;
-            if(overlap) continue;
-            boxes[labels][0]=l;boxes[labels][1]=t;boxes[labels][2]=w;labels++;
-            rect(l-1,t-1,w+2,9,0);text(l,t,7,name);
-        }
-    }
+    if(game->galaxy_extent<=80000) galaxy_labels(m,n,h,NULL);
     if(galaxy_project(game,frame,home,&x,&y,&d)) { line(x-4,y,x+4,y,14); line(x,y-4,x,y+4,14); }
     if(game->waypoint_set && galaxy_project(game,frame,galaxy_position(game->waypoint),&x,&y,&d)) {
         line(x-5,y,x,y-5,13); line(x,y-5,x+5,y,13); line(x+5,y,x,y+5,13); line(x,y+5,x-5,y,13);
@@ -3395,6 +3434,7 @@ static void galaxy_text(void) {
     }
     if(game->galaxy_detail) snprintf(s,sizeof(s),"INFO TO RETURN TO MAP");
     else if(game->galaxy_extent>8000) snprintf(s,sizeof(s),"%ld LY / SAMPLED - ZOOM IN",(long)(game->galaxy_extent/1000));
+    else if(game->galaxy_extent<1000) snprintf(s,sizeof(s),"0.%ld LY / ALL LOCAL",(long)(game->galaxy_extent/100));
     else snprintf(s,sizeof(s),"%ld LY / ALL LOCAL",(long)(game->galaxy_extent/1000));
     rect(8,h-81,196,11,0); text(10,h-79,7,s);
     snprintf(s,sizeof(s),"%.23s / %.23s",selected.name,galaxy_jump_status(game,game->selected)); text(8,h-31,12,s);

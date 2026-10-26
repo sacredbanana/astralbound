@@ -269,7 +269,7 @@ static void interaction(Frame *f) {
     for(i=0;i<100;i++) game_action(&g,'-');
     assert(g.galaxy_extent==60000000);
     for(i=0;i<100;i++) game_action(&g,'+');
-    assert(g.galaxy_extent==2000);
+    assert(g.galaxy_extent==GALAXY_ZOOM_MIN);
     click(f,GAL_OVERVIEW); assert(g.galaxy_extent==14000000);
     click(f,GAL_FOCUS); assert(galaxy_project(&g,f,galaxy_position(g.selected),&x,&y,&d));
     /* Search aliases and long names stay accessible independently of zoom. */

@@ -292,7 +292,9 @@ arriving during the charge aborts at no cost; only pause works during the sequen
 range and fuel use the actual 3D positions, including sub-sector catalog precision.
 The map reports launch, altitude, range, fuel and traffic restrictions. Overview
 points sample the procedural galaxy; zoom to 8 ly or closer to resolve every system
-in the local 17-sector cube. Catalog and journal/navigation entries are retained at
+in the local 17-sector cube, and on in to half a light-year, where every system near
+the focus is named. Every system has its own name: catalog stars keep theirs, and
+generated systems spell a unique identity, so no two share one. Catalog and journal/navigation entries are retained at
 all scales. Empty sectors reject jumps. All axes are navigable; the overview is a
 fictional four-arm galactic disc, not an observational Milky Way reconstruction.
 

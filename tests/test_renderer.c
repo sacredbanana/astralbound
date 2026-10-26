@@ -1672,8 +1672,39 @@ static void ship_keels(void) {
     }
     puts("PASS ship keels match their lofts");
 }
+/* Zoomed in, every system near the galaxy map's focus is named. */
+static void galaxy_names(void) {
+    static Game g;
+    static const int sizes[2][2] = {{640, 480}, {320, 200}};
+    int size, zoom, n, wanted, drawn;
+    const GalaxyMarker *m;
+    for (size = 0; size < 2; size++) {
+        Frame f = {sizes[size][0], sizes[size][1], !size, NULL, {0}};
+        f.pixels = calloc((size_t)f.w * f.h, 1);
+        assert(f.pixels && render_init(&f));
+        game_init(&g, 0x53504143);
+        game_action(&g, 'g');
+        galaxy_key(&g, GAL_HOME);
+        /* Labels crowd out some at 4 ly around home's dense pinned cluster;
+           close enough in, every system near the focus is named. */
+        for (zoom = 4000; zoom >= GALAXY_ZOOM_MIN; zoom /= 2) {
+            g.galaxy_extent = zoom;
+            render_game(&g, &f);
+            frame = &f; game = &g; draw_scale = ui_scale(&f);
+            m = galaxy_markers(&g, &f, &n);
+            drawn = galaxy_labels(m, n, f.h / draw_scale, &wanted);
+            printf("galaxy map %dx%d at %d.%d ly: %d of %d nearby systems named\n", f.w, f.h,
+                   zoom / 1000, zoom % 1000 / 100, drawn, wanted);
+            assert(wanted >= 1 && (zoom > (size ? 500 : 1000) || drawn == wanted));
+        }
+        free(f.pixels);
+        render_shutdown();
+    }
+    puts("PASS galaxy map names every system near its focus when zoomed in");
+}
 int main(int argc, char **argv) {
     ship_keels();
+    galaxy_names();
     if(argc>1 && !strcmp(argv[1],"--atmosphere-colours")) { atmospheric_gas_colours(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--terrain-lighting")) { terrain_lighting_history(); return 0; }
     if(argc>1 && !strcmp(argv[1],"--aurorae")) { planetary_aurorae(); return 0; }

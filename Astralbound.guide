@@ -343,7 +343,9 @@
   dragging to translation. Arrows rotate; WASD pans; Q/E moves vertically.
   HOME/C centres on the current system, FOCUS/F on the selected target.
   GALAXY opens the sampled spiral-disc overview. Zoom to 8 ly or closer
-  for all systems in the local 17-sector cube. Click any star to target it.
+  for all systems in the local 17-sector cube; closer in (to 0.5 ly) every
+  system near the focus is named. No two systems share a name.
+  Click any star to target it.
   SEARCH or / starts name entry. Type a name or alias, Up/Down selects
   a result, Return targets it. Click result rows or PREV/NEXT to browse.
   Backspace edits, Escape leaves search, CLEAR clears the query.
