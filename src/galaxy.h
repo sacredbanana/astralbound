@@ -43,6 +43,8 @@ int64_t galaxy_distance(Sector a, Sector b);
 void galaxy_name(uint32_t seed, Sector s, char name[24]);
 uint32_t galaxy_system_count(void);
 int galaxy_system_at(uint32_t seed, uint32_t id, Sector *s);
+int galaxy_system_id(uint32_t seed, Sector s, uint32_t *id);
+int galaxy_name_value(const char *name, uint32_t *value);
 int galaxy_exists(uint32_t seed, Sector s);
 StellarType stellar_type(const char *s);
 StellarType galaxy_type(uint32_t seed, Sector s);

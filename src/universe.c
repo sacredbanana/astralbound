@@ -164,8 +164,11 @@ void generate_system(uint32_t seed, Sector s, System *out) {
     out->seed = r;
     out->sector = s;
     {
+        /* Drawn as before, so every system still generates the same;
+           galaxy_name gives the unique name the map and contracts show. */
         unsigned first = next(&r) % 16, last = next(&r) % 16;
         snprintf(out->name, sizeof(out->name), "%s%s", a[first], b[last]);
+        galaxy_name(seed, s, out->name);
     }
     out->economy = next(&r) % 4;
     out->government = next(&r) % 4;

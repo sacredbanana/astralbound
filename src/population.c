@@ -74,6 +74,19 @@ int galaxy_exists(uint32_t seed,Sector s) {
     for(i=0;i<pins_count;i++) if(pin_ranks[i].cell==cell && pin_ranks[i].rank<end) end++;
     return rank<end;
 }
+/* The inverse of galaxy_system_at: a system's dense ID from its sector. */
+int galaxy_system_id(uint32_t seed,Sector s,uint32_t *id) {
+    int i,cell,c=catalog_index(s);uint32_t rank,below=0;
+    if(c>=0) { *id=(uint32_t)c;return 1; }
+    if(pinned(s)) { *id=(unsigned)star_catalog_count+(unsigned)((s.z+1)*3+s.x+1);return 1; }
+    cell=cell_of(s);
+    if(cell<0 || !population_cells[cell].count) return 0;
+    prepare(seed);rank=sector_rank(seed,cell,s);
+    for(i=0;i<pins_count;i++) if(pin_ranks[i].cell==cell && pin_ranks[i].rank<rank) below++;
+    if(rank-below>=population_cells[cell].count) return 0;
+    *id=(unsigned)star_catalog_count+9U+population_cells[cell].first+rank-below;
+    return 1;
+}
 int galaxy_system_at(uint32_t seed,uint32_t id,Sector *s) {
     int lo=0,hi=1000,i;uint32_t rank;
     if(id>=galaxy_system_count()) return 0;

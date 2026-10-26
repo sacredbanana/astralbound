@@ -3,6 +3,7 @@
 #include "solar.h"
 #include "ui.h"
 #include <assert.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,6 +112,53 @@ static void catalog(void) {
     }
     assert((types&(1<<ST_BLACK_HOLE)) && (types&(1<<ST_NEUTRON)) && (types&(1<<ST_RED_GIANT)) && (types&(1<<ST_WHITE_DWARF)) && (types&(1<<ST_BROWN_DWARF)));
     puts("PASS catalog identities, all stellar classes, precise distances and generated/real system consistency");
+}
+static int name_order(const void *a,const void *b) {
+    const char *x=a,*y=b;
+    while(*x && toupper((unsigned char)*x)==toupper((unsigned char)*y)) { x++; y++; }
+    return toupper((unsigned char)*x)-toupper((unsigned char)*y);
+}
+static int sorted_unique(char (*names)[24],int n) {
+    int i;
+    qsort(names,(size_t)n,24,name_order);
+    for(i=1;i<n;i++) if(!name_order(names[i-1],names[i])) { printf("duplicate name %s\n",names[i]); return 0; }
+    return 1;
+}
+/* Names are unique: each generated system spells its dense ID, which its
+   sector recovers; catalog stars and the home systems keep theirs. */
+static void names(void) {
+    static char list[24000][24];
+    static const uint32_t seeds[2]={123,0x53504143U};
+    uint32_t i,id,v,pins=(unsigned)star_catalog_count+9U;
+    int n,x,y,z,k,r;
+    Sector home={0,0,0};
+    for(k=0;k<2;k++) {
+        uint32_t seed=seeds[k];
+        { System sys; generate_system(seed,home,&sys); galaxy_name(seed,home,list[0]); assert(!strcmp(list[0],sys.name)); }
+        n=0;
+        for(i=0;i<pins;i++) { Sector s; assert(galaxy_system_at(seed,i,&s)); galaxy_name(seed,s,list[n++]); }
+        for(i=0;i<20000;i++) {
+            Sector s; uint32_t want=pins+hash32(i*2654435761U)%(galaxy_system_count()-pins);
+            assert(galaxy_system_at(seed,want,&s) && galaxy_system_id(seed,s,&id) && id==want);
+            galaxy_name(seed,s,list[n]);
+            assert(strlen(list[n])>=4 && strlen(list[n])<=20 && galaxy_name_value(list[n],&v));
+            n++;
+        }
+        assert(sorted_unique(list,n));
+        /* Every system outward from home, where the map shows them all. */
+        n=0;
+        for(r=0;r<=60 && n<24000;r++) for(y=-r;y<=r;y++) for(z=-r;z<=r;z++) for(x=-r;x<=r;x++) {
+            Sector s={x,y,z};
+            if(abs(x)<r && abs(y)<r && abs(z)<r) continue;
+            if(!galaxy_exists(seed,s) || n>=24000) continue;
+            assert(galaxy_system_id(seed,s,&id));
+            { Sector back; assert(galaxy_system_at(seed,id,&back) && same_sector(back,s)); }
+            galaxy_name(seed,s,list[n++]);
+        }
+        printf("%d systems out from home, all named apart\n",n);
+        assert(n>1000 && sorted_unique(list,n));
+    }
+    puts("PASS unique system names spell dense IDs, keeping catalog and home names");
 }
 static void solar(void) {
     int i,j,earth,moon,eris,moons=0;
@@ -252,6 +300,7 @@ static void jumping(void) {
     puts("PASS catalog targets use precise physical jump distance and existing flight safety gates");
 }
 int main(void) {
+    names();
     Frame f={320,200,0,NULL,{0}};
     population();catalog();solar();migration();interaction(&f);f.h=256;interaction(&f);f.w=640;f.h=480;f.enhanced=1;interaction(&f);jumping();return 0;
 }

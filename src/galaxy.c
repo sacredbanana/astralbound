@@ -20,13 +20,123 @@ Vec galaxy_position(Sector s) {
     return vec((int64_t)s.x*1000+125+h%750,(int64_t)s.y*1000+125+hash32(h)%750,(int64_t)s.z*1000+125+hash32(h^123U)%750);
 }
 int64_t galaxy_distance(Sector a,Sector b) { return length(sub(galaxy_position(a),galaxy_position(b))); }
-void galaxy_name(uint32_t seed,Sector s,char name[24]) {
+/* The original two-syllable names: HETHA at home keeps its own. */
+static void legacy_name(uint32_t seed,Sector s,char name[24]) {
     static const char *first[]={"VE","KA","OR","SE","TA","NI","LU","AE","MI","RU","DA","IO","ZE","UL","BA","HE"};
     static const char *last[]={"LORA","NARA","VEL","SEN","RIA","THA","MIN","RIS","RON","LIS","DRA","ZEN","VAR","TIS","LAN","MAR"};
-    int c=catalog_index(s); uint32_t r=sector_seed(seed,s),a,b;
-    if(c>=0) { snprintf(name,24,"%s",star_catalog[c].name);return; }
+    uint32_t r=sector_seed(seed,s),a,b;
     r=hash32(r+0x9e3779b9U);a=r%16;r=hash32(r+0x9e3779b9U);b=r%16;
     snprintf(name,24,"%s%s",first[a],last[b]);
+}
+/* Unique names. Two syllables from sixteen each named only 256 systems in a
+   galaxy of a billion, so every other system spells its dense ID instead:
+   a seed-keyed 30-bit permutation, read four bits of onset, three of vowel
+   and a flag (with three bits of coda when set) per syllable until all 30
+   are spent - three or four syllables. Every syllable opens on a single
+   consonant, so a name splits into syllables one way only and two IDs never
+   share one. Catalog stars and the home system keep their names; an ID
+   whose spelling would be one of those takes that fixed ID's spelling. */
+#define NAME_BITS 30
+#define NAME_MASK ((1U<<NAME_BITS)-1U)
+static const char *name_onset[16]={"B","D","F","G","H","K","L","M","N","P","R","S","T","V","Y","Z"};
+static const char *name_vowel[8]={"A","E","I","O","U","AE","IA","IO"};
+static const char *name_coda[8]={"N","R","L","S","TH","X","M","K"};
+#define NAME_A 0x2545f491U
+#define NAME_B 0x9e3779b1U
+static uint32_t odd_inverse(uint32_t a) {
+    uint32_t x=a; int i;
+    for(i=0;i<5;i++) x*=2U-a*x;
+    return x;
+}
+static uint32_t name_scramble(uint32_t seed,uint32_t id) {
+    uint32_t x=(id^hash32(seed^0x4e414d45U))&NAME_MASK;
+    x=(x*NAME_A)&NAME_MASK; x^=x>>15;
+    x=(x*NAME_B)&NAME_MASK; x^=x>>15;
+    return x;
+}
+static uint32_t name_unscramble(uint32_t seed,uint32_t x) {
+    x^=x>>15; x=(x*odd_inverse(NAME_B))&NAME_MASK;
+    x^=x>>15; x=(x*odd_inverse(NAME_A))&NAME_MASK;
+    return (x^hash32(seed^0x4e414d45U))&NAME_MASK;
+}
+static void name_spell(uint32_t value,char name[24]) {
+    int bits=0,n=0;
+    while(bits<NAME_BITS) {
+        const char *part[3]; int k;
+        part[0]=name_onset[value&15]; value>>=4;
+        part[1]=name_vowel[value&7]; value>>=3;
+        part[2]=value&1 ? name_coda[(value>>1)&7] : ""; bits+=value&1 ? 11 : 8; value>>=value&1 ? 4 : 1;
+        for(k=0;k<3;k++) n+=snprintf(name+n,(size_t)(24-n),"%s",part[k]);
+    }
+}
+static int name_match(const char *s,const char *table[],int count,size_t *length) {
+    int i,best=-1; size_t n=0;
+    for(i=0;i<count;i++) {
+        size_t l=strlen(table[i]);
+        if(l>n && !strncmp(s,table[i],l)) { best=i; n=l; }
+    }
+    *length=n;
+    return best;
+}
+/* The ID spelled by a name of this scheme, or 0 when it is not one. */
+int galaxy_name_value(const char *name,uint32_t *value) {
+    char up[24], again[24]; uint32_t v=0; int bits=0; size_t i,l;
+    for(i=0;name[i] && i<23;i++) up[i]=(char)toupper((unsigned char)name[i]);
+    up[i]=0; i=0;
+    while(up[i] && bits<NAME_BITS) {
+        int o=name_match(up+i,name_onset,16,&l),vw,c;
+        if(o<0 || l!=1) return 0;
+        i+=l; vw=name_match(up+i,name_vowel,8,&l);
+        if(vw<0) return 0;
+        /* The longest vowel run that is a nucleus; a longer run is no name. */
+        i+=l; if(up[i] && strchr("AEIOU",up[i])) return 0;
+        if(bits<32) v|=(uint32_t)o<<bits;
+        bits+=4;
+        if(bits<32) v|=(uint32_t)vw<<bits;
+        bits+=3;
+        /* A coda is the consonant run less the next syllable's onset. */
+        { size_t run=0; while(up[i+run] && !strchr("AEIOU",up[i+run])) run++;
+          if(up[i+run]) run--;
+          if(!run) { bits+=1; continue; }
+          c=name_match(up+i,name_coda,8,&l);
+          if(c<0 || l!=run) return 0;
+          if(bits<32) v|=(uint32_t)(1+2*c)<<bits;
+          bits+=4; i+=l; }
+    }
+    if(up[i] || bits<NAME_BITS) return 0;
+    v&=NAME_MASK; name_spell(v,again);
+    if(strcmp(again,up)) return 0;
+    *value=v; return 1;
+}
+/* Fixed names: the catalog's, then home (0,0,0), pin ID catalog + 4. */
+#define HOME_ID ((unsigned)star_catalog_count+4U)
+static int fixed_name(uint32_t seed,uint32_t id,char name[24]) {
+    Sector home={0,0,0};
+    if(id<(unsigned)star_catalog_count) { snprintf(name,24,"%s",star_catalog[id].name); return 1; }
+    if(id==HOME_ID) { legacy_name(seed,home,name); return 1; }
+    return 0;
+}
+/* Generated IDs whose spelling is a fixed name, and the fixed ID each takes. */
+static struct { uint32_t seed; int ready,count; uint32_t id[128],pin[128]; } name_swaps;
+static void name_swaps_prepare(uint32_t seed) {
+    uint32_t j,v,pins=(unsigned)star_catalog_count+9U; char name[24];
+    if(name_swaps.ready && name_swaps.seed==seed) return;
+    name_swaps.count=0;
+    for(j=0;j<pins && name_swaps.count<128;j++) {
+        if(!fixed_name(seed,j,name)) continue;
+        if(!galaxy_name_value(name,&v)) continue;
+        v=name_unscramble(seed,v);
+        if(!fixed_name(seed,v,name) && v<galaxy_system_count()) { name_swaps.id[name_swaps.count]=v; name_swaps.pin[name_swaps.count++]=j; }
+    }
+    name_swaps.seed=seed; name_swaps.ready=1;
+}
+void galaxy_name(uint32_t seed,Sector s,char name[24]) {
+    uint32_t id; int i;
+    if(!galaxy_system_id(seed,s,&id)) { legacy_name(seed,s,name); return; }
+    if(fixed_name(seed,id,name)) return;
+    name_swaps_prepare(seed);
+    for(i=0;i<name_swaps.count;i++) if(name_swaps.id[i]==id) { id=name_swaps.pin[i]; break; }
+    name_spell(name_scramble(seed,id),name);
 }
 StellarType stellar_type(const char *s) {
     if(s[0]=='D') return ST_WHITE_DWARF;
