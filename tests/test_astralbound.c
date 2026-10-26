@@ -1296,8 +1296,26 @@ static void test_environment(void) {
         fixed.climate = TEMPERATE;
     }
     assert(found_cloud && found_rain && found_snow);
+    /* Weather runs from clear through scattered cumulus to overcast: a deck
+       over a minority of the world, fogging its layer and raining beneath. */
+    {
+        int solid = 0, samples = 0, b, deck = (cloud_deck_base(&fixed) + cloud_deck_top(&fixed)) / 2;
+        for (b = -224; b <= 224; b += 16)
+            for (a = 0; a < 1024; a += 16) {
+                Vec d = radial(forward(a,b), fixed.radius);
+                int over = cloud_overcast(&fixed, d, 0);
+                samples++;
+                if (over < 256) continue;
+                solid++;
+                assert(cloud_density(&fixed, radial(d, (int64_t)fixed.radius + deck), 0) > 150);
+                assert(precipitation(&fixed, radial(d, (int64_t)fixed.radius + 200), 0));
+            }
+        assert(solid * 20 > samples && solid * 3 < samples);
+        assert(cloud_deck_base(&fixed) < cloud_deck_top(&fixed));
+    }
     fixed.atmosphere = 0;
     assert(!cloud_density(&fixed,local,0) && !precipitation(&fixed,local,0));
+    assert(!cloud_overcast(&fixed,local,0));
     game_init(&g,37);
     for (a=0; a<g.system.count && g.system.planets[a].type!=MOON; a++) {}
     assert(a<g.system.count);
@@ -1329,7 +1347,7 @@ static void test_environment(void) {
         found_cloud |= cloud_density(&g.system.planets[0],local,g.tick)>100;
     }
     assert(!g.dead && found_cloud && !cloud_density(&g.system.planets[0],local,g.tick));
-    puts("PASS body-fixed terrain, rotating ports/ground saves, day/night/eclipse, scattering, twilight, star extinction, cloud entry/exit, rain/snow");
+    puts("PASS body-fixed terrain, rotating ports/ground saves, day/night/eclipse, scattering, twilight, star extinction, cloud entry/exit, overcast decks, rain/snow");
 }
 int main(int argc, char **argv) {
     quick = argc > 1 && !strcmp(argv[1], "--quick");

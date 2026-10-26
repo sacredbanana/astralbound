@@ -744,10 +744,11 @@ static void cl_clouds(void) {
     const Planet *p = &game->system.planets[game->body];
     Vec local = sub(scale(camera_position, 1, FP), p->center), fixed, sun = vec(0, 0, 16384);
     static const int ranges[] = {1, 2, 3, 5, 8};
-    int cell = cloud_spacing(p), rings = ranges[graphics.cloud_range], face, ring, du, dv, k;
+    int cell = cloud_spacing(p), rings = ranges[graphics.cloud_range], face, ring, du, dv, k, below;
     int64_t alt = length(local) - p->radius, range = (int64_t)cell * rings;
     int32_t lx = 0, ly = -4096;
     if (!graphics.clouds || !p->atmosphere || alt > (int64_t)cell * 10) return;
+    below = alt < cloud_deck_base(p);
     if (game->system.stars) {
         Vec l = unit(sub(game->system.star[0].center, p->center), 16384);
         int32_t sx = ((int32_t)cl.m[0][0] * l.x + (int32_t)cl.m[0][1] * l.y + (int32_t)cl.m[0][2] * l.z) >> 14;
@@ -769,7 +770,8 @@ static void cl_clouds(void) {
                     int light, lit, shadow;
                     if (du != -ring && du != ring && dv != -ring && dv != ring) continue;
                     c = cloud_at(p, face, u + du, v + dv, game->tick);
-                    if (!c) continue;
+                    /* Below an overcast deck its cumulus are lost in it. */
+                    if (!c || (below && c->overcast >= 128)) continue;
                     base = body_rotate(p, c->base, 0);
                     dist = length(sub(local, base));
                     if (dist > range) continue;
@@ -798,13 +800,26 @@ static void cl_clouds(void) {
     }
     (void)sun;
 }
+/* The overcast deck as flat painter's quads, one per lattice cell. */
+static void cl_deck_quad(const Vec c[4], int colour) {
+    ClV v[16];
+    int i;
+    for (i = 0; i < 4; i++) if (!cl_world(c[i], &v[i])) return;
+    if (v[0].z < CL_NEAR && v[1].z < CL_NEAR && v[2].z < CL_NEAR && v[3].z < CL_NEAR) return;
+    cl_polygon(v, 4, colour, cl_bias + cl_emit++ * 2);
+}
 /* In cloud, without a depth buffer: an even ordered-dither whiteout by
-   density through the fog tables; rain as streaks, as before. */
+   density through the fog tables; rain as streaks, as before. Under an
+   overcast deck the scene dims first, as in Enhanced. */
 static void cl_weather(void) {
     const Planet *p = &game->system.planets[game->body];
     Vec local = sub(scale(camera_position, 1, FP), p->center);
     int density = cloud_density(p, local, game->tick), rain = precipitation(p, local, game->tick);
-    int x, y, i, lit = surface_light(&game->system, p, local) > 0;
+    int x, y, i, lit = surface_light(&game->system, p, local) > 0, overcast = deck_gloom();
+    if (overcast) {
+        gloom(overcast, cl.surface.top, cl.surface.bottom, cl.surface.left, cl.surface.right);
+        weather_status |= 8;
+    }
     if (density) {
         /* Without depth the whole view takes the density's fog, capped as
            the Enhanced fog caps solid ground: dense cloud leaves the world
@@ -907,6 +922,7 @@ static void classic_world(void) {
     cl_terrain();
     forests();
     cl_clouds();
+    overcast_deck(cl_deck_quad);
     destruction_effects();
     if (!cinema || performance_camera) weapon_effects();
     cl_active = 0;

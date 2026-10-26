@@ -349,6 +349,19 @@ static int cloud_cover(const Planet *p, Vec local, uint32_t tick) {
 static int cloud_floor(const Planet *p) { return p->climate == HYDROGEN ? 13000 : 1200; }
 static int cloud_thickness(const Planet *p) { return p->climate == HYDROGEN ? 10000 : 1200; }
 int cloud_spacing(const Planet *p) { return p->climate == HYDROGEN ? 16000 : 2000; }
+/* Above about 2,900 of the 4,096 cover levels (a sixth of a temperate
+   world) scattered cumulus give way to a solid deck, ramping in from 2,650. */
+#define OVERCAST_FROM 2650
+#define OVERCAST_FULL 2900
+static int overcast_from_cover(int cover) {
+    return cover <= OVERCAST_FROM ? 0 : cover >= OVERCAST_FULL ? 256
+                                  : (cover - OVERCAST_FROM) * 256 / (OVERCAST_FULL - OVERCAST_FROM);
+}
+int cloud_overcast(const Planet *p, Vec fixed, uint32_t tick) {
+    return p->atmosphere ? overcast_from_cover(cloud_cover_fixed(p, fixed, tick)) : 0;
+}
+int cloud_deck_base(const Planet *p) { return cloud_floor(p) + cloud_thickness(p) / 4; }
+int cloud_deck_top(const Planet *p) { return cloud_floor(p) + cloud_thickness(p); }
 static int64_t floor_div(int64_t a, int64_t b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 /* Project a body-fixed point onto one cube face of the cloud shell. Each
    cell belongs to the face its centre is dominant on, so neighbouring faces
@@ -387,7 +400,9 @@ static int cloud_build(const Planet *p, int face, int u, int v, uint32_t tick, C
     if (a >= size || -a > size || b >= size || -b > size) return 0;
     s = face & 1 ? -size : size;
     d = axis == 0 ? vec(s, a, b) : axis == 1 ? vec(a, s, b) : vec(a, b, s);
-    strength = cloud_cover_fixed(p, d, tick) - 1500;
+    strength = cloud_cover_fixed(p, d, tick);
+    c->overcast = (int16_t)overcast_from_cover(strength);
+    strength -= 1500;
     if (strength <= 0) return 0;
     strength = strength >= 1200 ? 256 : strength * 256 / 1200;
     /* Thin cover leaves scattered fair-weather cumulus; heavy cover packs them. */
@@ -467,6 +482,12 @@ int cloud_density(const Planet *p, Vec local, uint32_t tick) {
     if (!p->atmosphere || alt < floor - cloud_thickness(p) / 4 || alt > floor + cloud_thickness(p) * 2)
         return 0;
     fixed = body_rotate(p, local, 1);
+    /* Inside the overcast deck, thinning over its last 100 m each side. */
+    if (alt > cloud_deck_base(p) - 100 && alt < cloud_deck_top(p) + 100) {
+        int64_t edge = alt - (cloud_deck_base(p) - 100);
+        if (cloud_deck_top(p) + 100 - alt < edge) edge = cloud_deck_top(p) + 100 - alt;
+        best = (int)(cloud_overcast(p, fixed, tick) * 224 / 256 * (edge > 200 ? 200 : edge) / 200);
+    }
     for (face = 0; face < 6; face++) {
         if (!cloud_face_cell(p, face, fixed, cell * 2, &u, &v)) continue;
         for (dv = -1; dv <= 1; dv++) for (du = -1; du <= 1; du++) {

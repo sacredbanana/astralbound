@@ -2134,9 +2134,10 @@ static void cloud_deck(void) {
     const Planet *p = &game->system.planets[game->body];
     Vec local = sub(scale(camera_position, 1, FP), p->center), fixed;
     static const int ranges[]={1,2,3,5,8};
-    int cell = cloud_spacing(p), rings = ranges[graphics.cloud_range], face, ring, du, dv, k;
+    int cell = cloud_spacing(p), rings = ranges[graphics.cloud_range], face, ring, du, dv, k, below;
     int64_t alt = length(local) - p->radius, range = (int64_t)cell * rings;
     if (!graphics.clouds || !p->atmosphere || alt > (int64_t)cell * 10) return;
+    below = alt < cloud_deck_base(p);
     fixed = body_rotate(p, local, 1);
     for (face = 0; face < 6; face++) {
         int u, v;
@@ -2152,7 +2153,8 @@ static void cloud_deck(void) {
                     if (du != -ring && du != ring && dv != -ring && dv != ring) continue;
                     if (nt > triangle_limit - scenery_reserve) return; /* leave room for nearby ports and ships */
                     c = cloud_at(p, face, u + du, v + dv, game->tick);
-                    if (!c) continue;
+                    /* Below an overcast deck its cumulus are lost in it. */
+                    if (!c || (below && c->overcast >= 128)) continue;
                     base = body_rotate(p, c->base, 0);
                     rel = sub(local, base);
                     dist = length(rel);
@@ -2288,11 +2290,110 @@ static void cloud_fog(int density, int lit) {
         }
     }
 }
+/* Where the camera sees the overcast deck from: -1 below, 0 inside, 1 above. */
+static int deck_side(const Planet *p, Vec local) {
+    int64_t alt = length(local) - p->radius;
+    return alt < cloud_deck_base(p) ? -1 : alt > cloud_deck_top(p) ? 1 : 0;
+}
+/* Overcast cover per deck cell, cached: the field only drifts each minute. */
+#define DECK_CACHE 512
+static struct { uint32_t key, drift; int face, u, v, step, valid, amount; } deck_cache[DECK_CACHE];
+static int deck_amount(const Planet *p, int face, int u, int v, int step) {
+    uint32_t key = p->seed ^ (uint32_t)p->radius, drift = game->tick / (HZ * 60U);
+    unsigned slot = hash32(key ^ (uint32_t)face * 0x27d4eb2dU ^ (uint32_t)u * 0x165667b1U ^
+                           (uint32_t)v * 0xd3a2646cU ^ (uint32_t)step * 0x9e3779b9U) % DECK_CACHE;
+    if (!deck_cache[slot].valid || deck_cache[slot].key != key || deck_cache[slot].drift != drift ||
+        deck_cache[slot].face != face || deck_cache[slot].u != u || deck_cache[slot].v != v ||
+        deck_cache[slot].step != step) {
+        deck_cache[slot].valid = 1; deck_cache[slot].key = key; deck_cache[slot].drift = drift;
+        deck_cache[slot].face = face; deck_cache[slot].u = u; deck_cache[slot].v = v; deck_cache[slot].step = step;
+        deck_cache[slot].amount = cloud_overcast(p, face_direction(p, face, u + step / 2, v + step / 2), game->tick);
+    }
+    return deck_cache[slot].amount;
+}
+/* The overcast deck around the camera, for both renderers: a body-fixed
+   lattice on the cube face beneath it, DECK_GRID cells each side per level
+   with steps doubling outward like the terrain clipmap, out to where the
+   deck meets the camera's horizon. Each cell the overcast covers goes to
+   draw() as four world corners in metres, the underside dim grey from
+   below and the sunlit top from above. Inside the layer, fog stands in. */
+#define DECK_GRID 4
+typedef void (*DeckDraw)(const Vec corner[4], int colour);
+static void overcast_deck(DeckDraw draw) {
+    const Planet *p = &game->system.planets[game->body];
+    Vec local = sub(scale(camera_position, 1, FP), p->center), fixed;
+    int64_t alt = length(local) - p->radius, deck, reach, direction[3];
+    int side, face, cu, cv, step, level, x, y, k, light, shade, mottle;
+    int iu0 = 0, iv0 = 0, iu1 = 0, iv1 = 0;
+    if (!graphics.clouds || !p->atmosphere) return;
+    side = deck_side(p, local);
+    if (!side || alt > cloud_deck_top(p) + 40000) return;
+    deck = (int64_t)p->radius + (side < 0 ? cloud_deck_base(p) : cloud_deck_top(p));
+    reach = side < 0 ? (int64_t)isqrt64((uint64_t)(2LL * p->radius * (deck - p->radius))) +
+                       (int64_t)isqrt64((uint64_t)(2LL * p->radius * (alt > 1 ? alt : 1)))
+                     : (int64_t)isqrt64((uint64_t)(2LL * p->radius * (alt - (deck - p->radius))));
+    if (reach > 64LL * cloud_spacing(p) * DECK_GRID) reach = 64LL * cloud_spacing(p) * DECK_GRID;
+    fixed = body_rotate(p, local, 1);
+    direction[0] = fixed.x; direction[1] = fixed.y; direction[2] = fixed.z;
+    surface_uv(p, direction, &face, &cu, &cv);
+    light = surface_light(&game->system, p, local) * 3 / 64;
+    if (light > 256) light = 256;
+    /* The underside mottles a little, body-fixed, so it reads as cloud
+       rather than a painted sheet; seen from above the deck greys a little
+       with each level outward instead, which tiles would not. */
+    shade = side < 0 ? 28 + light * 72 / 256 : 48 + light * 180 / 256;
+    mottle = side < 0 ? 12 : 6;
+    for (level = 0, step = cloud_spacing(p);; level++, step *= 2) {
+        int u0 = terrain_floor(cu, step * 2) * step * 2 - DECK_GRID * step;
+        int v0 = terrain_floor(cv, step * 2) * step * 2 - DECK_GRID * step;
+        for (y = 0; y < DECK_GRID * 2; y++)
+            for (x = 0; x < DECK_GRID * 2; x++) {
+                int u = u0 + x * step, v = v0 + y * step;
+                Vec corner[4];
+                if (level && u >= iu0 && u + step <= iu1 && v >= iv0 && v + step <= iv1) continue;
+                if (deck_amount(p, face, u, v, step) < 128) continue;
+                for (k = 0; k < 4; k++)
+                    corner[k] = add(p->center, body_rotate(p, radial(face_direction(p, face,
+                                    u + (k == 1 || k == 2 ? step : 0), v + (k >= 2 ? step : 0)), deck), 0));
+                draw(corner, cloud_colour(shade - (side > 0 ? level * 6 : 0) + (int)(hash32(p->seed ^ (uint32_t)face * 0x45d9f3bU ^
+                                                                  (uint32_t)u * 0x119de1f3U ^ (uint32_t)v * 0x2c1b3c6dU)
+                                                           % (unsigned)(mottle + 1)) - mottle / 2));
+            }
+        iu0 = u0; iv0 = v0; iu1 = u0 + 2 * DECK_GRID * step; iv1 = v0 + 2 * DECK_GRID * step;
+        if ((int64_t)step * DECK_GRID >= reach) break;
+    }
+}
+static void deck_triangles(const Vec c[4], int colour) {
+    if (nt > triangle_limit - scenery_reserve) return;
+    triangle(c[0], c[1], c[2], colour);
+    triangle(c[0], c[2], c[3], colour);
+}
+/* Under a deck the light is grey: the scene dims toward the unlit cloud
+   colour, ordered-dithered in by the overcast at the camera's column. */
+static int deck_gloom(void) {
+    const Planet *p = &game->system.planets[game->body];
+    Vec local = sub(scale(camera_position, 1, FP), p->center);
+    if (!graphics.clouds || !p->atmosphere || deck_side(p, local) >= 0) return 0;
+    return cloud_overcast(p, body_rotate(p, local, 1), game->tick);
+}
+static void gloom(int amount, int top, int bottom, int left, int right) {
+    int x, y;
+    if (fog_enhanced != frame->enhanced) fog_tables(frame);
+    for (y = top; y < bottom; y++) {
+        uint8_t *line = frame->pixels + (size_t)y * frame->w;
+        for (x = left; x < right; x++)
+            if (bayer4[(y & 3) * 4 + (x & 3)] * 16 < amount) line[x] = fog_map[0][1][line[x]];
+    }
+}
 static void weather_overlay(void) {
     const Planet *p = &game->system.planets[game->body];
     Vec local = sub(scale(camera_position, 1, FP), p->center);
     int density = cloud_density(p, local, game->tick), rain = precipitation(p, local, game->tick);
-    int x, y, i, lit = surface_light(&game->system, p, local) > 0;
+    int x, y, i, lit = surface_light(&game->system, p, local) > 0, overcast = deck_gloom();
+    if (overcast) {
+        gloom(overcast, 0, view_h, 0, frame->w);
+        weather_status |= 8;
+    }
     if (density) {
         cloud_fog(density, lit);
         weather_status |= 1;
@@ -2658,6 +2759,12 @@ static void world(void) {
     }
     forests();
     cloud_deck();
+    {
+        const Planet *held = terrain_surface;
+        terrain_surface = NULL;
+        overcast_deck(deck_triangles);
+        terrain_surface = held;
+    }
     draw_triangles();
     for (b = 0; b < game->system.count; b++) {
         const Planet *p = &game->system.planets[b];
@@ -3820,6 +3927,7 @@ static void flight_overlays(const Game *g, Frame *f) {
     if (graphics.labels && !g->dead) system_body_labels();
     if (weather_status & 1) text(8,32,15,"IN CLOUD");
     if (weather_status & 6) text(8,44,15,weather_status & 2 ? "RAIN" : "SNOW");
+    if ((weather_status & 9) == 8) text(8,weather_status & 6 ? 56 : 44,15,"OVERCAST");
     if (g->page == FLIGHT && !g->dead && g->on_foot) {
         foot_hud();
     } else if (g->page == FLIGHT && !g->dead) {

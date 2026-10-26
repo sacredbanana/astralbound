@@ -219,6 +219,8 @@
   and leaves the ship hovering with assist on. Fast flight reads in c from 0.01c;
   1c is the speed of light. Bodies and stars in view are labelled in space;
   moons are labelled only when the ship is near their host planet.
+  Weather runs from clear skies through scattered cumulus to overcast
+  decks that grey the sky; the status reads OVERCAST beneath one.
   Ships have no landing gear: any ground contact below 8 m/s lands, and
   a slow arrival within 35 m of a port docks. Orbital stations move and
   rotate. Station control clears a manual pilot closing within 10 km;
