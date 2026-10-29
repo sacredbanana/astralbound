@@ -229,8 +229,10 @@ Approximations:
 - Saturn and the ice giants keep only their zonal bands: their spots change within
   months, and Hubble sees part of each. Latitudes Hubble could not see (Uranus's
   south, Neptune's far north) repeat the nearest observed band. Jupiter keeps its
-  two-dimensional map; its Red Spot is where Cassini saw it in 2000, and all
-  bands rotate together with System III.
+  two-dimensional map, by whiteness (blue over red) rather than brightness, since
+  the Red Spot is redder than its zone but not darker than a belt; it is blended
+  halfway to each latitude's median so belts stay continuous. The Red Spot is
+  where Cassini saw it in 2000, and all bands rotate together with System III.
 - Unimaged regions (Pluto and Charon's south, edges of the Galilean mosaics) take
   the body's median brightness.
 - Images are brightness, not calibrated albedo, apart from TES; each body's map is

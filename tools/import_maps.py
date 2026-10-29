@@ -204,6 +204,16 @@ def mapped_image(src, folder, name, west, blank=False):
     write_albedo(name, fill(cells, 4) if blank else fill(cells))
 
 
+def jupiter(src):
+    """Cassini's map by whiteness (blue over red), not brightness: the Red
+    Spot is no darker than a belt but much redder than its zone. Halfway to
+    each latitude's median, belts and zones stay continuous through their
+    festoons and white ovals, while the Red Spot still stands out."""
+    rgb = source(src, 'jupiter')
+    cells = fill(area_mean(from_east((rgb[..., 2] + 8) / (rgb[..., 0] + 8), 0)))
+    write_albedo('jupiter-albedo.pgm', (cells + np.median(cells, axis=1, keepdims=True)) / 2)
+
+
 def banded(src, folder, name):
     """A giant's zonal profile: each latitude's median reflectance. Spots
     on Saturn and the ice giants come and go within months, and Hubble
@@ -236,7 +246,7 @@ SOURCES = {
     'mercury': lambda s: mapped_image(s, 'mercury', 'mercury-albedo.pgm', -180),
     # Cassini, December 2000: west longitude increasing leftward from 0W at
     # the right edge; the Red Spot's turbulent wake trails west of it.
-    'jupiter': lambda s: mapped_image(s, 'jupiter', 'jupiter-albedo.pgm', 0),
+    'jupiter': jupiter,
     'saturn': lambda s: banded(s, 'saturn', 'saturn-albedo.pgm'),
     'uranus': lambda s: banded(s, 'uranus', 'uranus-albedo.pgm'),
     'neptune': lambda s: banded(s, 'neptune', 'neptune-albedo.pgm'),

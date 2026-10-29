@@ -306,8 +306,10 @@ static int disc_colour(const Disc *s, const DiscSample *m, int x, int y) {
     /* Lambert into the 15-step material ramps, in sixteenths for dithering. */
     shade = m->light * 224 / 16384;
     if (material == 5 && s->field->map) {
-        /* Measured belts and spots; a veil without a map is uniform. */
-        dark = m->albedo < 0;
+        /* Measured belts and spots; a veil without a map is uniform. The
+           belt ramp is ordered-dithered in over two albedo steps, so belts
+           shade into zones instead of breaking into blotches. */
+        dark = m->albedo + (t - 8) * 32 < 0;
         shade += m->albedo * shade / (14 * 256);
     } else if (material == 5) {
         /* Gas bands follow latitude; broad longitude variation shows spin
