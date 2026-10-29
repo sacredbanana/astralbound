@@ -40,6 +40,7 @@ typedef struct {
     int16_t m[3][3];        /* body-fixed to camera, Q14 */
     int16_t light[3];       /* camera-space direction to the star, Q14 */
     int material, type;     /* base material; planet type */
+    int bands;              /* procedural gas bands (unmapped giants) */
     int32_t bx, by, tx, ty; /* bottom and top limb points, Q4 screen */
     unsigned bottom_mask;
 } ClBodyInfo;
@@ -264,6 +265,11 @@ static void cl_body_contours(const ClBodyInfo *b, const PlanetContours *c, unsig
 /* Feature mask at a camera-space normal: land, rock and dark regions from
    the planet field, including geographic ice; gas bands from latitude;
    light from the star. */
+/* A veiled body shows cloud tops: mapped belts and spots as albedo
+   contours, otherwise procedural bands (giants) or a plain deck. */
+static int cl_mapped_tops(const Planet *p) {
+    return p->map && p->map->albedo;
+}
 static unsigned cl_body_mask(const ClBodyInfo *b, const int16_t *m) {
     const Planet *p = &game->system.planets[b->body];
     int32_t n[3];
@@ -272,18 +278,22 @@ static unsigned cl_body_mask(const ClBodyInfo *b, const int16_t *m) {
     for (k = 0; k < 3; k++) /* camera to body: the transpose */
         n[k] = ((int32_t)b->m[0][k] * m[0] + (int32_t)b->m[1][k] * m[1] + (int32_t)b->m[2][k] * m[2]) >> 14;
     for (k = 0; k < CL_LIGHT_CAPS; k++) if (cl_dot14(m, b->light) >= cl_light_cos[k]) mask |= CLB_LIGHT << k;
-    if (p->type == GAS_GIANT) {
+    if (b->bands) {
         for (k = 0; k < CL_GAS_BANDS; k++) if (n[2] > -14336 + k * 4096) mask |= CLB_BAND << k;
         return mask;
     }
     {
         PlanetField *f = planet_field_for(p);
         Vec q = vec(n[0] * 4, n[1] * 4, n[2] * 4);
+        if (b->material == 5) {
+            if (cl_mapped_tops(p) && planet_field_region(f, q) < 2048) mask |= CLB_DARK;
+            return mask;
+        }
         if (p->type != ICE && planet_field_ice(f, q) >= 0) mask |= CLB_ICE;
         if (p->type == OCEAN) {
             int h = planet_field_base_height(f, q);
             if (h >= 0) mask |= CLB_LAND;
-            if (h >= 262) mask |= CLB_ROCK;
+            if (planet_field_rock(f, q) >= 0) mask |= CLB_ROCK;
         }
         if (planet_field_region(f, q) < 2048) mask |= CLB_DARK;
     }
@@ -330,14 +340,14 @@ static void cl_body_seed(ClBodyInfo *b) {
         n[k] = ((int32_t)b->m[0][k] * normal[0] + (int32_t)b->m[1][k] * normal[1] +
                 (int32_t)b->m[2][k] * normal[2]) >> 14;
     q.x = (int16_t)n[0]; q.y = (int16_t)n[1]; q.z = (int16_t)n[2];
-    if (p->type != GAS_GIANT) {
+    if (b->material != 5 || cl_mapped_tops(p)) {
         slot = cl_contour_slot(p);
         if (p->type == OCEAN) {
             if (planet_contours_positive(&cl_contours[slot].coast, q)) actual |= CLB_LAND;
             if (planet_contours_positive(&cl_contours[slot].highland, q)) actual |= CLB_ROCK;
         }
         if (!planet_contours_positive(&cl_contours[slot].dark, q)) actual |= CLB_DARK;
-        if (p->type != ICE && planet_contours_positive(&cl_contours[slot].ice, q)) actual |= CLB_ICE;
+        if (p->type != ICE && b->material != 5 && planet_contours_positive(&cl_contours[slot].ice, q)) actual |= CLB_ICE;
     }
     for (k = 0; k < cl_circle_count; k++) {
         int i, small = cl_circles[k].cosr >= 0, inside = small;
@@ -361,24 +371,29 @@ static void cl_body_seed(ClBodyInfo *b) {
         crossed ^= cl_body.rows[row].c[k].mask;
     b->bottom_mask = actual ^ crossed;
 }
-static const uint8_t cl_aga_base[] = {80, 64, 64, 96, 112, 96};
-static const uint8_t cl_ecs_base[] = {25, 8, 8, 16, 28, 21};
 static int cl_body_colour(void *ctx, unsigned mask) {
     const ClBodyInfo *b = ctx;
-    int level = 0, k, material, shade;
+    const Planet *p = &game->system.planets[b->body];
+    const Ramp *ramp;
+    int level = 0, k, material, shade, dark = 0;
     for (k = 0; k < CL_LIGHT_CAPS; k++) level += (mask >> (4 + k)) & 1;
     shade = frame->enhanced ? cl_light_aga[level] : cl_light_ecs[level];
-    if (b->type == GAS_GIANT) {
+    if (b->bands) {
         int band = 0;
         for (k = 0; k < CL_GAS_BANDS; k++) band += (mask >> (9 + k)) & 1;
         /* Alternate pale and dark belts, like material_color's bands. */
         shade = shade * (band & 1 ? 11 : 15) / 15 - (band == 3 && shade > 2 ? 1 : 0);
         material = 5;
-    } else if (mask & CLB_ICE) material = 4;
+    } else if (b->material == 5) material = 5;
+    else if (mask & CLB_ICE) material = 4;
     else if (b->type == OCEAN) material = mask & CLB_LAND ? (mask & CLB_ROCK ? 3 : 1) : 0;
     else material = b->material;
-    if ((mask & CLB_DARK) && material != 0 && shade > 1) shade -= frame->enhanced ? 2 : 0;
-    return frame->enhanced ? cl_aga_base[material] + shade : cl_ecs_base[material] + shade;
+    /* Belts take their own ramp where the body has one; elsewhere dark
+       regions are a step dimmer. */
+    if ((mask & CLB_DARK) && material == 5 && p->map && p->map->dark_ramp) dark = 1;
+    else if ((mask & CLB_DARK) && material != 0 && shade > 1) shade -= frame->enhanced ? 2 : p->map ? 1 : 0;
+    ramp = body_ramp(p, material, dark);
+    return frame->enhanced ? ramp->aga + shade * ramp->step : ramp->ecs + shade;
 }
 /* Find the limb points with the largest and smallest screen y: sampled
    round the limb circle, then refined. */
@@ -448,6 +463,8 @@ static int cl_body_setup(ClBodyInfo *b, int body) {
     if (!p) return 1;
     b->type = (int)p->type;
     b->material = p->type == ICE ? 4 : p->type == GAS_GIANT ? 5 : p->type == OCEAN ? 0 : 3;
+    if (p->map && (p->map->flags & BODY_MAP_VEIL)) b->material = 5;
+    b->bands = p->type == GAS_GIANT && !p->map;
     for (j = 0; j < 3; j++) {
         /* Body axis j in the system frame, then in camera space. */
         Vec e = body_rotate(p, vec(j == 0 ? 16384 : 0, j == 1 ? 16384 : 0, j == 2 ? 16384 : 0), 0);
@@ -533,9 +550,11 @@ static void cl_draw_planet(ClBodyInfo *b) {
         int16_t a[3] = {(int16_t)light_axis[0], (int16_t)light_axis[1], (int16_t)light_axis[2]};
         cl_body_circle(b, a, cl_light_cos[k], CLB_LIGHT << k, segments);
     }
-    if (p->type == GAS_GIANT) {
+    if (b->bands) {
         int16_t pole[3] = {b->m[0][2], b->m[1][2], b->m[2][2]};
         for (k = 0; k < CL_GAS_BANDS; k++) cl_body_circle(b, pole, -14336 + k * 4096, CLB_BAND << k, segments);
+    } else if (b->material == 5 && !cl_mapped_tops(p)) {
+        /* A plain cloud deck: light caps only. */
     } else {
         /* Under six pixels Frontier drew a plain shaded disc: no surface
            features, and none in the bottom mask, so parity holds. */
@@ -732,7 +751,7 @@ static void cl_terrain(void) {
                     d = cl_face_light(nx, ny, nz, lc);
                     s = d > 0 ? d * 14 / 16384 : 0;
                     if (!frame->enhanced) s = s / 6 * 6;
-                    cl_polygon(tri[k], 3, ground_shade(s, sample[k]), 0);
+                    cl_polygon(tri[k], 3, ground_shade(p, s, sample[k]), 0);
                 }
             }
         }

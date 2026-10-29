@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Isrc
 HEADERS = $(wildcard src/*.h src/*.inc) src/third_party/micromod/micromod.h
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/xfloat.c src/planet_view.c src/planet_field.c src/planet_contours.c src/classic_raster.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/xfloat.c src/planet_view.c src/body_map.c src/planet_field.c src/planet_contours.c src/classic_raster.c src/render.c
 .PHONY: all test sanitize preview clean amiga
 all: build/astralbound
 build:
@@ -70,7 +70,7 @@ amiga:
 	$(MAKE) -f Makefile.Amiga
 clean:
 	rm -f build/classic-tests build/classic-tests-sanitize build/renderers-tests build/renderers-tests-sanitize build/planet-tests build/planet-tests-sanitize build/planet-bench build/settings-tests build/settings-tests-sanitize build/galaxy-tests build/galaxy-tests-sanitize build/galaxy-preview build/music-tests build/music-tests-sanitize
-	rm -f build/aurora-preview build/port-preview build/ground-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/parking-tests build/parking-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/fpu-tests build/fpu-renderer-tests build/*.ppm
+	rm -f build/aurora-preview build/port-preview build/ground-preview build/weapons-preview build/destruction-preview build/ui-tests build/ui-tests-sanitize build/astralbound build/tests build/tests-sanitize build/navigation-tests build/navigation-tests-sanitize build/presentation-tests build/presentation-tests-sanitize build/career-tests build/career-tests-sanitize build/parking-tests build/parking-tests-sanitize build/benchmark build/renderer-tests build/renderer-tests-sanitize build/sol-preview build/fpu-tests build/fpu-renderer-tests build/*.ppm
 
 build/intro-preview: $(CORE) $(HEADERS) tools/intro_preview.c | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/intro_preview.c -o $@
@@ -208,6 +208,13 @@ planet-evidence: build/planet-bench
 	mkdir -p build/evidence/planets
 	./build/planet-bench --no-timing --images build/evidence/planets
 
+.PHONY: sol-preview
+build/sol-preview: $(CORE) $(HEADERS) tools/sol_preview.c | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/sol_preview.c -o $@
+sol-preview: build/sol-preview
+	mkdir -p build/evidence
+	./build/sol-preview build/evidence/sol-inner.ppm Mercury Venus Earth:20:15 Earth:-10:-60 Moon Mars:0:-70 Mars:-20:60
+	./build/sol-preview build/evidence/sol-outer.ppm Jupiter:0:0:64 Saturn:20:0:64 Uranus:0:0:64 Neptune:0:0:64 Titan Io Europa Ganymede Callisto Pluto:0:180
 .PHONY: aurora-preview
 build/aurora-preview: $(CORE) $(HEADERS) tools/aurora_preview.c tools/aurora_fixture.h | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/aurora_preview.c -o $@

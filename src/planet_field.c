@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense; orbital planet fields. See planet_field.h. */
 #include "planet_field.h"
 #include "noise.h"
+#include "body_map.h"
 #include <string.h>
 /* Seeds and spacings shared with terrain.c's fields. */
 #define CONTINENT_SHIFT 14
@@ -19,6 +20,8 @@ void planet_field_init(PlanetField *f, const Planet *p) {
     f->seed = p->seed;
     f->type = (int)p->type;
     f->flat = p->catalog && p->radius < 100000;
+    f->map = p->map;
+    f->veil = p->type == GAS_GIANT || (p->map && (p->map->flags & BODY_MAP_VEIL));
     fill(f->continent, FIELD_CONTINENT, p->seed);
     fill(f->region, FIELD_REGION, p->seed ^ REGION_SEED);
     memset(f->detail_key, 0, sizeof(f->detail_key));
@@ -42,6 +45,7 @@ static int lattice_value(const int16_t *lattice, int size, Vec n, int shift) {
     return noise_blend(corner, fx, fy, fz);
 }
 int planet_field_continent(const PlanetField *f, Vec n) {
+    if (f->map && f->map->continent) return body_map_continent(f->map, n);
     return lattice_value(f->continent, FIELD_CONTINENT, n, CONTINENT_SHIFT);
 }
 int planet_field_base_height(const PlanetField *f, Vec n) {
@@ -64,12 +68,25 @@ static void land_mix(int h, int mix[3]) {
     mix[2] = 256 - mix[0] - mix[1];
 }
 int planet_field_ice(const PlanetField *f, Vec n) {
+    if (f->map) return body_map_ice(f->map, n);
     if (!noise_polar_possible(n)) return -9000;
     return noise_polar_ice(n, planet_field_continent(f, n), planet_field_region(f, n));
 }
-int planet_field_classify(const PlanetField *f, int h, int ice, int mix[3]) {
+/* Base height where generated land turns mostly to rock (land_mix), and
+   where measured Earth's vegetation gives way to bare uplands. */
+#define HIGHLAND_HEIGHT 262
+#define MAP_ROCK_HEIGHT 900
+int planet_field_rock(const PlanetField *f, Vec n) {
+    int h = planet_field_base_height(f, n);
+    if (f->map && (f->map->flags & BODY_MAP_ARID)) {
+        int dry = planet_field_region(f, n) - 2048;
+        return dry > h - MAP_ROCK_HEIGHT ? dry : h - MAP_ROCK_HEIGHT;
+    }
+    return h - HIGHLAND_HEIGHT;
+}
+int planet_field_classify(const PlanetField *f, int h, int ice, int albedo, int mix[3]) {
     mix[0] = mix[1] = mix[2] = 0;
-    if (f->type == GAS_GIANT) return 5;
+    if (f->veil) return 5;
     if (f->type == ICE || ice >= 0) return 4;
     if (f->type != OCEAN) {
         int m = f->type == DESERT || f->type == MOON || !f->flat ? 3 : 1;
@@ -77,12 +94,23 @@ int planet_field_classify(const PlanetField *f, int h, int ice, int mix[3]) {
         return m;
     }
     if (h < 0) return 0;
+    if (f->map && (f->map->flags & BODY_MAP_ARID)) {
+        /* Deserts and uplands are rock; elsewhere vegetation, with
+           lowland along the coasts. */
+        if (albedo >= 0 || h >= MAP_ROCK_HEIGHT) {
+            mix[2] = 256;
+            return 3;
+        }
+        mix[0] = h < 80 ? (80 - h) * 256 / 80 : 0;
+        mix[1] = 256 - mix[0];
+        return mix[1] >= mix[0] ? 2 : 1;
+    }
     land_mix(h, mix);
     return mix[2] >= mix[0] && mix[2] >= mix[1] ? 3 : mix[1] >= mix[0] ? 2 : 1;
 }
 int planet_field_land(const PlanetField *f, Vec n, int mix[3]) {
     return planet_field_classify(f, f->type == OCEAN ? planet_field_base_height(f, n) : 0,
-                                 planet_field_ice(f, n), mix);
+                                 planet_field_ice(f, n), f->map ? body_map_regional_albedo(f->map, n) : 0, mix);
 }
 int planet_field_material(const PlanetField *f, Vec n) {
     int mix[3];
@@ -107,11 +135,14 @@ static int detail_value(PlanetField *f, Vec n) {
     return noise_blend(corner, fx, fy, fz);
 }
 int planet_field_region(const PlanetField *f, Vec n) {
+    if (f->map) return body_map_region(f->map, n);
     return lattice_value(f->region, FIELD_REGION, n, REGION_SHIFT);
 }
 int planet_field_regional_albedo(PlanetField *f, Vec n, int material) {
     int a, b;
-    if (material == 0 || material == 5) return 0;
+    if (material == 0) return 0;
+    if (f->map) return body_map_regional_albedo(f->map, n);
+    if (material == 5) return 0;
     a = lattice_value(f->region, FIELD_REGION, n, REGION_SHIFT) - 2048;
     b = detail_value(f, n) - 2048;
     return a / 600 + b / 1000;

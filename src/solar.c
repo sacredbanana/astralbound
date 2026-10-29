@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "solar.h"
+#include "body_map.h"
 #include <string.h>
 #include <stdio.h>
 typedef struct {
@@ -112,6 +113,7 @@ void solar_system(System *s) {
         /* Fictional ports only; the celestial catalog remains real. */
         p->settled=i==2 || i==3 || !strcmp(d->name,"Moon");
         snprintf(p->name,sizeof(p->name),"%s",d->name);
+        p->map=body_map_find(d->name);
     }
 }
 static void mass_digits(uint64_t x, int exponent, BodyFacts *f) {

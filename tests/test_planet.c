@@ -12,6 +12,9 @@
 #include "planet_field.h"
 #include "planet_contours.h"
 #include "noise.h"
+#include "body_map.h"
+#include "solar.h"
+#include <string.h>
 typedef long double real;
 static uint32_t rng = 12345;
 static real uniform(void) {
@@ -310,7 +313,127 @@ static void contour_parity(void) {
     }
     printf("PASS contour parity at %d lattice directions across seams, octants and three resolutions\n", checked);
 }
+/* A synthetic cube map returns its lattice values exactly, is continuous
+   across face edges and does not care about vector length. */
+static void map_sampling(void) {
+    static uint8_t channel[6 * 9 * 9];
+    BodyMap m;
+    int face, i, j, k, checked = 0;
+    memset(&m, 0, sizeof(m));
+    m.n = 8; m.albedo = channel;
+    for (face = 0; face < 6; face++)
+        for (j = 0; j <= 8; j++)
+            for (i = 0; i <= 8; i++) {
+                int axis = face / 2, sign = face & 1 ? -8 : 8, u = -8 + 2 * i, v = -8 + 2 * j;
+                real x = axis == 0 ? sign : u, y = axis == 1 ? sign : axis == 0 ? u : v, z = axis == 2 ? sign : v;
+                real r = sqrtl(x * x + y * y + z * z);
+                channel[(face * 9 + j) * 9 + i] = (uint8_t)lrintl(128 + 90 * z / r + 30 * x / r - 20 * y / r);
+            }
+    for (face = 0; face < 6; face++)
+        for (j = 0; j <= 8; j++)
+            for (i = 0; i <= 8; i++) {
+                int axis = face / 2, sign = face & 1 ? -8 : 8, u = -8 + 2 * i, v = -8 + 2 * j;
+                Vec l = axis == 0 ? vec(sign, u, v) : axis == 1 ? vec(u, sign, v) : vec(u, v, sign);
+                for (k = 1; k <= 4096; k *= 64)
+                    assert(body_map_sample(&m, channel, scale(l, k * 1000, 1)) == channel[(face * 9 + j) * 9 + i] << 8);
+            }
+    /* Either side of every face edge. */
+    for (i = 0; i < 20000; i++) {
+        int64_t a = 1000000, b = (int64_t)((uniform() * 2 - 1) * a), sa = uniform() < 0.5 ? -1 : 1, sb = uniform() < 0.5 ? -1 : 1;
+        int axis = i % 3, one, two;
+        Vec p = axis == 0 ? vec(sa * (a + 1), sb * a, b) : axis == 1 ? vec(sa * (a + 1), b, sb * a) : vec(b, sa * (a + 1), sb * a);
+        Vec q = axis == 0 ? vec(sa * a, sb * (a + 1), b) : axis == 1 ? vec(sa * a, b, sb * (a + 1)) : vec(b, sa * a, sb * (a + 1));
+        one = body_map_sample(&m, channel, p); two = body_map_sample(&m, channel, q);
+        assert(abs(one - two) <= 64);
+        checked++;
+    }
+    printf("PASS cube-map sampling: exact lattice values at three scales, %d face-edge pairs continuous\n", checked);
+}
+/* Every mapped Solar System body: the orbital field reads the same measured
+   coasts, albedo and ice as terrain and collision. */
+static void measured_bodies(void) {
+    static Game g;
+    static PlanetField field;
+    int body, i, mapped = 0;
+    long samples = 0, agree = 0;
+    game_init(&g, 1);
+    solar_system(&g.system);
+    for (body = 0; body < g.system.count; body++) {
+        Planet p = g.system.planets[body];
+        if (!p.map) continue;
+        mapped++;
+        p.spin_sin = p.spin_cos = 0;
+        planet_field_init(&field, &p);
+        for (i = 0; i < 4000; i++) {
+            Vec d = vec((int64_t)((uniform() - 0.5L) * 2e6L), (int64_t)((uniform() - 0.5L) * 2e6L),
+                        (int64_t)((uniform() - 0.5L) * 2e6L));
+            Vec n = unit(d, 65536);
+            int mat = 1 + i % 4;
+            if (!length(d)) continue;
+            assert(planet_field_regional_albedo(&field, n, mat) == terrain_regional_albedo(&p, d, mat));
+            assert(planet_field_ice(&field, n) == body_map_ice(p.map, n));
+            if (p.type == OCEAN && p.map->continent) assert(planet_field_continent(&field, n) == body_map_continent(p.map, n));
+            if (!field.veil) {
+                samples++;
+                agree += planet_field_material(&field, n) == terrain_material(&p, radial(d, p.radius));
+            }
+        }
+    }
+    printf("PASS %d mapped Solar System bodies: albedo, ice and continents identical in orbit and on the ground\n", mapped);
+    if (samples) printf("     material agreement %.2f%% of %ld samples\n", 100.0 * agree / samples, samples);
+    assert(agree * 100 >= samples * 97);
+}
+/* Landmarks in the right places: catches a mirrored, rotated or shifted
+   source. Latitude and east longitude in degrees. */
+static Vec place(real lat, real lon) {
+    real la = lat * 3.14159265358979L / 180, lo = lon * 3.14159265358979L / 180;
+    return vec((int64_t)lrintl(cosl(la) * cosl(lo) * 65536), (int64_t)lrintl(cosl(la) * sinl(lo) * 65536),
+               (int64_t)lrintl(-sinl(la) * 65536)); /* north is body -z */
+}
+static int material_at(const System *s, const char *name, real lat, real lon) {
+    Planet p = s->planets[solar_body_index(s, name)];
+    p.spin_sin = p.spin_cos = 0;
+    return terrain_material(&p, radial(place(lat, lon), p.radius));
+}
+static int albedo_at(const System *s, const char *name, real lat, real lon) {
+    return body_map_regional_albedo(s->planets[solar_body_index(s, name)].map, place(lat, lon));
+}
+static int relief_at(const System *s, const char *name, real lat, real lon) {
+    return body_map_relief(s->planets[solar_body_index(s, name)].map, place(lat, lon));
+}
+static void landmarks(void) {
+    static System s;
+    solar_system(&s);
+    /* Earth: oceans, coasts either side of the Atlantic, deserts, forests, ice. */
+    assert(material_at(&s, "Earth", 30, -40) == 0);       /* mid Atlantic */
+    assert(material_at(&s, "Earth", 25, -90) == 0);       /* Gulf of Mexico */
+    assert(material_at(&s, "Earth", -10, -150) == 0);     /* Pacific */
+    assert(material_at(&s, "Earth", 23, 10) == 3);        /* Sahara */
+    assert(material_at(&s, "Earth", 22, 47) == 3);        /* Arabia */
+    assert(material_at(&s, "Earth", -25, 130) == 3);      /* central Australia */
+    assert(material_at(&s, "Earth", 39, -117) == 3);      /* Great Basin */
+    assert(material_at(&s, "Earth", -24, -69) == 3);      /* Atacama */
+    assert(material_at(&s, "Earth", -3, -60) == 2 || material_at(&s, "Earth", -3, -60) == 1); /* Amazon */
+    assert(material_at(&s, "Earth", 0, 22) == 2 || material_at(&s, "Earth", 0, 22) == 1);     /* Congo */
+    assert(material_at(&s, "Earth", 34, -84) == 2 || material_at(&s, "Earth", 34, -84) == 1); /* Georgia, US */
+    assert(material_at(&s, "Earth", 75, -40) == 4);       /* Greenland */
+    assert(material_at(&s, "Earth", -82, 60) == 4);       /* East Antarctica */
+    /* Moon: dark maria on the near side, bright highlands; deep far-side basin. */
+    assert(albedo_at(&s, "Moon", 33, -16) < 0 && albedo_at(&s, "Moon", 28, 17) < 0); /* Imbrium, Serenitatis */
+    assert(albedo_at(&s, "Moon", -30, 10) > 0 && albedo_at(&s, "Moon", -20, 120) > 0);
+    assert(relief_at(&s, "Moon", -53, -169) < relief_at(&s, "Moon", 5, -158)); /* South Pole-Aitken */
+    /* Mars: Olympus Mons above Hellas; dark Syrtis Major, bright Arabia; caps. */
+    assert(relief_at(&s, "Mars", 18.65L, -133.8L) > relief_at(&s, "Mars", -42.4L, 70.5L) + 1000);
+    assert(albedo_at(&s, "Mars", 8.4L, 69.5L) < 0 && albedo_at(&s, "Mars", 20, 5) > 0);
+    assert(material_at(&s, "Mars", 88, 0) == 4 && material_at(&s, "Mars", 0, 0) == 3);
+    /* Jupiter: the Red Spot and the belts are below the zones' brightness. */
+    assert(albedo_at(&s, "Jupiter", 0, 0) > albedo_at(&s, "Jupiter", 15, 0));
+    printf("PASS landmarks on Earth, the Moon, Mars and Jupiter\n");
+}
 int main(void) {
+    landmarks();
+    map_sampling();
+    measured_bodies();
     polar_geography();
     contour_parity();
     xfloat_arithmetic();

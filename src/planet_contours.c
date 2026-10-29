@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Unlicense; coastline loops. See planet_contours.h. */
 #include "planet_contours.h"
+#include "body_map.h"
 #include <string.h>
 #define HASH_SIZE 16384
 /* Lattice points are integer triples on the cube [-N, N]^3 (step 2), so a
@@ -56,13 +57,13 @@ static void link(int a, int b) {
     if (cross[a].link[0] < 0) cross[a].link[0] = (int16_t)b; else cross[a].link[1] = (int16_t)b;
     if (cross[b].link[0] < 0) cross[b].link[0] = (int16_t)a; else cross[b].link[1] = (int16_t)a;
 }
-/* Highland: the base height where planet_field's land mix turns mostly
-   to rock (about 260 m). Albedo: the coarse regional reflectance's mean. */
-#define HIGHLAND_HEIGHT 262
+/* Highland: where planet_field's land turns mostly to rock. Albedo: the
+   coarse regional reflectance's mean. */
 static int contour_value(PlanetField *f, Vec n, int kind) {
     if (kind == CONTOUR_ICE) return planet_field_ice(f, n);
     if (kind == CONTOUR_ALBEDO) return planet_field_region(f, n) - 2048;
-    return planet_field_base_height(f, n) - (kind == CONTOUR_HIGHLAND ? HIGHLAND_HEIGHT : 0);
+    if (kind == CONTOUR_HIGHLAND) return planet_field_rock(f, n);
+    return planet_field_base_height(f, n);
 }
 int planet_contours_build(PlanetContours *c, PlanetField *f, int n, int kind) {
     static int value[49 * 49];
@@ -75,7 +76,8 @@ int planet_contours_build(PlanetContours *c, PlanetField *f, int n, int kind) {
     c->positive_corners = 0;
     if ((kind == CONTOUR_COAST || kind == CONTOUR_HIGHLAND) && f->type != OCEAN) return 0;
     if (kind == CONTOUR_ICE && f->type == ICE) return 0;
-    if (f->type == GAS_GIANT) return 0;
+    /* Cloud tops show only their mapped belts and spots. */
+    if (f->veil && (kind != CONTOUR_ALBEDO || !f->map || !f->map->albedo)) return 0;
     for (i = 0; i < 8; i++) {
         Vec corner = unit(vec(i & 1 ? -n : n, i & 2 ? -n : n, i & 4 ? -n : n), 65536);
         if (contour_value(f, corner, kind) >= 0) c->positive_corners |= 1U << i;

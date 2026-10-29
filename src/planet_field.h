@@ -16,6 +16,8 @@
 typedef struct {
     uint32_t seed;
     int type, flat; /* flat: catalog bodies without generated relief */
+    int veil;       /* the orbital view is cloud tops (giants, Venus, Titan) */
+    const BodyMap *map; /* measured fields replace the noise where present */
     int16_t continent[FIELD_CONTINENT * FIELD_CONTINENT * FIELD_CONTINENT];
     int16_t region[FIELD_REGION * FIELD_REGION * FIELD_REGION];
     /* The fine albedo lattice (66^3 points) is cached as it is used. */
@@ -34,16 +36,21 @@ int planet_field_base_height(const PlanetField *f, Vec n);
    land also reports their expected Q8 shares (lowland, forest, rock; sum
    256), which a renderer can blend; the return value is the largest. */
 int planet_field_land(const PlanetField *f, Vec n, int mix[3]);
-/* Classify a sampled or interpolated base height and signed ice value,
-   applying their boundaries per pixel so both margins stay smooth. */
-int planet_field_classify(const PlanetField *f, int base_height, int ice, int mix[3]);
+/* Classify a sampled or interpolated base height, signed ice value and
+   regional albedo, applying their boundaries per pixel so the margins stay
+   smooth. Albedo only matters on arid maps, where bright land is desert. */
+int planet_field_classify(const PlanetField *f, int base_height, int ice, int albedo, int mix[3]);
 /* Signed geographic ice coverage, shared with terrain. >= 0 is frozen.
    Interpolate this field alongside height, then classify per pixel. */
 int planet_field_ice(const PlanetField *f, Vec n);
+/* Signed edge of rock-dominated land on an ocean world, >= 0 rock: the
+   uplands, and on an arid map the deserts too. Classic fills this. */
+int planet_field_rock(const PlanetField *f, Vec n);
 int planet_field_material(const PlanetField *f, Vec n);
 /* The coarse regional reflectance noise alone, 0..4095 (the dominant term
    of terrain_regional_albedo), for region outlines. */
 int planet_field_region(const PlanetField *f, Vec n);
-/* terrain_regional_albedo, exactly: broad reflectance -10..10. */
+/* terrain_regional_albedo, exactly: broad reflectance -10..10. Mapped
+   giants report their belts and spots here too. */
 int planet_field_regional_albedo(PlanetField *f, Vec n, int material);
 #endif

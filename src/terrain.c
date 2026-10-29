@@ -2,12 +2,13 @@
    Coherent, immutable terrain sampled by both collision and rendering. */
 #include "astralbound.h"
 #include "noise.h"
+#include "body_map.h"
 #include <stdlib.h>
 /* Metre-space geology keeps mountain slopes visible on large planets and
    small moons alike. Intersecting coherent fields form ranges, winding cuts,
    isolated cones/calderas and crater bowls without longitude/cube-face seams. */
 static int landform_height(const Planet *p, Vec n, Vec q) {
-    int continent = noise_value(p->seed, n, 14);
+    int continent = p->map && p->map->continent ? body_map_continent(p->map, n) : noise_value(p->seed, n, 14);
     int region = noise_value(p->seed ^ 0x52414e47U, q, 16);
     int fold = noise_value(p->seed ^ 0x464f4c44U, q, 14) - 2048;
     int crossfield = noise_value(p->seed ^ 0x43524f53U, q, 14) - 2048;
@@ -60,6 +61,8 @@ static int landform_height(const Planet *p, Vec n, Vec q) {
         if (cone < 220) relief -= (220-cone) * 1400 / 220;
         h += relief * (region < 2400 ? region-1900 : 500) / 500;
     }
+    /* Measured basins, volcanoes and rifts carry the local landforms. */
+    if (p->map) h += body_map_relief(p->map, n);
     return h;
 }
 int terrain_elevation(const Planet *p, Vec relative) {
@@ -154,12 +157,15 @@ int terrain_material(const Planet *p, Vec relative) {
     Vec normal = unit(body_rotate(p, relative, 1), 65536);
     if (p->type == GAS_GIANT)
         return 5;
-    if (p->type == ICE || noise_polar_value(p->seed, normal) >= 0)
+    if (p->type == ICE || (p->map ? body_map_ice(p->map, normal) : noise_polar_value(p->seed, normal)) >= 0)
         return 4;
     /* Pads are levelled to exactly sea level: dry ground, never a pond. A
        pad out at sea becomes a 1 km island where the seabed blend begins. */
     if (p->type == OCEAN && h < 0)
         return 0;
+    /* Measured Earth: deserts and high ground are rock, other land green. */
+    if (p->map && (p->map->flags & BODY_MAP_ARID))
+        return body_map_regional_albedo(p->map, normal) >= 0 || h > 1200 ? 3 : h > 80 ? 2 : 1;
     if (p->type == DESERT || p->type == MOON || h > 500)
         return 3;
     if (p->type == OCEAN && h > 80 && h < 450)
@@ -171,7 +177,10 @@ int terrain_material(const Planet *p, Vec relative) {
 int terrain_regional_albedo(const Planet *p, Vec fixed_direction, int material) {
     Vec n = unit(fixed_direction, 65536);
     int a, b;
-    if (material == 0 || material == 5) return 0;
+    if (material == 0) return 0;
+    /* Measured reflectance alone: the map already holds the deposits. */
+    if (p->map) return body_map_regional_albedo(p->map, n);
+    if (material == 5) return 0;
     a = noise_value(p->seed ^ 0x434f4e54U, n, 13) - 2048;
     b = noise_value(p->seed ^ 0x4445504fU, n, 11) - 2048;
     return a / 600 + b / 1000;

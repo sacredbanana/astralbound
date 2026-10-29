@@ -62,6 +62,7 @@ typedef struct {
     uint32_t period;
     int phase;
 } Star;
+typedef struct BodyMap BodyMap; /* body_map.h */
 typedef struct {
     uint32_t seed;
     int32_t radius, gravity, atmosphere;
@@ -74,6 +75,7 @@ typedef struct {
     int32_t orbit_basis[6]; /* catalog orbital plane, Q14 periapsis/tangent vectors */
     int eccentricity, ascending_node, periapsis; /* catalog ellipse; e in millionths */
     int catalog; /* 0 generated, 1 measured radius, 2 unknown radius (proxy geometry) */
+    const BodyMap *map; /* measured Solar System surface maps, or NULL */
     Vec orbit_start, orbit_end, velocity;
     Vec cruise_velocity; /* transient averaged Q8 system velocity */
     int32_t spin_sin, spin_cos; /* transient Q30 rotation about body Z */

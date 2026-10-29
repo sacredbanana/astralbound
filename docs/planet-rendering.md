@@ -144,6 +144,46 @@ the field expects lowland/forest/rock 8.4/21.2/70.4%, and terrain has
 8.6/21.2/70.2%. The test re-measures it, so it cannot silently drift if
 terrain generation changes.
 
+## Measured Solar System maps: `body_map`
+
+Sixteen Sol bodies replace the planet-scale noise with measured maps (sources in
+`data/README.md`). `body_map_sample` reads a cube map of (n + 1)^2 lattice
+points per face, bilinearly, in 32-bit integers: two divisions give the
+gnomonic face coordinates, and no trigonometry is needed. Edge points are
+stored identically on both faces, so values are continuous across seams.
+
+Only the fields a planet shows from orbit change. `planet_field` and terrain
+both call the same `body_map_*` functions, so coasts, albedo and ice stay
+identical in orbit, on the ground and in collision:
+
+- **Continent** (Earth): real coasts at exactly the generator's sea level.
+- **Relief** (Mars, the Moon): added to the local landforms.
+- **Region and regional albedo**: the measured map, without the fine noise
+  term. Classic's dark contour is its median.
+- **Ice** (Earth, Mars): a mapped frozen fraction replaces the latitude rule;
+  other mapped bodies have none.
+- **Arid** (Earth): land brighter than the desert margin, or above 900 m of
+  base height, is rock; the rest is vegetation. `planet_field_rock` is the
+  same edge for Classic's highland contour.
+- **Veil** (giants, Venus, Titan): the orbital disc is cloud tops. Mapped
+  giants show their belts as albedo; Classic draws them as albedo contours
+  instead of its seven procedural band circles. Venus and Titan are a plain
+  deck, and the 20-200 km terrain patch is skipped beneath them.
+
+Each map also names palette ramps per material (`body_ramp` in `render.c`):
+rust Mars, grey Moon, tan deserts and Saturn, cyan Uranus, deep-blue Neptune,
+and a darker ramp for Jupiter's belts. All are existing 16- or 32-entry ramps,
+so the palette is unchanged. On ECS, Classic dims a mapped body's dark regions
+by one shade; generated worlds are untouched.
+
+Map north is body -z. Astralbound's world is left-handed (camera right x up
+points forward, as the star catalogue's axes are), and bodies spin from +x
+towards +y, so this is the orientation in which maps are unmirrored and the
+ground moves east.
+
+`make sol-preview` renders every mapped body in Enhanced and Classic, AGA and
+ECS, into `build/evidence/sol-*.ppm`.
+
 ## Shading: `render_planet.inc`
 
 For a pixel ray with `b = c·d`, `s = |d|²` and `k = cos²ρ`:

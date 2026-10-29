@@ -4,6 +4,7 @@
 #include "services.h"
 #include "galaxy.h"
 #include "solar.h"
+#include "body_map.h"
 #include "fpu.h"
 #include "intro.h"
 #include <string.h>
@@ -1393,17 +1394,49 @@ static void draw_triangles(void) {
         raster(&triangles[order[i]]);
     }
 }
+/* Colour ramps. A material's own ramp, or the one a measured body asks for:
+   rust Mars, grey Moon, blue Neptune. AGA ramps are 16 entries (step 1) or
+   32 (step 2, every other entry); ECS has three shades from its base. */
+typedef struct { uint8_t aga, step, ecs; } Ramp;
+static const Ramp material_ramps[6] = {{80, 1, 25}, {64, 1, 8}, {64, 1, 8}, {96, 1, 16}, {112, 1, 28}, {96, 1, 21}};
+static const Ramp body_ramps[RAMP_TYPES] = {
+    {0, 0, 0},     /* RAMP_MATERIAL: never used */
+    {112, 1, 16},  /* GREY: regolith and bare ice */
+    {128, 2, 21},  /* RUST: iron oxides, tholins */
+    {192, 2, 22},  /* TAN: ammonia cloud, sulphur, organic haze */
+    {96, 1, 21},   /* BROWN */
+    {224, 2, 29},  /* CLOUD: bright cloud decks and frost */
+    {32, 2, 5},    /* SKY: Uranus's methane cyan */
+    {80, 1, 25},   /* DEEP: Neptune's blue */
+    {160, 2, 25},  /* SLATE */
+};
+/* dark: a belt or other below-median region of a body that has a dark ramp. */
+static const Ramp *body_ramp(const Planet *p, int material, int dark) {
+    const BodyMap *m = p->map;
+    int r = m ? (dark && m->dark_ramp ? m->dark_ramp : m->ramp[material]) : RAMP_MATERIAL;
+    return r ? &body_ramps[r] : &material_ramps[material];
+}
+/* shade: 0..14 on the material's luminance scale. */
+static int ramp_colour(const Ramp *r, int shade) {
+    return frame->enhanced ? r->aga + shade * r->step : r->ecs + shade / 6;
+}
 static int material_color(const Planet *planet, Vec local, int material) {
-    int shade = surface_light(&game->system, planet, local) * 14 / 16384;
-    static const int ecs[] = {25, 8, 8, 16, 28, 21};
-    static const int aga[] = {80, 64, 64, 96, 112, 96};
+    int shade = surface_light(&game->system, planet, local) * 14 / 16384, dark = 0;
     if (material == 5) {
         Vec fixed = unit(body_rotate(planet, local, 1), 16384);
-        shade = shade * (8 + (int)((fixed.z + 16384) / 1800) % 8) / 15;
-        /* Broad body-fixed longitude variation makes gas rotation visible. */
-        shade = shade * (12 + (int)fixed.x * 2 / 16384 + (int)fixed.y / 16384) / 15;
+        if (planet->map && planet->map->albedo) {
+            /* Measured belts, zones and spots. */
+            int albedo = body_map_regional_albedo(planet->map, scale(fixed, 4, 1));
+            dark = albedo < 0;
+            shade += albedo * shade / 14;
+            if (shade > 14) shade = 14;
+        } else if (!planet->map) {
+            shade = shade * (8 + (int)((fixed.z + 16384) / 1800) % 8) / 15;
+            /* Broad body-fixed longitude variation makes gas rotation visible. */
+            shade = shade * (12 + (int)fixed.x * 2 / 16384 + (int)fixed.y / 16384) / 15;
+        }
     }
-    return frame->enhanced ? aga[material] + shade : ecs[material] + shade / 6;
+    return ramp_colour(body_ramp(planet, material, dark), shade);
 }
 #define SURFACE_CACHE_SIZE 4096
 #define SURFACE_TILE 256
@@ -1583,20 +1616,19 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     int tu = u >= 0 ? u/256 : (u-255)/256;
     int tv = v >= 0 ? v/256 : (v-255)/256;
     uint32_t grain = surface_cache[slot].grain;
-    static const int ecs[] = {25,8,8,16,28,21};
-    static const int aga[] = {80,64,64,96,112,96};
+    const Ramp *ramp;
     material = surface_cache[slot].material;
+    ramp = body_ramp(p, material, 0);
     if (material == 5 || graphics.texture == 1) return color;
     if (depth <= 1073741824U/2000 || footprint >= 64) {
         /* Facet normals retain mountain/valley shape beyond texture range.
            Ocean pixels stay level even next to steep coastal geometry. */
         if (material == 0) return color;
-        shade = frame->enhanced ? color-aga[material] : (color-ecs[material])*6;
+        shade = frame->enhanced ? (color-ramp->aga)/ramp->step : (color-ramp->ecs)*6;
         shade += slope;
         if (shade < 0) shade=0;
         if (shade > 14) shade=14;
-        return (frame->enhanced ? aga[material] : ecs[material]) +
-               (frame->enhanced ? shade : shade/6);
+        return ramp_colour(ramp, shade);
     }
     surface_albedo(p,slot);
     strength = (int)((depth - 1073741824U/2000) / 3000);
@@ -1629,7 +1661,7 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
         if (x*x+y*y < 12+(int)(h & 31))
             variation += ((h & 64) ? 3 : -3)*fine*(4-footprint)/1024;
     }
-    shade = frame->enhanced ? color-aga[material] : (color-ecs[material])*6;
+    shade = frame->enhanced ? (color-ramp->aga)/ramp->step : (color-ramp->ecs)*6;
     /* Keep the existing eclipse/night illumination; slope detail cannot glow. */
     if (shade == 0 && frame->enhanced) variation /= 2;
     if (graphics.texture >= 3) surface_slope(p,slot,face,tu,tv);
@@ -1645,7 +1677,7 @@ static int surface_detail(const Planet *p, int face, int u, int v, uint32_t dept
     shade += variation*strength/256;
     if (shade < 0) shade = 0;
     if (shade > 14) shade = 14;
-    return frame->enhanced ? aga[material]+shade : ecs[material]+shade/6;
+    return ramp_colour(ramp, shade);
 }
 /* A flat globe facet is coloured by one ground sample, packed as material
    (bits 0-2) and regional albedo + 16 (bits 3-7). */
@@ -1653,15 +1685,13 @@ static uint8_t ground_sample(const Planet *fixed, Vec direction) {
     int material = terrain_material(fixed, direction);
     return (uint8_t)(material | (terrain_regional_albedo(fixed, direction, material) + 16) << 3);
 }
-static const int ground_ecs[] = {25,8,8,16,28,21};
-static const int ground_aga[] = {80,64,64,96,112,96};
 /* shade: material_color's illumination above the material base, 0..14. */
-static int ground_shade(int shade, uint8_t sample) {
+static int ground_shade(const Planet *p, int shade, uint8_t sample) {
     int material = sample & 7;
     shade += ((sample >> 3) - 16)*shade/14;
     if (shade<0) shade=0;
     if (shade>14) shade=14;
-    return frame->enhanced ? ground_aga[material]+shade : ground_ecs[material]+shade/6;
+    return ramp_colour(body_ramp(p, material, 0), shade);
 }
 /* Geometry clipmaps use a fixed body-space lattice. Camera motion chooses
    visible cells, but never relocates the terrain samples. Outer vertices
@@ -1869,8 +1899,8 @@ static void terrain_clipmap(const Planet *p, Vec local, int step, int span) {
                     /* One illumination at the cell centre serves both halves. */
                     shade = surface_light(&game->system, p, sub(scale(add(a.world,c.world),1,2),p->center)) * 14 / 16384;
                     if (!frame->enhanced) shade = shade / 6 * 6;
-                    terrain_triangle(a,b,c,ground_shade(shade,sample[0]));
-                    terrain_triangle(a,c,d,ground_shade(shade,sample[1]));
+                    terrain_triangle(a,b,c,ground_shade(p,shade,sample[0]));
+                    terrain_triangle(a,c,d,ground_shade(p,shade,sample[1]));
                 } else {
                     terrain_triangle(a,b,c,0); terrain_triangle(a,c,d,0);
                 }
@@ -1908,9 +1938,11 @@ static void planet_mesh(int body) {
        cannot: relief on the horizon and the kilometre-scale inlets, ranges
        and forests that planet_field only blends. Its facets are about an
        eighth of the altitude, so above this they would be coarser than the
-       sphere's own per-pixel coastlines. */
+       sphere's own per-pixel coastlines. Under a veil (Venus, Titan) the
+       cloud tops stand in for it until the ground itself is near. */
     int patch = body == game->body && altitude >= TERRAIN_DETAIL_ALTITUDE &&
-                altitude < PATCH_ALTITUDE && p->type != GAS_GIANT;
+                altitude < PATCH_ALTITUDE && p->type != GAS_GIANT &&
+                !(p->map && (p->map->flags & BODY_MAP_VEIL));
     terrain_surface = body == game->body && altitude < TERRAIN_DETAIL_ALTITUDE ? p : NULL;
     if (terrain_surface && fine_step > TERRAIN_FINE_STEP) {
         /* Keep the physical 256 m lattice around low flight and cities.

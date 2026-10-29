@@ -178,3 +178,83 @@ Sources: [NASA Pluto facts](https://science.nasa.gov/dwarf-planets/pluto/facts/)
 [NASA Pluto composition sheet](https://nssdc.gsfc.nasa.gov/planetary/factsheet/plutofact.html),
 [NASA Titan facts](https://science.nasa.gov/saturn/moons/titan/facts/),
 [NASA Triton](https://science.nasa.gov/neptune/moons/triton/).
+
+### Surface and cloud-top maps
+
+Sixteen Sol bodies take their planet-scale appearance from measured global maps
+instead of seeded noise: Earth's coasts, deserts and ice sheets; Mars's relief,
+albedo and residual caps; the Moon's relief and maria; Mercury; Jupiter's belts
+and Red Spot; Saturn, Uranus and Neptune's bands; Io, Europa, Ganymede,
+Callisto, Pluto and Charon. Venus and Titan show their opaque cloud deck or haze
+from orbit. Local landforms, ground texture and weather stay procedural on top.
+
+Each source was area-averaged to 1 degree by `tools/import_maps.py` into
+`data/maps/*.pgm` (equirectangular, -180..180 east, north up; heights 16-bit with
+their metre range in a `# metres` comment). `tools/compile_maps.py` bakes those,
+with the per-body choices in `maps.csv` (cube-map size, relief scale, albedo
+contrast, palette ramps), into `src/body_maps.inc`: about 120 KB of cube maps,
+24 to 48 cells per face edge. Both steps are offline; the second needs only
+Python's standard library, the first numpy and macOS `sips`.
+
+| Body | Product | Source |
+|---|---|---|
+| Earth height and depth | ETOPO5, 5 arc-minute (`ETOPO5.DAT`) | [NOAA NGDC](https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO5/TOPO/ETOPO5/ETOPO5.DAT) |
+| Earth deserts and ice | Blue Marble 2002, land surface (`land_shallow_topo_2048.jpg`) | [NASA Earth Observatory](https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_2048.jpg) |
+| Mars relief | MOLA MEGDR 4 px/deg (`megt90n000cb.img`) | [PDS Geosciences](https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg004/megt90n000cb.img) |
+| Mars albedo and caps | TES bolometric albedo | [USGS Astrogeology](https://planetarymaps.usgs.gov/mosaic/Mars_MGS_TES_Albedo_mosaic_global_7410m.tif) |
+| Moon relief | LOLA LDEM_4 | [PDS Geosciences](https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/ldem_4.img) |
+| Moon albedo | LROC WAC colour, CGI Moon Kit | [NASA SVS 4720](https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_1k.jpg) |
+| Mercury | MESSENGER MDIS basemap, 1024 preview | [USGS Astrogeology](https://astrogeology.usgs.gov/ckan/dataset/17ebee80-ed66-485a-9b06-5ffd10e935e3) |
+| Jupiter | Cassini cylindrical map, December 2000 (PIA07782) | [NASA/JPL/SSI](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia07/pia07782/PIA07782.jpg) |
+| Saturn, Uranus, Neptune | Hubble OPAL global maps (Saturn 2025a, Uranus 2024a, Neptune 2025b) | [STScI MAST](https://archive.stsci.edu/hlsps/opal/) |
+| Io, Europa, Ganymede, Callisto | Galileo SSI/Voyager global mosaics, 1024 previews | [USGS Astrogeology](https://astrogeology.usgs.gov/ckan/dataset) |
+| Pluto, Charon | New Horizons global mosaics, July 2017, 1024 previews | [USGS Astrogeology](https://astrogeology.usgs.gov/ckan/dataset) |
+
+Retrieved on 30 October 2026. Each product's longitude convention was checked
+against a landmark, not assumed: Caloris at 162.7E, Pele at 255W, Europa's dark
+trailing hemisphere, Ganymede's Galileo Regio, Callisto's Asgard, Sputnik
+Planitia west in Pluto's heart, and the turbulent wake trailing west of Jupiter's
+Red Spot. `tests/test_planet.c` asserts landmarks on the baked maps: oceans,
+deserts, forests and ice sheets on Earth, the Moon's maria and South Pole-Aitken,
+Olympus Mons above Hellas, Syrtis Major and the Martian caps, Jupiter's belts.
+
+Approximations:
+- Earth's dryness is a colour index of the cloud-free Blue Marble (red over green,
+  and bright); land brighter than its margin is desert, and vegetation reaches up
+  to rock above a base height of 900 m. Ice is the bright grey land poleward of
+  55 degrees, and all land south of 60 S. Seasonal snow and sea ice are not mapped.
+- Heights are folded into the generator's ranges. Earth keeps every coast exactly;
+  deep ocean and high plateaus compress into -1450..1750 m of base height. Mars and
+  the Moon add a tenth of their measured relief to the local landforms.
+- Saturn and the ice giants keep only their zonal bands: their spots change within
+  months, and Hubble sees part of each. Latitudes Hubble could not see (Uranus's
+  south, Neptune's far north) repeat the nearest observed band. Jupiter keeps its
+  two-dimensional map; its Red Spot is where Cassini saw it in 2000, and all
+  bands rotate together with System III.
+- Unimaged regions (Pluto and Charon's south, edges of the Galilean mosaics) take
+  the body's median brightness.
+- Images are brightness, not calibrated albedo, apart from TES; each body's map is
+  relative to its own median, with a contrast chosen per body in `maps.csv`.
+- Map north is body -z: the game's world is left-handed and its bodies spin from
+  +x towards +y, so this keeps every map unmirrored and the sun rising in the east.
+  Spin axes are not tilted to their real poles (see above), so the Moon does not
+  keep its near side towards Earth.
+
+Credits: NOAA NGDC; NASA Earth Observatory (Reto Stöckli); NASA/GSFC MOLA and LOLA
+science teams via PDS; P. Christensen (ASU) and USGS; NASA's Scientific
+Visualization Studio (Ernie Wright); NASA/JPL/Space Science Institute; NASA/ESA HST,
+OPAL program (PI: Simon, GO13937), archived by STScI, doi:10.17909/T9G593;
+NASA/JPL-Caltech, JHUAPL, CIW, SwRI and USGS Astrogeology. All are US-government
+works except Blue Marble and the SVS kit (free with credit) and OPAL (NASA/ESA,
+free with the acknowledgement above).
+
+Reproduce the maps from the downloaded files, each in its own folder under one
+directory (`earth-height/`, `earth-colour/`, `mars-height/`, `mars-albedo/`,
+`moon-height/`, `moon-albedo/`, `mercury/`, `jupiter/`, `saturn/`, `uranus/`,
+`neptune/`, `io/`, `europa/`, `ganymede/`, `callisto/`, `pluto/`, `charon/`):
+
+```sh
+python3 -I tools/import_maps.py /path/to/sources
+python3 tools/compile_maps.py
+make sol-preview   # both renderers, ECS and AGA, in build/evidence/
+```

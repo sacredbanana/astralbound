@@ -84,8 +84,6 @@ static uint32_t disc_sqrt(uint64_t x) {
     r = (r + m / r) >> 1;
     return shift >= 0 ? r << (shift / 2) : r >> (-shift / 2);
 }
-static const uint8_t disc_aga[] = {80, 64, 64, 96, 112, 96};
-static const uint8_t disc_ecs[] = {25, 8, 8, 16, 28, 21};
 static int disc_setup(Disc *s, const Planet *p, int backdrop) {
     Vec off = sub(scale(p->center, FP, 1), camera_position), c;
     int64_t unit_m, d, r, alt;
@@ -270,8 +268,8 @@ static void disc_field(const Disc *s, DiscSample *m) {
     Vec nb = vec(m->n[0], m->n[1], m->n[2]);
     if (m->field) return;
     m->height = s->field->type == OCEAN ? planet_field_base_height(s->field, nb) : 0;
-    m->albedo = s->field->type == GAS_GIANT ? 0 : planet_field_regional_albedo(s->field, nb, 1) * 256;
-    m->ice = s->field->type == GAS_GIANT || s->field->type == ICE ? -9000 : planet_field_ice(s->field, nb);
+    m->albedo = s->field->veil && !s->field->map ? 0 : planet_field_regional_albedo(s->field, nb, 1) * 256;
+    m->ice = s->field->veil || s->field->type == ICE ? -9000 : planet_field_ice(s->field, nb);
     m->field = 1;
 }
 /* Linear steps across a block in Q16: one division per channel per block,
@@ -302,11 +300,16 @@ static void disc_step(DiscStep *t, DiscSample *out) {
     out->ice = (int32_t)(t->v[7] >> 16);
 }
 static int disc_colour(const Disc *s, const DiscSample *m, int x, int y) {
-    int mix[3], material, shade, t = bayer4[(y & 3) * 4 + (x & 3)];
-    material = planet_field_classify(s->field, m->height, m->ice, mix);
+    int mix[3], material, shade, dark = 0, t = bayer4[(y & 3) * 4 + (x & 3)];
+    const Ramp *ramp;
+    material = planet_field_classify(s->field, m->height, m->ice, m->albedo, mix);
     /* Lambert into the 15-step material ramps, in sixteenths for dithering. */
     shade = m->light * 224 / 16384;
-    if (material == 5) {
+    if (material == 5 && s->field->map) {
+        /* Measured belts and spots; a veil without a map is uniform. */
+        dark = m->albedo < 0;
+        shade += m->albedo * shade / (14 * 256);
+    } else if (material == 5) {
         /* Gas bands follow latitude; broad longitude variation shows spin
            (material_color's banding, evaluated per pixel). */
         int fx = m->n[0] / 4, fy = m->n[1] / 4, fz = m->n[2] / 4;
@@ -324,12 +327,13 @@ static int disc_colour(const Disc *s, const DiscSample *m, int x, int y) {
         shade += m->albedo * shade / (14 * 256);
     if (shade < 0) shade = 0;
     if (shade > 224) shade = 224;
+    ramp = body_ramp(s->p, material, dark);
     if (frame->enhanced) {
         shade = (shade + t) >> 4;
-        return disc_aga[material] + (shade > 14 ? 14 : shade);
+        return ramp->aga + (shade > 14 ? 14 : shade) * ramp->step;
     }
     shade = (shade / 6 + t) >> 4;
-    return disc_ecs[material] + (shade > 2 ? 2 : shade);
+    return ramp->ecs + (shade > 2 ? 2 : shade);
 }
 /* Terrain triangles leave occasional one-pixel cracks where neighbouring
    tiles and LOD levels meet after rounding. Behind the ground the sphere

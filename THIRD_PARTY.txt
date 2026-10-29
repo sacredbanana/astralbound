@@ -75,3 +75,11 @@ Astronomical catalog:
   names its source.
   Solar System elements/physical parameters are from NASA/JPL Solar System
   Dynamics; see data/README.md for sources, snapshot and approximation limits.
+  Solar System surface and cloud-top maps (data/maps/, src/body_maps.inc) are
+  reduced from NOAA ETOPO5; NASA Blue Marble (NASA Earth Observatory, Reto
+  Stoeckli); MOLA, TES, LOLA and MESSENGER products via PDS and USGS
+  Astrogeology; the NASA SVS CGI Moon Kit (Ernie Wright); Cassini's Jupiter map
+  (NASA/JPL/Space Science Institute); Galileo, Voyager and New Horizons mosaics
+  (USGS Astrogeology); and Hubble OPAL maps (NASA/ESA HST, OPAL program, PI:
+  Simon, GO13937, archived by STScI, doi:10.17909/T9G593). Sources, processing
+  and credits: data/README.md.
