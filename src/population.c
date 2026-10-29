@@ -1,13 +1,15 @@
 /* SPDX-License-Identifier: Unlicense */
 #include "galaxy.h"
+#include <stdlib.h>
 #define CELL_WIDTH 2000
 #define CELL_HEIGHT 60
 #define CELL_VOLUME 240000000U
-#define PIN_CAPACITY 128
+#define PIN_CAPACITY (STAR_CATALOG_MAX+9)
 typedef struct { uint32_t first,count; } PopulationCell;
 #include "population.inc"
 typedef struct { int cell; uint32_t rank; } PinRank;
 static PinRank pin_ranks[PIN_CAPACITY];
+static uint16_t pin_first[1001]; /* each cell's pins: pin_first[cell] up to pin_first[cell+1] */
 static int pins_count,prepared;
 static uint32_t prepared_seed;
 static Sector pin_sector(int i) {
@@ -46,18 +48,22 @@ static Sector rank_sector(uint32_t seed,int cell,uint32_t rank) {
     x=(x+CELL_WIDTH-(int)(mix(seed,cell,y,z,1)%CELL_WIDTH))%CELL_WIDTH;
     return (Sector){o.x+x,o.y+y,o.z+z};
 }
+static int pin_order(const void *a,const void *b) {
+    const PinRank *x=a,*y=b;
+    return x->cell!=y->cell ? x->cell-y->cell : x->rank<y->rank ? -1 : x->rank>y->rank;
+}
 static void prepare(uint32_t seed) {
-    int i,j;
+    int i,cell;
     if(prepared && prepared_seed==seed) return;
     pins_count=0;
     for(i=0;i<star_catalog_count+9;i++) {
-        Sector s=pin_sector(i);int cell=cell_of(s);PinRank p;
+        Sector s=pin_sector(i);PinRank p;cell=cell_of(s);
         if(cell<0 || !population_cells[cell].count) continue;
         p.cell=cell;p.rank=sector_rank(seed,cell,s);
-        j=pins_count++;
-        while(j && (pin_ranks[j-1].cell>p.cell || (pin_ranks[j-1].cell==p.cell && pin_ranks[j-1].rank>p.rank))) { pin_ranks[j]=pin_ranks[j-1];j--; }
-        pin_ranks[j]=p;
+        pin_ranks[pins_count++]=p;
     }
+    qsort(pin_ranks,(size_t)pins_count,sizeof(PinRank),pin_order);
+    for(cell=0,i=0;cell<=1000;cell++) { while(i<pins_count && pin_ranks[i].cell<cell) i++; pin_first[cell]=(uint16_t)i; }
     prepared_seed=seed;prepared=1;
 }
 uint32_t galaxy_system_count(void) {
@@ -71,7 +77,7 @@ int galaxy_exists(uint32_t seed,Sector s) {
     prepare(seed);rank=sector_rank(seed,cell,s);end=population_cells[cell].count;
     /* Reserved stars consume their own IDs. Skip overlapping raw slots so
        the procedural quota plus all reserved entries stays exact. */
-    for(i=0;i<pins_count;i++) if(pin_ranks[i].cell==cell && pin_ranks[i].rank<end) end++;
+    for(i=pin_first[cell];i<pin_first[cell+1];i++) if(pin_ranks[i].rank<end) end++;
     return rank<end;
 }
 /* The inverse of galaxy_system_at: a system's dense ID from its sector. */
@@ -82,7 +88,7 @@ int galaxy_system_id(uint32_t seed,Sector s,uint32_t *id) {
     cell=cell_of(s);
     if(cell<0 || !population_cells[cell].count) return 0;
     prepare(seed);rank=sector_rank(seed,cell,s);
-    for(i=0;i<pins_count;i++) if(pin_ranks[i].cell==cell && pin_ranks[i].rank<rank) below++;
+    for(i=pin_first[cell];i<pin_first[cell+1] && pin_ranks[i].rank<rank;i++) below++;
     if(rank-below>=population_cells[cell].count) return 0;
     *id=(unsigned)star_catalog_count+9U+population_cells[cell].first+rank-below;
     return 1;
@@ -96,7 +102,7 @@ int galaxy_system_at(uint32_t seed,uint32_t id,Sector *s) {
         if(population_cells[mid].first+population_cells[mid].count<=id) lo=mid+1;else hi=mid; }
     if(lo>=1000) return 0;
     prepare(seed);rank=id-population_cells[lo].first;
-    for(i=0;i<pins_count;i++) if(pin_ranks[i].cell==lo && pin_ranks[i].rank<=rank) rank++;
+    for(i=pin_first[lo];i<pin_first[lo+1] && pin_ranks[i].rank<=rank;i++) rank++;
     if(rank>=CELL_VOLUME) return 0;
     *s=rank_sector(seed,lo,rank);return 1;
 }

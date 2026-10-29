@@ -7,7 +7,9 @@
 #define GALAXY_RADIUS 10000
 #define GALAXY_HEIGHT 300
 #define GALAXY_ZOOM_MIN 500 /* half a light-year: close enough to name every system */
-#define GALAXY_MARKERS 5100
+#define STAR_CATALOG_MAX 800 /* room for every named star; the compiler checks */
+/* The local 17-sector cube, every catalog star, then navigation entries. */
+#define GALAXY_MARKERS (4913+STAR_CATALOG_MAX+90)
 #define GALAXY_SEARCH 256
 #define GAL_SEARCH 12000
 #define GAL_NEXT 12001

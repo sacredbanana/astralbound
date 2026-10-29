@@ -279,8 +279,8 @@ and Q/E moves vertically. Arrows rotate. **HOME/C** centres on the current syste
 **FOCUS/F** centres on the target, and **GALAXY** opens the spiral-disc overview.
 **SEARCH** or **/** focuses name entry; type a partial name or alias, use Up/Down
 or PREV/NEXT to browse matches, then Return or a result row to select it. Backspace
-edits, Escape leaves search, and CLEAR clears the query. Search covers all 94 real
-catalog entries, the local sampled field and visited systems. **INFO** shows component
+edits, Escape leaves search, and CLEAR clears the query. Search covers all 685 real
+catalog entries (names, Bayer letters and designations), the local sampled field and visited systems. **INFO** shows component
 spectra, distance, economy, government, bodies, ports and exploration status.
 **WAYPOINT** pins a separate cyan diamond and route line; clicking it again for the
 same target removes the pin. The selected target has a gold box, current system a
@@ -298,13 +298,15 @@ generated systems spell a unique identity, so no two share one. Catalog and jour
 all scales. Empty sectors reject jumps. All axes are navigable; the overview is a
 fictional four-arm galactic disc, not an observational Milky Way reconstruction.
 
-Real entries include Sol, Proxima/Alpha Centauri, Sirius, Procyon, Tau Ceti, Vega,
-Arcturus, Aldebaran, Polaris, Rigel, Betelgeuse and Deneb. Multiple systems support
+Real entries include every star with an IAU-approved name (652 names, October 2026)
+and the other proper names in HYG: Sol, Proxima/Alpha Centauri, Sirius, Tau Ceti,
+Vega, Polaris, Betelgeuse, Deneb, the Pleiades (Alcyone, Atlas, Merope and the rest)
+and hundreds more. Multiple systems support
 up to six stellar components. Stellar classes include normal O/B/A/F/G/K/M stars,
 giants/red giants, white and brown dwarfs, neutron stars and black holes. Catalog
 stars use HYG J2000 positions rounded to 0.001 ly; their close binary orbits and
 flight radii are gameplay approximations. The galaxy contains exactly **1,000,000,000
-systems**, including the 94 real catalog entries and nine starter systems. Generated
+systems**, including the 685 real catalog entries and nine starter systems. Generated
 systems occupy a finite fictional disc 20,000 ly across and 600 ly thick, with empty
 space beyond it. Sol contains **34 navigable bodies**: eight planets, five dwarf
 planets, and 21 major moons. Minor bodies and small irregular/provisional moons are

@@ -8,8 +8,18 @@
 const char *stellar_names[] = {"O BLUE", "B BLUE", "A WHITE", "F WHITE", "G YELLOW", "K ORANGE", "M RED DWARF", "GIANT", "WHITE DWARF", "BROWN DWARF", "NEUTRON STAR", "BLACK HOLE", "RED GIANT"};
 int same_sector(Sector a,Sector b) { return a.x==b.x && a.y==b.y && a.z==b.z; }
 Sector catalog_sector(int i) { return star_catalog[i].sector; }
+typedef char catalog_fits[sizeof(star_catalog)/sizeof(star_catalog[0])<=STAR_CATALOG_MAX?1:-1];
+static int sector_order(Sector a,Sector b) {
+    return a.x!=b.x ? (a.x<b.x?-1:1) : a.y!=b.y ? (a.y<b.y?-1:1) : a.z!=b.z ? (a.z<b.z?-1:1) : 0;
+}
+/* Every sector test asks this, so it is a binary search of the sector-sorted index. */
 int catalog_index(Sector s) {
-    int i; for(i=0;i<star_catalog_count;i++) if(same_sector(s,catalog_sector(i))) return i;
+    int lo=0,hi=star_catalog_count;
+    while(lo<hi) {
+        int mid=(lo+hi)/2,c=sector_order(catalog_sector(star_catalog_order[mid]),s);
+        if(!c) return star_catalog_order[mid];
+        if(c<0) lo=mid+1; else hi=mid;
+    }
     return -1;
 }
 Vec galaxy_position(Sector s) {
@@ -139,9 +149,12 @@ void galaxy_name(uint32_t seed,Sector s,char name[24]) {
     name_spell(name_scramble(seed,id),name);
 }
 StellarType stellar_type(const char *s) {
+    if(!strncmp(s,"PSR",3)) return ST_NEUTRON;
+    if(!strncmp(s,"LBV",3)) return ST_GIANT;
+    if(s[0]=='W') return ST_O; /* Wolf-Rayet */
     if(s[0]=='D') return ST_WHITE_DWARF;
     if(s[0]=='L'||s[0]=='T'||s[0]=='Y') return ST_BROWN_DWARF;
-    if(strstr(s,"III") || strstr(s,"II") || strstr(s,"Ib") || strstr(s,"Ia")) return s[0]=='K' || s[0]=='M' ? ST_RED_GIANT : ST_GIANT;
+    if(strstr(s,"III") || strstr(s,"II") || strstr(s,"Ib") || strstr(s,"Ia")) return s[0]=='K' || s[0]=='M' || s[0]=='C' ? ST_RED_GIANT : ST_GIANT;
     while(*s && !strchr("OBAFGKM",*s)) s++;
     if(*s) return (StellarType)(strchr("OBAFGKM",*s)-"OBAFGKM");
     return ST_M;

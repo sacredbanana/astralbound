@@ -3358,8 +3358,8 @@ static void galaxy_line(Vec a,Vec b,int colour) {
     if(galaxy_project(game,frame,a,&x,&y,&d) && galaxy_project(game,frame,b,&xx,&yy,&d)) line(x,y,xx,yy,colour);
 }
 /* Map labels. Out to 80 ly the catalog stars are named; zoomed in to the
-   ALL LOCAL range every system within a zoom width of the focus is too
-   (the field behind stays dots). Labels never overlap: each tries right,
+   ALL LOCAL range only systems within a zoom width of the focus are, catalog
+   or not (the field behind stays dots). Labels never overlap: each tries right,
    left, above and below its star, then a row out diagonally; catalog stars, home, the selection and
    the waypoint claim space first, then visited systems, then the rest
    nearest the focus first, so closing in names them all. */
@@ -3367,10 +3367,12 @@ static void galaxy_line(Vec a,Vec b,int colour) {
 static const GalaxyMarker *label_markers;
 static int label_rank(const GalaxyMarker *m) {
     int all=game->galaxy_extent<=8000;
-    if(m->catalog>=0 || same_sector(m->sector,game->system.sector) || same_sector(m->sector,game->selected) ||
+    if(same_sector(m->sector,game->system.sector) || same_sector(m->sector,game->selected) ||
        (game->waypoint_set && same_sector(m->sector,game->waypoint))) return 0;
-    if(!all || length(sub(galaxy_position(m->sector),game->galaxy_center))>game->galaxy_extent) return -1;
-    return exploration_index(game,m->sector)>=0 ? 1 : 2;
+    if(!all) return m->catalog>=0 ? 0 : -1;
+    /* Hundreds of distant catalog stars converge behind the focus; they stay dots too. */
+    if(length(sub(galaxy_position(m->sector),game->galaxy_center))>game->galaxy_extent) return -1;
+    return m->catalog>=0 ? 0 : exploration_index(game,m->sector)>=0 ? 1 : 2;
 }
 static int label_order(const void *a,const void *b) {
     const GalaxyMarker *x=&label_markers[*(const int *)a],*y=&label_markers[*(const int *)b];

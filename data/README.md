@@ -5,13 +5,41 @@ explicit provenance; it is not a live astronomical database or precision ephemer
 
 ## Stars
 
-`stars.csv` contains 94 real stellar systems/entries, including Sol, the nearest
-named HYG systems, Tau Ceti, 61 Cygni, Epsilon Indi, Polaris, Rigel, Betelgeuse,
-Antares, Deneb and the Luhman 16 brown-dwarf pair. Proxima is a separate, precisely
+`stars.csv` contains 685 real stellar systems/entries: every star in the IAU
+Catalog of Star Names, every other proper name in HYG, and the original 94 entries
+(Sol, the nearest named HYG systems, Tau Ceti, 61 Cygni, Epsilon Indi and the Luhman
+16 brown-dwarf pair). The original 94 come first and keep their sector keys; the rest
+follow nearest first. Proxima is a separate, precisely
 positioned destination within the wider Alpha Centauri triple; Alpha Centauri AB
 shares one destination. Search includes catalog aliases (Sun, Alpha Centauri C,
 Epsilon Eridani, 40 Eridani, and others). Components of unresolved close binaries
 share their system's catalog position. Some additional companions are not modeled.
+
+### Named stars
+
+`iau-names.csv` is the IAU Working Group on Star Names catalog of 652 names, as
+published on [exopla.net](https://exopla.net/star-names/modern-iau-star-names/) on
+30 October 2026 (names adopted up to 15 October 2026). Names are folded to ASCII for
+the game font (Batsũ̀ becomes Batsu); the IAU spelling stays in the CSV. Each star's
+Bayer or Flamsteed letter (spelled out: "Eta Tau") and catalog designation (HR, HD,
+WASP-121 ...) become search aliases. A second IAU name for a star already included
+becomes an alias: Pulcherrima of Izar, Rigil Kentaurus of Alpha Centauri, and Siwarha
+(Betelgeuse's companion) of Betelgeuse. HYG proper names outside the IAU list
+(Graffias, La Superba ...) are included too; 3C 273, a quasar, and secondary
+components named "... B" are not.
+
+Hipparcos stars take their HYG positions. The 77 IAU stars HYG cannot place
+(exoplanet hosts, pulsars, protostars and Galactic Centre stars, plus a few HYG
+rows without parallax) come from `extra-stars.csv`, whose `source` column records
+each distance: NASA Exoplanet Archive system distances and spectral types
+(a dwarf class from effective temperature where none is listed), SIMBAD Gaia DR3
+parallaxes, or a published distance where the parallax is missing or unusable
+(Calvera 3.3 kpc, Mereghetti et al. 2021; Garnet Star 940 pc, Davies & Beasor 2020;
+cloud distances for the Taurus, rho Ophiuchi and Orion protostars; 8 kpc for the
+Galactic Centre's Pistol and Peony stars). Where SIMBAD lists no spectral type the
+row says the class is representative. Pulsars use the spectral tag `PSR` (neutron
+star), Wolf-Rayet classes play as O stars and the luminous blue variable as a giant.
+These distances are far less certain than the Hipparcos ones.
 
 Source: [David Nash's HYG v4.1](https://github.com/astronexus/HYG-Database/tree/main/hyg/CURRENT),
 compiled from Hipparcos, Yale and Gliese catalogs. The HYG IDs in the CSV identify
@@ -36,15 +64,21 @@ are gameplay approximations. See [ESO's Alpha Centauri description](https://www.
 Luhman 16's designation supplies its sky direction; the adopted 6.5 ly distance is
 from [NASA's Hubble description](https://science.nasa.gov/missions/hubble/hubble-applauds-waltzing-dwarfs/).
 
-Reproduce the extract with a downloaded `hygdata_v41.csv`:
+Reproduce the extract with a downloaded `hygdata_v41.csv` and a saved copy of the
+WGSN table page:
 
 ```sh
+python3 tools/import_iau_names.py /path/to/modern-iau-star-names.html
 python3 tools/import_stars.py /path/to/hygdata_v41.csv
 python3 tools/compile_stars.py
+python3 tools/compile_population.py
 ```
 
-The second command is offline and rebuilds the checked-in C include from the CSV.
-The compiler assigns unique sector keys; Sol uses key (0,-1,0) so the original Hetha
+`extra-stars.csv` is curated by hand from the sources above. The last two commands
+are offline and rebuild the checked-in C includes from the CSVs. The compiler also
+writes a sector-sorted index, so looking up a catalog star is a binary search.
+The compiler assigns unique sector keys, moving a taken key to the nearest free one
+(Alpha Centauri and Kautoki) and never using the nine starter keys; Sol uses key (0,-1,0) so the original Hetha
 starting system and its saved world/port indices remain intact. Sector keys are
 identities, not measured coordinates. Fictional systems have deterministic positions
 within their sectors. The spiral galaxy, settlements, economies and all non-Sol
@@ -54,9 +88,9 @@ visited, current, target and waypoint entries are included independently of samp
 
 ## Finite population
 
-The total is exactly **1,000,000,000 systems for every seed**, including all 94
+The total is exactly **1,000,000,000 systems for every seed**, including all 685
 catalog destinations and nine starter systems. `tools/compile_population.py`
-apportions the remaining 999,999,897 systems across a finite fictional disc,
+apportions the remaining 999,999,306 systems across a finite fictional disc,
 20,000 ly in diameter and 600 ly thick. Only cells completely inside the radial
 boundary receive population; real catalog positions remain unchanged even outside
 that disc. There is no generated background population beyond the boundary.

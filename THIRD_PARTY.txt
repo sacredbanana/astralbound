@@ -68,5 +68,10 @@ Astronomical catalog:
   These adapted data are CC BY-SA 4.0, not Unlicense. Attribution, source IDs,
   changes and reproducible import instructions: data/README.md.
   License text: data/LICENSE-HYG.txt; https://creativecommons.org/licenses/by-sa/4.0/ .
+  Star names are the IAU Catalog of Star Names (IAU Working Group on Star
+  Names, https://www.iau.org/public/themes/naming_stars/), CC BY.
+  Stars outside Hipparcos are placed from SIMBAD (CDS, Strasbourg) and the
+  NASA Exoplanet Archive (Caltech/IPAC); each row of data/extra-stars.csv
+  names its source.
   Solar System elements/physical parameters are from NASA/JPL Solar System
   Dynamics; see data/README.md for sources, snapshot and approximation limits.

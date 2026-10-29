@@ -113,6 +113,41 @@ static void catalog(void) {
     assert((types&(1<<ST_BLACK_HOLE)) && (types&(1<<ST_NEUTRON)) && (types&(1<<ST_RED_GIANT)) && (types&(1<<ST_WHITE_DWARF)) && (types&(1<<ST_BROWN_DWARF)));
     puts("PASS catalog identities, all stellar classes, precise distances and generated/real system consistency");
 }
+static int has_word(const char *words,const char *name) {
+    size_t n=strlen(name); const char *p=words;
+    while((p=strstr(p,name))) { if((p==words || p[-1]==' ') && (!p[n] || p[n]==' ')) return 1; p++; }
+    return 0;
+}
+/* Every IAU-named star is a destination, by its name or as an alias of the
+   system it shares; search finds them, and the sector index finds each. */
+static void named_stars(void) {
+    char line[512]; int i,count=0; Sector result[GALAXY_SEARCH];
+    FILE *in=fopen("data/iau-names.csv","r");
+    assert(in && fgets(line,sizeof(line),in));
+    while(fgets(line,sizeof(line),in)) {
+        char *comma=strchr(line,','); int found=0;
+        assert(comma); *comma=0;
+        for(i=0;i<star_catalog_count && !found;i++) found=!strcmp(star_catalog[i].name,line) || has_word(star_catalog[i].aliases,line);
+        if(!found) printf("missing IAU star %s\n",line);
+        assert(found); count++;
+    }
+    fclose(in);
+    assert(count>=650 && star_catalog_count<=STAR_CATALOG_MAX);
+    for(i=0;i<star_catalog_count;i++) assert(catalog_index(catalog_sector(i))==i);
+    assert(catalog_index((Sector){0,0,0})<0 && catalog_index((Sector){99999,0,0})<0);
+    game_init(&g,123);
+    strcpy(g.galaxy_query,"alcyone"); assert(galaxy_search(&g,result,GALAXY_SEARCH)==1 && same_sector(result[0],catalog_sector(star("Alcyone"))));
+    strcpy(g.galaxy_query,"ATLAS"); assert(galaxy_search(&g,result,GALAXY_SEARCH)>=1 && same_sector(result[0],catalog_sector(star("Atlas"))));
+    strcpy(g.galaxy_query,"eta tau"); /* Beta and Zeta Tauri match too */
+    { int n=galaxy_search(&g,result,GALAXY_SEARCH),found=0; for(i=0;i<n;i++) found|=same_sector(result[i],catalog_sector(star("Alcyone"))); assert(found); }
+    assert(galaxy_distance(catalog_sector(star("Sol")),catalog_sector(star("Alcyone")))/1000==403);
+    assert(stellar_type(star_catalog[star("Geminga")].spectra[0])==ST_NEUTRON);
+    assert(stellar_type(star_catalog[star("Sapaki")].spectra[0])==ST_O);
+    assert(stellar_type(star_catalog[star("Pistol Star")].spectra[0])==ST_GIANT);
+    assert(stellar_type(star_catalog[star("La Superba")].spectra[0])==ST_RED_GIANT);
+    printf("%d IAU names over %d catalog systems\n",count,star_catalog_count);
+    puts("PASS every IAU-named star is a searchable destination with its own sector");
+}
 static int name_order(const void *a,const void *b) {
     const char *x=a,*y=b;
     while(*x && toupper((unsigned char)*x)==toupper((unsigned char)*y)) { x++; y++; }
@@ -302,5 +337,5 @@ static void jumping(void) {
 int main(void) {
     names();
     Frame f={320,200,0,NULL,{0}};
-    population();catalog();solar();migration();interaction(&f);f.h=256;interaction(&f);f.w=640;f.h=480;f.enhanced=1;interaction(&f);jumping();return 0;
+    population();catalog();named_stars();solar();migration();interaction(&f);f.h=256;interaction(&f);f.w=640;f.h=480;f.enhanced=1;interaction(&f);jumping();return 0;
 }

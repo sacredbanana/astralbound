@@ -350,7 +350,8 @@
   SEARCH or / starts name entry. Type a name or alias, Up/Down selects
   a result, Return targets it. Click result rows or PREV/NEXT to browse.
   Backspace edits, Escape leaves search, CLEAR clears the query.
-  Search covers all 94 real entries, local sampled stars and visited systems.
+  Search covers all 685 real entries (every IAU-named star, by name, Bayer
+  letter or designation), local sampled stars and visited systems.
   INFO shows stellar components, distance, bodies, ports and local records.
   WAYPOINT pins a cyan diamond/line independently of the gold target box;
   click WAYPOINT again on the same target to remove it. The current system
@@ -362,13 +363,13 @@
   charge aborts the jump at no cost. Only pause works meanwhile.
   J shows contract destination sectors and port numbers.
 
-  Real stars include Sol, Proxima/Alpha Centauri, Sirius, Tau Ceti, Vega,
-  Polaris, Rigel, Betelgeuse and Deneb. Systems support up to six components.
+  Real stars include every star the IAU has named, such as Sol, Alpha
+  Centauri, Sirius, Vega, Polaris, Betelgeuse, Deneb and the Pleiades. Systems support up to six components.
   Normal stars, red giants, brown/white dwarfs, neutron stars and black
   holes have distinct types. HYG J2000 positions retain 0.001 ly precision;
   companion orbits and flight radii are game approximations. Catalog data
   is CC BY-SA 4.0 (David Nash / Astronomy Nexus); see data/README.md.
-  The galaxy has exactly 1,000,000,000 systems, including the 94 real
+  The galaxy has exactly 1,000,000,000 systems, including the 685 real
   entries and nine starter systems. Generated systems occupy a finite
   fictional disc 20,000 ly across and 600 ly thick. Space beyond is empty.
   Sol has eight planets, five dwarf planets and 21 major moons:
