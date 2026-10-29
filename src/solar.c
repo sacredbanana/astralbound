@@ -15,6 +15,8 @@ typedef struct {
     int legacy_index;
     AtmosphereGas gases;
     AtmosphereHaze haze;
+    int32_t tilt[9];    /* spin frame, see Planet */
+    uint32_t spin_phase;
 } SolarBody;
 #include "solar_catalog.inc"
 /* NASA planetary/satellite fact sheets: mass (3 figures, exponent), gravity
@@ -116,6 +118,8 @@ void solar_system(System *s) {
         p->settled=i==2 || i==3 || !strcmp(d->name,"Moon");
         snprintf(p->name,sizeof(p->name),"%s",d->name);
         p->map=body_map_find(d->name);
+        p->tilted=1; p->spin_phase=d->spin_phase;
+        memcpy(p->tilt,d->tilt,sizeof(p->tilt));
     }
 }
 static void mass_digits(uint64_t x, int exponent, BodyFacts *f) {

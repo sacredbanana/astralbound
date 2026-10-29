@@ -153,7 +153,7 @@ static void land_in_place(void) {
         Vec up = g.ground_up, f = g.ground_front, r, hull, radial_up;
         int64_t lean, keel_ground;
         int u, w, i;
-        set_rotation(&still, 0);
+        body_frame(&still);
         r = vec((up.y * f.z - up.z * f.y) / 16384, (up.z * f.x - up.x * f.z) / 16384, (up.x * f.y - up.y * f.x) / 16384);
         for (u = -2; u <= 2; u++)
             for (w = -2; w <= 2; w++) {
@@ -341,7 +341,7 @@ static void on_foot(void) {
         Vec feet = sub(walker_position(&g), scale(p->center, FP, 1));
         Planet still = *p;
         game_tick(&g, walk);
-        set_rotation(&still, 0);
+        body_frame(&still);
         assert(llabs(length(g.walker) - (int64_t)p->radius * FP -
                      terrain_height_fine(&still, g.walker)) < FP / 8);
         (void)feet;
@@ -470,7 +470,7 @@ static void on_foot(void) {
     for (i = 0; i < 64 && !n; i++) {
         Vec probe = add(g.walker, scale(unit(vec(g.walker.y, -g.walker.x, 0), 16384), (int64_t)SITE_CELL * FP * (i + 1), 16384));
         Planet still = *p;
-        set_rotation(&still, 0);
+        body_frame(&still);
         g.walker = radial(probe, (int64_t)p->radius * FP + terrain_height_fine(&still, probe));
         n = ground_sites(&g, walker_position(&g), sites, GROUND_SITES);
     }

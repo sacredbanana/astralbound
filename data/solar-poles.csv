@@ -1,0 +1,15 @@
+name,pole_ra_deg,pole_dec_deg,w0_deg,rate_deg_per_day,note
+Mercury,281.0103,61.4155,329.5988,6.1385108,IAU WGCCRE 2015 at J2000
+Venus,272.76,67.16,160.20,-1.4813688,IAU WGCCRE 2015; retrograde
+Earth,0.00,90.00,190.147,360.9856235,IAU WGCCRE 2015 at J2000
+Mars,317.269202,54.432516,176.049863,350.891982443297,IAU WGCCRE 2015 at J2000
+Jupiter,268.056595,64.495303,284.95,870.5360000,IAU WGCCRE 2015 System III
+Saturn,40.589,83.537,38.90,810.7939024,IAU WGCCRE 2015 System III
+Uranus,257.311,-15.175,203.81,-501.1600928,IAU WGCCRE 2015; retrograde
+Neptune,299.33,42.95,250.00,541.1397757,IAU WGCCRE 2015 with its N terms at J2000
+Ceres,291.418,66.764,170.650,952.1532,IAU WGCCRE 2015
+Pluto,132.993,-6.163,302.695,56.3625225,IAU WGCCRE 2015 positive pole; faces Charon
+Eris,270.0,66.5607,0,,pole unmeasured: assumed normal to the ecliptic
+Haumea,270.0,66.5607,0,,pole unmeasured: assumed normal to the ecliptic
+Makemake,270.0,66.5607,0,,pole unmeasured: assumed normal to the ecliptic
+Moon,266.8172,65.6554,,,IAU WGCCRE 2015 with its E1 terms at J2000; faces Earth

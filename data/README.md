@@ -136,7 +136,7 @@ The fixed-point Kepler solver includes eccentricity, periapsis, inclination and
 ascending node. Satellite mean anomalies are advanced from their individual source
 epochs to J2000. Laplace/equatorial planes are converted to the common ecliptic frame;
 planetary gravity and rotation remain bounded game models. There are no N-body
-perturbations, tidal dynamics, planetary oblateness, real axial tilts, comet tails,
+perturbations, tidal dynamics, planetary oblateness, precession, comet tails,
 or DE440 accuracy. Atmospheres and Earth/Mars/Moon ports are game approximations.
 
 Reproduce the selected satellite extract from downloaded HTML:
@@ -156,6 +156,26 @@ contracts to removed destinations cancel without a reputation penalty. Historica
 exploration and trade records remain. Native regression fixtures need a 1 MiB stack;
 the game retains its documented 256 KiB CLI/Workbench stack requirement.
 
+
+### Spin axes
+
+`solar-poles.csv` gives each planet and dwarf planet its IAU pole (right ascension
+and declination) and prime meridian (W at J2000 and its daily rate), from the IAU
+Working Group on Cartographic Coordinates and Rotational Elements 2015 report
+(Archinal et al. 2018, Celestial Mechanics and Dynamical Astronomy 130:22). The
+compiler turns them into each body's spin frame. Neptune's and the Moon's poles
+include their periodic terms evaluated at J2000; precession and nutation are not
+modelled. Eris, Haumea and Makemake have no measured pole and stand upright to the
+ecliptic. Venus and Uranus spin about their positive poles, opposite to IAU north.
+Moons spin synchronously about their orbit poles, with longitude 0 on the mean
+direction of their planet; the Moon instead keeps its IAU pole, which gives its
+real librations, and Pluto turns once per Charon orbit with longitude 0 facing
+Charon.
+
+Game x/y/z are ecliptic X/Z/Y, the same handedness as the star catalogue: orbits
+run anticlockwise seen from ecliptic north (+y). Saves from version 9 and earlier
+are migrated: Sol positions swap x and z, and a commander within 200 km of a body's
+air keeps the same place on its surface.
 
 ### Atmospheric metadata
 
@@ -239,10 +259,10 @@ Approximations:
   the body's median brightness.
 - Images are brightness, not calibrated albedo, apart from TES; each body's map is
   relative to its own median, with a contrast chosen per body in `maps.csv`.
-- Map north is body -z: the game's world is left-handed and its bodies spin from
-  +x towards +y, so this keeps every map unmirrored and the sun rising in the east.
-  Spin axes are not tilted to their real poles (see above), so the Moon does not
-  keep its near side towards Earth.
+- Map north is body -z, the positive (spin) pole: the game's coordinates are
+  left-handed like its camera, and bodies spin from +x towards +y, so every map
+  shows unmirrored and the sun rises in the east. Uranus spins backwards, so its
+  IAU north, and its map's, is the other pole (`RETROGRADE` in `maps.csv`).
 
 Credits: NOAA NGDC; NASA Earth Observatory (Reto Stöckli); NASA/GSFC MOLA and LOLA
 science teams via PDS; P. Christensen (ASU) and USGS; NASA's Scientific

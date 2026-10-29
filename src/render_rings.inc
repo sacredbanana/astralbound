@@ -36,8 +36,10 @@ static int ring_curves(const Planet *p) {
     int32_t points[3][2][8][4][2];
     int band, r, arc, j, focal = frame->w / 2;
     int cx = frame->w / 2 + proj_dx, cy = view_h / 2 + proj_dy;
-    int64_t height = p->center.z - camera_position.z / FP;
-    int64_t dx, dy, origin;
+    /* Heights and depths along the ring plane's normal, the spin axis. */
+    Vec normal = body_tilt(p, vec(0, 0, 16384), 0);
+    int64_t height = body_tilt(p, sub(p->center, scale(camera_position, 1, FP)), 1).z;
+    int64_t dx, dy, origin, n[3];
     Vec centre;
     XFloat factor;
     if (!graphics.rings || !height) return 1; /* in the ring plane: no area */
@@ -53,8 +55,8 @@ static int ring_curves(const Planet *p) {
             int64_t x, y;
             Vec v;
             planet_ring_control(radius, angle, handle, 1, &wx, &wy);
-            v = add(centre, view_rotate(vec((int64_t)wx * p->radius / 16384,
-                                           (int64_t)wy * p->radius / 16384, 0)));
+            v = add(centre, view_rotate(body_tilt(p, vec((int64_t)wx * p->radius / 16384,
+                                                         (int64_t)wy * p->radius / 16384, 0), 0)));
             if (v.z < 8) return 0;
             x = cx * 16 + v.x * focal * 16 / v.z;
             y = cy * 16 - v.y * focal * 16 / v.z;
@@ -66,10 +68,12 @@ static int ring_curves(const Planet *p) {
     /* n is the ring normal in camera space (Q14). For ray (u,v,f),
        1/Z = n.ray / (height*f*16384). Keep 24 fractional depth bits:
        distant rings often have less than one depth unit per pixel. */
+    for (j = 0; j < 3; j++)
+        n[j] = (view_matrix.m[j][0] * normal.x + view_matrix.m[j][1] * normal.y + view_matrix.m[j][2] * normal.z) / 16384;
     factor = xf_div(xf_int(1073741824), xf_mul(xf_int(height), xf_int(focal * 16384)));
-    dx = xf_to_fixed(xf_mul(factor, xf_int(view_matrix.m[0][2])), 24, 1LL << 46);
-    dy = xf_to_fixed(xf_mul(factor, xf_int(-view_matrix.m[1][2])), 24, 1LL << 46);
-    origin = xf_to_fixed(xf_mul(factor, xf_int(view_matrix.m[2][2] * focal)), 24, 1LL << 46)
+    dx = xf_to_fixed(xf_mul(factor, xf_int(n[0])), 24, 1LL << 46);
+    dy = xf_to_fixed(xf_mul(factor, xf_int(-n[1])), 24, 1LL << 46);
+    origin = xf_to_fixed(xf_mul(factor, xf_int(n[2] * focal)), 24, 1LL << 46)
              - dx * cx - dy * cy;
     if (cl_spans.height != view_h) cl_spans_init(&cl_spans, cl_rows, view_h);
     for (band = 0; band < 3; band++) {

@@ -61,7 +61,7 @@ def sampler(image):
     return at
 
 
-def lattice_dirs(n):
+def lattice_dirs(n, retrograde=False):
     """(latitude, longitude) of every lattice point, face by face."""
     out = []
     for face in range(6):
@@ -71,11 +71,12 @@ def lattice_dirs(n):
                 u, v = -n + 2 * i, -n + 2 * j
                 x, y, z = ((sign, u, v), (u, sign, v), (u, v, sign))[axis]
                 r = math.sqrt(x * x + y * y + z * z)
-                # The game's world is left-handed (camera right x up points
-                # forward), so a map shows unmirrored with north at body -z.
-                # East runs from +x towards +y, the way bodies spin: the
-                # ground moves east and the sun rises there.
-                out.append((math.degrees(math.asin(-z / r)), math.degrees(math.atan2(y, x))))
+                # Body -z is the positive (spin) pole and +x the prime
+                # meridian, with east towards +y (tools/compile_solar.py):
+                # the ground moves east and maps show unmirrored. A
+                # retrograde body's IAU north is its negative pole, +z.
+                lat = math.degrees(math.asin(-z / r))
+                out.append((-lat if retrograde else lat, math.degrees(math.atan2(y, x))))
     return out
 
 
@@ -103,7 +104,7 @@ def channel(row, key):
 
 def bake(row):
     n = int(row['n'])
-    dirs = lattice_dirs(n)
+    dirs = lattice_dirs(n, 'RETROGRADE' in row['flags'].split())
     out = {}
     height = channel(row, 'height')
     if height:
@@ -158,7 +159,7 @@ def main():
             if key in out:
                 lines += c_array('%s_%s' % (ident, key), out[key])
                 refs[key] = '%s_%s' % (ident, key)
-        flags = ' | '.join('BODY_MAP_' + f for f in row['flags'].split()) or '0'
+        flags = ' | '.join('BODY_MAP_' + f for f in row['flags'].split() if f != 'RETROGRADE') or '0'
         ramps = ','.join('RAMP_' + r for r in row['ramps'].split())
         assert all(r in RAMPS for r in row['ramps'].split()) and len(row['ramps'].split()) == 6, row['name']
         table.append('    {"%s",%d,%s,%s,%s,%d,%s,%s,{%s},RAMP_%s},' % (

@@ -33,7 +33,7 @@
 #define MAX_EXPLORED 128
 #define MAX_MARKETS 128
 #define MARKET_INTERVAL (HZ * 3600U)
-#define SAVE_VERSION 9
+#define SAVE_VERSION 10
 #define SHIPS 6
 #define FACTIONS 3
 #define MAX_PODS 8
@@ -79,6 +79,13 @@ typedef struct {
     Vec orbit_start, orbit_end, velocity;
     Vec cruise_velocity; /* transient averaged Q8 system velocity */
     int32_t spin_sin, spin_cos; /* transient Q30 rotation about body Z */
+    /* Catalog spin axes: tilt is the body-to-system frame at zero spin (Q30,
+       row-major, columns the body axes), spin_phase the prime meridian's
+       angle at tick 0 in 2^-32 turns, spin_m the transient tilt times spin.
+       Untilted bodies spin about the system Z axis. */
+    int tilted;
+    uint32_t spin_phase;
+    int32_t tilt[9], spin_m[9];
     Vec center; /* metres in the system frame; ship coordinates are Q8 metres */
     char name[24];
 } Planet;
@@ -379,6 +386,13 @@ int atmosphere_density(const Planet *p, int64_t altitude);
 void set_rotation(Planet *p, uint32_t tick);
 uint32_t rotation_period(const Planet *p);
 Vec body_rotate(const Planet *p, Vec v, int inverse);
+/* The body-fixed frame itself: body_rotate becomes the identity. Terrain and
+   collision sample a copy of the body in this frame. */
+void body_frame(Planet *p);
+/* The body's equatorial frame without its spin (Saturn's ring plane,
+   orbiting stations), and the full body-to-system rotation, Q30 row-major. */
+Vec body_tilt(const Planet *p, Vec v, int inverse);
+void body_matrix(const Planet *p, int32_t m[9]);
 Vec surface_velocity(const Planet *p, Vec local);
 int surface_light(const System *s, const Planet *p, Vec local);
 /* Shared deterministic weather: density 0..256, precipitation 0/1 rain/2 snow. */

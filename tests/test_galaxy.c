@@ -61,9 +61,12 @@ static void migration(void) {
     Sector sol=catalog_sector(star("Sol"));int moon,old_moon=21;
     game_init(&g,123);setup_system(&g,sol);moon=solar_body_index(&g.system,"Moon");
     g.docked=-1;g.target=-1;g.target_body=g.frame_body=g.body=moon;
-    g.pos=add(scale(g.system.planets[moon].center,FP,1),vec(0,(g.system.planets[moon].radius+200000LL)*FP,0));
+    g.pos=add(scale(g.system.planets[moon].center,FP,1),vec(0,(g.system.planets[moon].radius+400000LL)*FP,0));
     g.vel=vec(0,0,0);g.waypoint=catalog_sector(star("Sirius"));g.waypoint_set=1;
-    legacy_fixture(old_moon,0,8);assert(load_game(&h,"galaxy-test.sav"));
+    /* Version 8 stored Sol mirrored (x and z swapped); clear of the Moon's
+       surface, the version 10 migration only swaps them back. */
+    { Vec now=g.pos; g.pos=vec(now.z,now.y,now.x); legacy_fixture(old_moon,0,8); g.pos=now; }
+    assert(load_game(&h,"galaxy-test.sav"));
     assert(h.target_body==moon && h.frame_body==moon && h.solar_surveyed[moon/32]&(1U<<(moon%32)));
     assert(!memcmp(&g.pos,&h.pos,sizeof(Vec)) && h.waypoint_set);
     g.rig_count=3;
@@ -78,7 +81,7 @@ static void migration(void) {
     assert(!memcmp(h.reputation,g.reputation,sizeof(g.reputation)));
     g.rig_count=0;
     legacy_fixture(13,0,8);assert(load_game(&h,"galaxy-test.sav")); /* removed Vesta frame */
-    assert(h.target_body==2 && h.frame_body==2 && h.docked==-1 && altitude_at(&h,h.pos)>100000);
+    assert(h.target_body==2 && h.frame_body==2 && h.docked==-1 && altitude_at(&h,h.pos)>100000 && altitude_at(&h,h.pos)<300000);
     legacy_fixture(old_moon,1,8);assert(load_game(&h,"galaxy-test.sav"));
     assert(same_sector(h.system.sector,(Sector){0,0,0}) && h.docked==0 && h.target==0);
     game_init(&g,123);g.roll=321;
@@ -202,8 +205,9 @@ static void solar(void) {
     assert(s.count==34 && s.count<=MAX_PLANETS);
     earth=solar_body_index(&s,"Earth"); moon=solar_body_index(&s,"Moon"); eris=solar_body_index(&s,"Eris");
     { Vec earth_pos=body_position(&s,earth,0);
-      assert(earth_pos.x>AU_METRES*96/100 && earth_pos.x<AU_METRES*99/100);
-      assert(earth_pos.z< -AU_METRES*15/100 && earth_pos.z> -AU_METRES*20/100); }
+      /* J2000: ecliptic (-0.18, 0.97) AU; game x/z are ecliptic X/Y. */
+      assert(earth_pos.z>AU_METRES*96/100 && earth_pos.z<AU_METRES*99/100);
+      assert(earth_pos.x< -AU_METRES*15/100 && earth_pos.x> -AU_METRES*20/100); }
     assert(earth==2 && s.planets[moon].parent==earth && eris>=0);
     assert(s.planets[earth].radius==6371000 && llabs(s.planets[earth].orbit-AU_METRES)<1000000);
     assert(s.planets[solar_body_index(&s,"Neptune")].orbit>29*AU_METRES);

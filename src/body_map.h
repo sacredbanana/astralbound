@@ -3,12 +3,13 @@
    Moon's maria, Mars's dark plains and caps, the giants' belts and spots.
    Each channel is a cube map of (n + 1)^2 lattice points per face, with
    points on face edges shared, baked offline from NASA/USGS data by
-   tools/compile_maps.py (see data/README.md). North is body -z and east
-   +y: the world is left-handed, and bodies spin from +x towards +y, so
-   this keeps maps unmirrored and the sun rising in the east. Sampling is
-   bilinear on the
-   face a direction falls on, in 32-bit integer arithmetic, so collision,
-   terrain and both renderers read identical values on every CPU.
+   tools/compile_maps.py (see data/README.md). Body -z is the positive
+   (spin) pole and +x the prime meridian, east towards +y: the body spins
+   from +x towards +y, so maps show unmirrored and the sun rises in the
+   east (Uranus, spinning backwards, has its IAU north at +z). Sampling is
+   bilinear on the face a direction falls on, in 32-bit integer arithmetic,
+   so collision, terrain and both renderers read identical values on every
+   CPU.
 
    The maps replace only the planet-scale fields: the continent noise, the
    regional albedo and polar ice. Local landforms, ground texture and

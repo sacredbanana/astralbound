@@ -597,6 +597,18 @@ static void surface_uv(const Planet *p, const int64_t *value, int *face, int *u,
 /* The eye's Q8 offset turns into the body frame before any rounding: a
    Q4 world offset rounded afresh as the body turned shook the ground's
    texture around a walker. */
+/* Camera axis i (view row i, Q14) in the body frame, as column i of m (Q30):
+   the transposed body rotation. The untilted case reproduces the old spin
+   about Z exactly. */
+static void camera_to_body(const Planet *p, int32_t m[3][3]) {
+    int32_t r[9];
+    int i, k;
+    body_matrix(p, r);
+    for (i = 0; i < 3; i++)
+        for (k = 0; k < 3; k++)
+            m[k][i] = (int32_t)round_div((int64_t)r[k] * view_matrix.m[i][0] + (int64_t)r[3 + k] * view_matrix.m[i][1] +
+                                         (int64_t)r[6 + k] * view_matrix.m[i][2], 16384);
+}
 static Vec ray_eye(const Planet *p) {
     Vec q = body_rotate(p, sub(camera_position, scale(p->center, FP, 1)), 1);
     return vec(round_div(q.x, 16), round_div(q.y, 16), round_div(q.z, 16));
@@ -612,6 +624,7 @@ static struct {
     int32_t spin_sin, spin_cos, radius;
     double m[3][3], t[3];
 } ray;
+/* Into the body frame: the transposed Q30 body-to-system rotation. */
 /* Camera axis i in the world is row i of the view matrix, so rays and
    polygons share one rotation even when it is an exact on-foot basis. */
 static void fpu_camera_to_world(const double in[3], double out[3]) {
@@ -622,11 +635,12 @@ static void fpu_camera_to_world(const double in[3], double out[3]) {
                   in[2] * (int)view_matrix.m[2][i]) / 16384.0;
 }
 static void fpu_body_inverse(const Planet *p, double v[3]) {
-    double sn = -p->spin_sin / 1073741824.0, cs = p->spin_cos / 1073741824.0, x;
-    if (!p->spin_sin && !p->spin_cos) return;
-    x = v[0] * cs - v[1] * sn;
-    v[1] = v[0] * sn + v[1] * cs;
-    v[0] = x;
+    int32_t m[9];
+    double w[3];
+    int i;
+    body_matrix(p, m);
+    for (i = 0; i < 3; i++) w[i] = (v[0] * m[i] + v[1] * m[3 + i] + v[2] * m[6 + i]) / 1073741824.0;
+    for (i = 0; i < 3; i++) v[i] = w[i];
 }
 static void ray_prepare(const Planet *p) {
     Vec offset = ray_eye(p);
@@ -687,18 +701,11 @@ static struct {
     int64_t t[3];
 } ray;
 static void ray_prepare(const Planet *p) {
-    int64_t sn = -(int64_t)p->spin_sin, cs = p->spin_cos;
     Vec offset = ray_eye(p);
     int i;
     view_current();
-    if (!sn && !cs) cs = 1LL << 30;
-    for (i = 0; i < 3; i++) {
-        /* Column i is camera axis i (view row i) spun into the body frame. */
-        int64_t x = view_matrix.m[i][0], y = view_matrix.m[i][1];
-        ray.m[0][i] = (int32_t)round_div(x * cs - y * sn, 16384);
-        ray.m[1][i] = (int32_t)round_div(x * sn + y * cs, 16384);
-        ray.m[2][i] = (int32_t)(view_matrix.m[i][2] * 65536);
-    }
+    /* Column i is camera axis i (view row i) turned into the body frame. */
+    camera_to_body(p, ray.m);
     ray.half = frame->w / 2;
     for (i = 0; i < 3; i++) {
         ray.mx[i] = (int32_t)round_div(ray.m[i][0], ray.half);
@@ -1729,7 +1736,7 @@ static Vec terrain_fixed_vertex(const Planet *p, int face, int u, int v) {
         terrain_vertices[slot].v != v || terrain_vertices[slot].face != face) {
         Planet fixed = *p;
         Vec direction = face_direction(p, face, u, v);
-        set_rotation(&fixed, 0);
+        body_frame(&fixed);
         int height = terrain_elevation(&fixed, direction);
         terrain_vertices[slot].point = radial(direction, p->radius + (height > 0 ? height : 0));
         terrain_vertices[slot].u = u; terrain_vertices[slot].v = v;
@@ -1824,7 +1831,7 @@ static const uint8_t *patch_samples(const Planet *p, int face, int u, int v, int
         patch_cells[level][y][x].u != u || patch_cells[level][y][x].v != v ||
         patch_cells[level][y][x].face != face) {
         Planet fixed = *p;
-        set_rotation(&fixed, 0);
+        body_frame(&fixed);
         /* Centroids of the (a,b,c) and (a,c,d) triangles drawn below. */
         sample[0] = ground_sample(&fixed, face_direction(p, face, u + step * 2 / 3, v + step / 3));
         sample[1] = ground_sample(&fixed, face_direction(p, face, u + step / 3, v + step * 2 / 3));
@@ -2035,8 +2042,8 @@ static void ring_mesh(const Planet *p) {
         int64_t inner = (int64_t)p->radius * (130 + band * 25) / 100;
         int64_t outer = (int64_t)p->radius * (150 + band * 25) / 100;
         for (i = 0; i < segments; i++) {
-            Vec a = vec(sini(i * 1024 / segments), cosi(i * 1024 / segments), 0);
-            Vec b = vec(sini((i + 1) * 1024 / segments), cosi((i + 1) * 1024 / segments), 0);
+            Vec a = body_tilt(p, vec(sini(i * 1024 / segments), cosi(i * 1024 / segments), 0), 0);
+            Vec b = body_tilt(p, vec(sini((i + 1) * 1024 / segments), cosi((i + 1) * 1024 / segments), 0), 0);
             Vec c = add(p->center, scale(b, outer, 16384));
             Vec d = add(p->center, scale(a, outer, 16384));
             a = add(p->center, scale(a, inner, 16384));

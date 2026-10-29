@@ -176,10 +176,32 @@ and a darker ramp for Jupiter's belts. All are existing 16- or 32-entry ramps,
 so the palette is unchanged. On ECS, Classic dims a mapped body's dark regions
 by one shade; generated worlds are untouched.
 
-Map north is body -z. Astralbound's world is left-handed (camera right x up
-points forward, as the star catalogue's axes are), and bodies spin from +x
-towards +y, so this is the orientation in which maps are unmirrored and the
-ground moves east.
+Map north is body -z, the positive (spin) pole, with the prime meridian at
++x. Astralbound's camera is left-handed (right x up points forward), and so
+are its coordinates for the stars and Sol (system x/y/z are ecliptic X/Z/Y).
+Bodies spin from +x towards +y, so this is the orientation in which maps are
+unmirrored and the ground moves east.
+
+## Spin axes
+
+Sol's bodies turn about their real poles. `set_rotation` composes each
+catalog body's fixed tilt frame with its spin into `spin_m`, a Q30 matrix,
+once a tick; `body_rotate` then costs nine 64/32 products instead of the six
+of the upright spin, which generated worlds keep bit for bit. `body_frame`
+is the body-fixed frame terrain and collision sample in, and `body_tilt` the
+equator without spin: Saturn's ring plane in both renderers, and the plane
+the orbital stations circle. Surface velocity is the spin axis crossed with
+the position. Both renderers' camera-to-body matrices come from
+`body_matrix`.
+
+Planets take the IAU rotation models (WGCCRE 2015) at J2000, the game's tick
+0, from `data/solar-poles.csv`: at tick 0 the sun stands over Greenwich at
+-23 degrees. Retrograde rotators spin about their positive pole. Synchronous
+moons spin about their orbit pole with the prime meridian on the mean
+direction of their planet; the Moon keeps its IAU pole, so it librates by up
+to about 7 degrees in longitude and latitude and always shows its near side.
+Pluto and Charon face each other. `tests/test_planet.c` checks obliquities,
+Greenwich noon at J2000, east-moving ground and ten years of the near side.
 
 `make sol-preview` renders every mapped body in Enhanced and Classic, AGA and
 ECS, into `build/evidence/sol-*.ppm`.

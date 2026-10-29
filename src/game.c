@@ -609,7 +609,7 @@ static Vec rest_pose(const Planet *p, int ship, Vec local, Vec heading, Vec *up)
     Vec fixed = body_rotate(p, local, 1), n0, f, r, c, n, a, b;
     int64_t need = 0, tilt, e;
     int i, j;
-    set_rotation(&still, 0);
+    body_frame(&still);
 #define REST_GROUND(x) radial((x), (int64_t)p->radius * FP + terrain_height_fine(&still, (x)))
     n0 = unit(fixed, 16384);
     heading = body_rotate(p, heading, 1);

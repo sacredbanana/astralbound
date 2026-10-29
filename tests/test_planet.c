@@ -14,6 +14,7 @@
 #include "noise.h"
 #include "body_map.h"
 #include "solar.h"
+#include "galaxy.h"
 #include <string.h>
 typedef long double real;
 static uint32_t rng = 12345;
@@ -430,7 +431,82 @@ static void landmarks(void) {
     assert(albedo_at(&s, "Jupiter", 0, 0) > albedo_at(&s, "Jupiter", 15, 0));
     printf("PASS landmarks on Earth, the Moon, Mars and Jupiter\n");
 }
+/* Real spin axes: angles in degrees between body directions and system
+   ones, and where a body-fixed direction points. */
+static real degrees_between(Vec a, Vec b) {
+    real d = ((real)a.x * b.x + (real)a.y * b.y + (real)a.z * b.z) /
+             (sqrtl((real)a.x * a.x + (real)a.y * a.y + (real)a.z * a.z) * sqrtl((real)b.x * b.x + (real)b.y * b.y + (real)b.z * b.z));
+    return acosl(d > 1 ? 1 : d < -1 ? -1 : d) * 180 / 3.14159265358979L;
+}
+static void body_latlon(const Planet *p, Vec world, real *lat, real *lon) {
+    Vec b = body_rotate(p, world, 1);
+    real r = sqrtl((real)b.x * b.x + (real)b.y * b.y + (real)b.z * b.z);
+    *lat = asinl(-b.z / r) * 180 / 3.14159265358979L; /* north is body -z */
+    *lon = atan2l((real)b.y, (real)b.x) * 180 / 3.14159265358979L;
+}
+static real obliquity(const System *s, int body) {
+    const Planet *p = &s->planets[body];
+    Vec r = scale(sub(p->center, s->star[0].center), 1, 1000000), v = p->velocity;
+    Vec h = vec(r.y * v.z - r.z * v.y, r.z * v.x - r.x * v.z, r.x * v.y - r.y * v.x);
+    return degrees_between(h, body_rotate(p, vec(0, 0, 16384), 0));
+}
+static void spin_axes(void) {
+    static Game g;
+    int earth, moon, saturn, uranus, pluto, charon, k;
+    real lat, lon, worst = 0;
+    game_init(&g, 1);
+    setup_system(&g, catalog_sector(0));
+    earth = solar_body_index(&g.system, "Earth"); moon = solar_body_index(&g.system, "Moon");
+    saturn = solar_body_index(&g.system, "Saturn"); uranus = solar_body_index(&g.system, "Uranus");
+    pluto = solar_body_index(&g.system, "Pluto"); charon = solar_body_index(&g.system, "Charon");
+    g.tick = 0; update_world(&g);
+    {
+        const Planet *e = &g.system.planets[earth], *sa = &g.system.planets[saturn], *u = &g.system.planets[uranus];
+        Vec north = body_rotate(e, vec(0, 0, -16384), 0);
+        Vec sun = sub(g.system.star[0].center, e->center);
+        Vec east = body_rotate(e, vec(0, 16384, 0), 0), ground = body_rotate(e, vec(16384, 0, 0), 0);
+        /* Obliquities: the spin (body +z) from the orbit's angular momentum.
+           Earth's north also leans 23.4 degrees from ecliptic north (+y). */
+        assert(fabsl(degrees_between(north, vec(0, 1, 0)) - 23.44L) < 0.05L);
+        assert(fabsl(obliquity(&g.system, earth) - 23.44L) < 0.05L);
+        assert(fabsl(obliquity(&g.system, saturn) - 26.73L) < 0.1L);
+        assert(fabsl(obliquity(&g.system, uranus) - 97.77L) < 0.1L);
+        (void)sa; (void)u;
+        /* J2000 is noon TT at Greenwich: the sun stands over longitude 0
+           (the equation of time puts it 0.8 degrees east). */
+        body_latlon(e, sun, &lat, &lon);
+        assert(fabsl(lon) < 2 && fabsl(lat + 23.0L) < 0.5L);
+        /* The ground moves east, the way Earth goes round the Sun. */
+        assert(degrees_between(surface_velocity(e, scale(ground, e->radius, 16384)), east) < 0.01L);
+        {
+            Vec r = scale(sub(e->center, g.system.star[0].center), 1, 1000000), v = e->velocity;
+            Vec h = vec(r.y * v.z - r.z * v.y, r.z * v.x - r.x * v.z, r.x * v.y - r.y * v.x);
+            Vec spin = body_rotate(e, vec(0, 0, 16384), 0);
+            assert(degrees_between(h, spin) < 30);
+        }
+    }
+    /* The Moon keeps its near side to Earth, and Pluto and Charon face each
+       other, through years of their orbits: only their librations move the
+       sub-planet point. */
+    for (k = 0; k < 400; k++) {
+        const Planet *m, *e, *pl, *ch;
+        g.tick = (uint32_t)k * (HZ * 86400U * 9U + HZ * 3517U);
+        update_world(&g);
+        m = &g.system.planets[moon]; e = &g.system.planets[earth];
+        body_latlon(m, sub(e->center, m->center), &lat, &lon);
+        assert(fabsl(lat) < 7.5L && fabsl(lon) < 8.5L);
+        if (fabsl(lon) > worst) worst = fabsl(lon);
+        pl = &g.system.planets[pluto]; ch = &g.system.planets[charon];
+        body_latlon(pl, sub(ch->center, pl->center), &lat, &lon);
+        assert(fabsl(lat) < 1 && fabsl(lon) < 1);
+        body_latlon(ch, sub(pl->center, ch->center), &lat, &lon);
+        assert(fabsl(lat) < 1 && fabsl(lon) < 1);
+    }
+    printf("PASS real spin axes: Earth 23.4, Saturn 26.7, Uranus 97.8 degrees; Greenwich noon at J2000;\n"
+           "     the Moon's near side faces Earth over 10 years (librations within %.1f degrees)\n", (double)worst);
+}
 int main(void) {
+    spin_axes();
     landmarks();
     map_sampling();
     measured_bodies();

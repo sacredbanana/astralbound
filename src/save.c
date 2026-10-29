@@ -233,6 +233,8 @@ static int good_vec(Vec v, int64_t bound) {
     return v.x >= -bound && v.x <= bound && v.y >= -bound && v.y <= bound && v.z >= -bound &&
            v.z <= bound;
 }
+/* Sol's pre-version-10 layout, the mirror image: see migrate_axes. */
+static Vec swap_xz(Vec v) { return vec(v.z, v.y, v.x); }
 /* Version 9 keeps the binary payload but changes population and Sol layout.
    Remap retained bodies by identity; removed local frames return safely to Earth. */
 static int migrate_catalog(Game *g,int relocated) {
@@ -260,7 +262,8 @@ static int migrate_catalog(Game *g,int relocated) {
         }
         if(frame_removed) {
             const Planet *earth=&g->system.planets[2];
-            g->docked=-1;g->pos=add(scale(earth->center,FP,1),vec(0,((int64_t)earth->radius+200000)*FP,0));
+            /* In the old layout too: migrate_axes follows. */
+            g->docked=-1;g->pos=swap_xz(add(scale(earth->center,FP,1),vec(0,((int64_t)earth->radius+200000)*FP,0)));
             g->vel=vec(0,0,0);g->target=-1;g->target_body=2;g->autopilot=0;g->throttle=0;
         }
     }
@@ -293,6 +296,37 @@ static int migrate_catalog(Game *g,int relocated) {
     if(!galaxy_exists(g->seed,g->selected)) g->selected=g->system.sector;
     if(g->waypoint_set && !galaxy_exists(g->seed,g->waypoint)) g->waypoint_set=0;
     return 1;
+}
+/* Version 10 unmirrors Sol (game x/z were ecliptic Y/X, now X/Y) and gives
+   its bodies their real spin axes. Every Sol position and velocity swaps x
+   and z; a commander on or near a body instead keeps the same body-fixed
+   place, carried from the old upright spin to the new. */
+static void migrate_axes(Game *g) {
+    int i;
+    update_world(g);
+    if (g->frame_body >= 0 && g->frame_body < g->system.count) {
+        const Planet *p = &g->system.planets[g->frame_body];
+        Planet old = *p;
+        Vec centre = scale(p->center, FP, 1), q = sub(g->pos, swap_xz(centre));
+        old.tilted = 0; old.spin_phase = 0;
+        set_rotation(&old, g->tick);
+        if (length(q) / FP < (int64_t)p->radius + p->atmosphere + 200000) {
+            Vec moving = sub(sub(g->vel, swap_xz(p->velocity)), surface_velocity(&old, scale(q, 1, FP)));
+            Vec local = body_rotate(p, body_rotate(&old, q, 1), 0);
+            g->pos = add(centre, local);
+            g->vel = add(add(p->velocity, surface_velocity(p, scale(local, 1, FP))),
+                         body_rotate(p, body_rotate(&old, moving, 1), 0));
+        } else {
+            g->pos = swap_xz(g->pos); g->vel = swap_xz(g->vel);
+        }
+    } else {
+        g->pos = swap_xz(g->pos); g->vel = swap_xz(g->vel);
+    }
+    for (i = 0; i < MAX_NPC; i++) { g->npc[i].pos = swap_xz(g->npc[i].pos); g->npc[i].vel = swap_xz(g->npc[i].vel); }
+    for (i = 0; i < MAX_PODS; i++) { g->pods[i].pos = swap_xz(g->pods[i].pos); g->pods[i].vel = swap_xz(g->pods[i].vel); }
+    for (i = 0; i < MAX_MISSILES; i++) {
+        g->projectiles[i].pos = swap_xz(g->projectiles[i].pos); g->projectiles[i].vel = swap_xz(g->projectiles[i].vel);
+    }
 }
 static int valid(const Game *g) {
     int i;
@@ -476,7 +510,8 @@ int load_game(Game *g, const char *path) {
     if (word(&s, 0) != 0x53504331)
         return 0;
     version = word(&s, 0);
-    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != SAVE_VERSION)
+    if (version != GENERATOR_VERSION && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != 9 &&
+        version != SAVE_VERSION)
         return 0;
     size = word(&s, 0);
     crc = word(&s, 0);
@@ -485,6 +520,7 @@ int load_game(Game *g, const char *path) {
     game_init(&copy, 1);
     payload(&s, &copy, version);
     if(version<9 && !s.error && !migrate_catalog(&copy,s.relocated)) return 0;
+    if (version < 10 && !s.error && same_sector(copy.system.sector, catalog_sector(0))) migrate_axes(&copy);
     if (s.error || s.pos != len || !valid(&copy))
         return 0;
     copy.body = nearest_body(&copy, copy.pos);

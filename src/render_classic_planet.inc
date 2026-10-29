@@ -591,15 +591,23 @@ static void cl_draw_star(const ClBodyInfo *b) {
 #define CL_RING_WORDS (2 * (CL_RING_ARCS * 3 + 1) * 2)
 static void cl_ring_half(const ClBodyInfo *b, const Planet *p, int band, int front, uint32_t key) {
     static const int inner[3] = {130, 155, 180}, outer[3] = {150, 175, 200};
-    Vec eye = sub(scale(camera_position, 1, FP), p->center);
+    /* The ring plane is the equator: its axes in the eye's frame, and the
+       ring axes (Q14) in camera space. */
+    Vec eye = body_tilt(p, sub(scale(camera_position, 1, FP), p->center), 1);
+    Vec ax = body_tilt(p, vec(16384, 0, 0), 0), ay = body_tilt(p, vec(0, 16384, 0), 0);
+    int64_t e0[3], e1[3];
+    int face = attitude_angle(eye.x, eye.y), start, i;
+    for (i = 0; i < 3; i++) {
+        e0[i] = ((int64_t)cl.m[i][0] * ax.x + (int64_t)cl.m[i][1] * ax.y + (int64_t)cl.m[i][2] * ax.z) >> 14;
+        e1[i] = ((int64_t)cl.m[i][0] * ay.x + (int64_t)cl.m[i][1] * ay.y + (int64_t)cl.m[i][2] * ay.z) >> 14;
+    }
     /* The ring point nearest the eye has direction (sin a, cos a, 0) along
        the eye's projection on the ring plane. */
-    int face = attitude_angle(eye.x, eye.y), start;
     {
         /* Make the split self-checking: the half centred on `face` must be
            the one whose midpoint is nearer the camera than the centre. */
         int32_t mx = sini(face), my = cosi(face);
-        int64_t mz = ((int64_t)cl.m[2][0] * mx + (int64_t)cl.m[2][1] * my) >> 14;
+        int64_t mz = (e0[2] * mx + e1[2] * my) >> 14;
         if (mz > 0) face += 512;
     }
     start = face + (front ? -256 : 256);
@@ -617,10 +625,10 @@ static void cl_ring_half(const ClBodyInfo *b, const Planet *p, int band, int fro
                 int32_t wx, wy;
                 ClV v;
                 planet_ring_control(rad, a, h, sgn, &wx, &wy);
-                /* World ring plane (x, y) into camera space, about the centre. */
-                v.x = b->cp[0] + (int32_t)(((int64_t)cl.m[0][0] * wx + (int64_t)cl.m[0][1] * wy) >> 14);
-                v.y = b->cp[1] + (int32_t)(((int64_t)cl.m[1][0] * wx + (int64_t)cl.m[1][1] * wy) >> 14);
-                v.z = b->cp[2] + (int32_t)(((int64_t)cl.m[2][0] * wx + (int64_t)cl.m[2][1] * wy) >> 14);
+                /* Ring plane (x, y) into camera space, about the centre. */
+                v.x = b->cp[0] + (int32_t)((e0[0] * wx + e1[0] * wy) >> 14);
+                v.y = b->cp[1] + (int32_t)((e0[1] * wx + e1[1] * wy) >> 14);
+                v.z = b->cp[2] + (int32_t)((e0[2] * wx + e1[2] * wy) >> 14);
                 if (v.z < 64 || !cl_project(&v, &pts[n], &pts[n + 1])) return;
                 n += 2;
             }

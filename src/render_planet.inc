@@ -118,17 +118,8 @@ static int disc_setup(Disc *s, const Planet *p, int backdrop) {
     if (s->kappa < 1) s->kappa = 1;
     s->dr = muldiv(d, 65536, r);
     /* Camera axis i in the world is row i of the view matrix; then undo
-       the body's spin about its Z axis, as ray_prepare does. */
-    {
-        int64_t sn = -(int64_t)p->spin_sin, cs = p->spin_cos;
-        if (!sn && !cs) cs = 1LL << 30;
-        for (i = 0; i < 3; i++) {
-            int64_t x = view_matrix.m[i][0], y = view_matrix.m[i][1];
-            s->m[0][i] = (int32_t)round_div(x * cs - y * sn, 16384);
-            s->m[1][i] = (int32_t)round_div(x * sn + y * cs, 16384);
-            s->m[2][i] = (int32_t)(view_matrix.m[i][2] * 65536);
-        }
-    }
+       the body's rotation, as ray_prepare does. */
+    camera_to_body(p, s->m);
     for (i = 0; i < game->system.stars && s->lights < DISC_STARS; i++) {
         const Star *star = &game->system.star[i];
         Vec l;

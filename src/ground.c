@@ -30,7 +30,7 @@ static void tangent_frame(Vec up, Vec *east, Vec *north) {
 }
 static Planet still_body(const Planet *p) {
     Planet still = *p;
-    set_rotation(&still, 0);
+    body_frame(&still);
     return still;
 }
 /* Body-fixed Q8 ground point under a body-fixed Q8 position. */

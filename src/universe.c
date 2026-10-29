@@ -266,13 +266,42 @@ void generate_system(uint32_t seed, Sector s, System *out) {
 uint32_t rotation_period(const Planet *p) {
     return p->spin_period ? p->spin_period : p->parent >= 0 ? (uint32_t)p->period : 18000U + hash32(p->seed ^ 0x5350494eU) % 90000U;
 }
+/* Tilt times the spin about body Z: Rz's columns (c, s, 0), (-s, c, 0) and
+   (0, 0, 1) taken through the tilt frame, rounded once from Q60. */
+static void spin_matrix(Planet *p) {
+    int i;
+    for (i = 0; i < 3; i++) {
+        int64_t x = p->tilt[i * 3], y = p->tilt[i * 3 + 1];
+        p->spin_m[i * 3] = (int32_t)((x * p->spin_cos + y * p->spin_sin + (1LL << 29)) >> 30);
+        p->spin_m[i * 3 + 1] = (int32_t)((y * p->spin_cos - x * p->spin_sin + (1LL << 29)) >> 30);
+        p->spin_m[i * 3 + 2] = p->tilt[i * 3 + 2];
+    }
+}
 void set_rotation(Planet *p, uint32_t tick) {
-    /* Tick 0, the body-fixed frame that terrain and collision sample per
-       vertex, is angle 0 for every body: two series evaluations, each dozens
-       of 64-bit divisions on a 68k, computed once. */
+    /* Angle 0 (tick 0 of an untilted body) is two series evaluations, each
+       dozens of 64-bit divisions on a 68k, computed once. */
     static int32_t zero_sin, zero_cos;
     static int zero_ready;
-    if (!tick) {
+    uint64_t a = (uint64_t)p->spin_phase << 8;
+    if (tick) {
+        uint64_t cycle = (uint64_t)rotation_period(p) * HZ;
+        uint64_t time = (uint64_t)tick % cycle;
+        /* Split before the angle multiply: long moon days overflow time*2^40. */
+        uint64_t scaled = time << 30;
+#if defined(__mc68020__) || defined(__mc68030__) || defined(__mc68040__)
+        if (cycle < (1U << 22)) {
+            /* time < cycle < 2^22: one DIVU.L 64/32 gives quotient and
+               remainder of scaled / cycle, and the remainder's 2^10 multiple
+               still fits 32 bits. The same floors as the 64-bit divisions. */
+            uint32_t high = (uint32_t)(scaled >> 32), low = (uint32_t)scaled, d = (uint32_t)cycle;
+            __asm__("divu.l %2,%0:%1" : "+d"(high), "+d"(low) : "d"(d) : "cc");
+            a += ((uint64_t)low << 10) + (high << 10) / d;
+        } else
+#endif
+            a += ((scaled / cycle) << 10) + ((scaled % cycle) << 10) / cycle;
+        a &= (1ULL << 40) - 1;
+    }
+    if (!a) {
         if (!zero_ready) {
             zero_sin = (int32_t)sine_fine(0);
             zero_cos = (int32_t)sine_fine(256ULL << 30);
@@ -280,40 +309,66 @@ void set_rotation(Planet *p, uint32_t tick) {
         }
         p->spin_sin = zero_sin;
         p->spin_cos = zero_cos;
-        return;
+    } else {
+        p->spin_sin = (int32_t)sine_fine(a);
+        p->spin_cos = (int32_t)sine_fine(a + (256ULL << 30));
     }
-    uint64_t cycle = (uint64_t)rotation_period(p) * HZ;
-    uint64_t time = (uint64_t)tick % cycle;
-    /* Split before the angle multiply: long moon days overflow time*2^40. */
-    uint64_t scaled = time << 30;
-    uint64_t a;
-#if defined(__mc68020__) || defined(__mc68030__) || defined(__mc68040__)
-    if (cycle < (1U << 22)) {
-        /* time < cycle < 2^22: one DIVU.L 64/32 gives quotient and
-           remainder of scaled / cycle, and the remainder's 2^10 multiple
-           still fits 32 bits. The same floors as the 64-bit divisions. */
-        uint32_t high = (uint32_t)(scaled >> 32), low = (uint32_t)scaled, d = (uint32_t)cycle;
-        __asm__("divu.l %2,%0:%1" : "+d"(high), "+d"(low) : "d"(d) : "cc");
-        a = ((uint64_t)low << 10) + (high << 10) / d;
-    } else
-#endif
-        a = ((scaled / cycle) << 10) + ((scaled % cycle) << 10) / cycle;
-    p->spin_sin = (int32_t)sine_fine(a);
-    p->spin_cos = (int32_t)sine_fine(a + (256ULL << 30));
+    if (p->tilted) spin_matrix(p);
+}
+void body_frame(Planet *p) {
+    p->tilted = 0;
+    p->spin_sin = 0;
+    p->spin_cos = 1 << 30;
+}
+/* One row of a Q30 rotation applied to a vector of any size. */
+static int64_t rotate_row(Vec v, int32_t a, int32_t b, int32_t c) {
+    return muldiv(v.x, a, 1LL << 30) + muldiv(v.y, b, 1LL << 30) + muldiv(v.z, c, 1LL << 30);
+}
+Vec body_tilt(const Planet *p, Vec v, int inverse) {
+    const int32_t *t = p->tilt;
+    if (!p->tilted) return v;
+    if (inverse)
+        return vec(rotate_row(v, t[0], t[3], t[6]), rotate_row(v, t[1], t[4], t[7]), rotate_row(v, t[2], t[5], t[8]));
+    return vec(rotate_row(v, t[0], t[1], t[2]), rotate_row(v, t[3], t[4], t[5]), rotate_row(v, t[6], t[7], t[8]));
+}
+void body_matrix(const Planet *p, int32_t m[9]) {
+    int i;
+    if (!p->spin_sin && !p->spin_cos) { /* newly generated / legacy caller */
+        for (i = 0; i < 9; i++) m[i] = i % 4 ? 0 : 1 << 30;
+    } else if (p->tilted) {
+        for (i = 0; i < 9; i++) m[i] = p->spin_m[i];
+    } else {
+        m[0] = p->spin_cos; m[1] = -p->spin_sin; m[2] = 0;
+        m[3] = p->spin_sin; m[4] = p->spin_cos; m[5] = 0;
+        m[6] = 0; m[7] = 0; m[8] = 1 << 30;
+    }
 }
 Vec body_rotate(const Planet *p, Vec v, int inverse) {
     int64_t sn = inverse ? -(int64_t)p->spin_sin : p->spin_sin;
     int64_t cs = p->spin_cos;
     Vec a, b;
     if (!sn && !cs) return v; /* newly generated / legacy caller */
+    if (p->tilted) {
+        const int32_t *m = p->spin_m;
+        if (inverse)
+            return vec(rotate_row(v, m[0], m[3], m[6]), rotate_row(v, m[1], m[4], m[7]), rotate_row(v, m[2], m[5], m[8]));
+        return vec(rotate_row(v, m[0], m[1], m[2]), rotate_row(v, m[3], m[4], m[5]), rotate_row(v, m[6], m[7], m[8]));
+    }
     a = scale(v, cs, 1LL << 30);
     b = scale(v, sn, 1LL << 30);
     return vec(a.x - b.y, b.x + a.y, v.z);
 }
 Vec surface_velocity(const Planet *p, Vec local) {
-    /* Q8 m/s relative to the translated planetary frame. */
-    return scale(vec(-local.y, local.x, 0), 6283185LL * FP,
-                 (int64_t)rotation_period(p) * 1000000);
+    /* Q8 m/s relative to the translated planetary frame: the spin axis
+       (body Z in the system) crossed with the position. */
+    Vec turn = vec(-local.y, local.x, 0);
+    if (p->tilted) {
+        int32_t x = p->tilt[2], y = p->tilt[5], z = p->tilt[8];
+        turn = vec(muldiv(local.z, y, 1LL << 30) - muldiv(local.y, z, 1LL << 30),
+                   muldiv(local.x, z, 1LL << 30) - muldiv(local.z, x, 1LL << 30),
+                   muldiv(local.y, x, 1LL << 30) - muldiv(local.x, y, 1LL << 30));
+    }
+    return scale(turn, 6283185LL * FP, (int64_t)rotation_period(p) * 1000000);
 }
 static Vec port_offset(const Planet *p, int slot, uint32_t tick) {
     if (slot == 0)
@@ -325,7 +380,8 @@ static Vec port_offset(const Planet *p, int slot, uint32_t tick) {
         uint32_t period = (uint32_t)(isqrt64((uint64_t)radius / p->gravity) * (uint64_t)radius /
                                      p->radius * 6283 / 1000);
         Vec q = orbit_position(radius, period, slot == 1 ? 0 : 256, 0, tick);
-        return scale(vec(q.x, q.z, 0), FP, 1);
+        /* Stations circle the equator. */
+        return body_tilt(p, scale(vec(q.x, q.z, 0), FP, 1), 0);
     }
 }
 void update_world(Game *g) {

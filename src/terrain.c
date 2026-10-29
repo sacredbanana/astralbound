@@ -108,7 +108,7 @@ static Vec corner_point(const Planet *p, int face, int x, int y) {
         return corner_cache[slot].point;
     /* The body-fixed frame: the same planet at rotation zero. */
     fixed = *p;
-    set_rotation(&fixed, 0);
+    body_frame(&fixed);
     d = axis == 0 ? vec(sign,x,y) : axis == 1 ? vec(x,sign,y) : vec(x,y,sign);
     e = terrain_elevation(&fixed, d); if (e < 0) e = 0;
     corner_cache[slot].seed = p->seed; corner_cache[slot].radius = p->radius;
