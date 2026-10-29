@@ -233,6 +233,8 @@ Approximations:
   the Red Spot is redder than its zone but not darker than a belt; it is blended
   halfway to each latitude's median so belts stay continuous. The Red Spot is
   where Cassini saw it in 2000, and all bands rotate together with System III.
+- Only Saturn draws rings. Jupiter's, Uranus's and Neptune's are faint dust and dark
+  ice, all but invisible in sunlight, and are left out.
 - Unimaged regions (Pluto and Charon's south, edges of the Galilean mosaics) take
   the body's median brightness.
 - Images are brightness, not calibrated albedo, apart from TES; each body's map is

@@ -109,7 +109,9 @@ void solar_system(System *s) {
         p->spin_period=d->spin; p->catalog=d->known;
         memcpy(p->orbit_basis,d->basis,sizeof(p->orbit_basis));
         p->influence=p->parent>=0?p->orbit/5:p->orbit/100;
-        p->rings=i>=4 && i<=7;
+        /* Jupiter's, Uranus's and Neptune's rings are faint dust and dark ice,
+           all but invisible in sunlight; only Saturn's are bright. */
+        p->rings=!strcmp(d->name,"Saturn");
         /* Fictional ports only; the celestial catalog remains real. */
         p->settled=i==2 || i==3 || !strcmp(d->name,"Moon");
         snprintf(p->name,sizeof(p->name),"%s",d->name);
