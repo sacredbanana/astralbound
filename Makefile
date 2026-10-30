@@ -2,7 +2,7 @@ CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Werror
 CPPFLAGS += -Isrc
 HEADERS = $(wildcard src/*.h src/*.inc) src/third_party/micromod/micromod.h
-CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/settings.c src/launcher.c src/performance.c src/xfloat.c src/planet_view.c src/body_map.c src/planet_field.c src/planet_contours.c src/classic_raster.c src/render.c
+CORE = src/audio.c src/music.c src/third_party/micromod/micromod.c src/math.c src/terrain.c src/universe.c src/galaxy.c src/population.c src/solar.c src/game.c src/destruction.c src/weapons.c src/ground.c src/career.c src/save.c src/ui.c src/services.c src/intro.c src/tour.c src/settings.c src/launcher.c src/performance.c src/xfloat.c src/planet_view.c src/body_map.c src/planet_field.c src/planet_contours.c src/classic_raster.c src/render.c
 .PHONY: all test sanitize preview clean amiga
 all: build/astralbound
 build:

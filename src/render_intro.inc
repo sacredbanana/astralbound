@@ -15,7 +15,7 @@ static void intro_glow(const IntroGlow *g) {
     cx = screen_coord(frame->w / 2 + v.x * (frame->w / 2) / v.z);
     cy = screen_coord(view_h / 2 - v.y * (frame->w / 2) / v.z);
     /* Distant glows (a far exhaust) still light one pixel. */
-    size = g->radius / 4 * (frame->w / 2) / v.z * 4;
+    size = muldiv(g->radius, frame->w / 2, v.z);
     r = size < 1 ? 1 : size > frame->w ? frame->w : (int)size;
     if (cx + r < 0 || cx - r >= frame->w || cy + r < 0 || cy - r >= view_h) return;
     depth = (uint32_t)(1073741824LL / (near < 8 ? 8 : near));

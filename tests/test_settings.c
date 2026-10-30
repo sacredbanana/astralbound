@@ -76,19 +76,23 @@ static void menus(void) {
     Settings s; Launcher m; int i,preset;
     char name[48],value[48];
     settings_defaults(&s,1); launcher_init(&m,&s,0,0);
-    m.selected=1; launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.mode==VIDEO_ECS);
-    assert(launcher_rows(&m)==12);
+    m.selected=2; launcher_key(&m,LAUNCH_RIGHT); assert(m.settings.mode==VIDEO_ECS);
+    assert(launcher_rows(&m)==13);
+    launcher_row(&m,1,name,sizeof(name),value,sizeof(value));
+    assert(!strcmp(name,"SOLAR SYSTEM TOUR") && !value[0]);
+    m.selected=1; assert(launcher_key(&m,'\r')==LAUNCH_TOUR);
+    assert(launcher_pointer(&m,200,LAUNCHER_ROW_TOP+LAUNCHER_ROW_PITCH+4,1)==LAUNCH_TOUR); launcher_pointer(&m,0,0,0);
     for(i=0;i<launcher_rows(&m);i++) {
         launcher_row(&m,i,name,sizeof(name),value,sizeof(value));
         assert(strcmp(name,"RENDERER") && strcmp(name,"BEZIER RINGS") && strcmp(name,"3D PIXEL SIZE"));
     }
     /* Graphics Options opens from every preset without changing it. */
     for(preset=0;preset<QUALITY_CUSTOM;preset++) {
-        settings_preset(&m.settings,preset); m.page=0; m.selected=4;
+        settings_preset(&m.settings,preset); m.page=0; m.selected=5;
         launcher_key(&m,'\r'); assert(m.page==1 && m.settings.preset==preset);
         launcher_key(&m,27);
     }
-    settings_preset(&m.settings,QUALITY_MEDIUM); m.selected=4; launcher_key(&m,'\r');
+    settings_preset(&m.settings,QUALITY_MEDIUM); m.selected=5; launcher_key(&m,'\r');
     assert(m.page==1 && m.group==0);
     launcher_row(&m,0,name,sizeof(name),value,sizeof(value));
     assert(!strcmp(name,"RENDERER") && !strcmp(value,"CLASSIC"));
@@ -118,13 +122,14 @@ static void menus(void) {
     m.selected=launcher_graphics_rows(&m); launcher_key(&m,'\r');
     assert(m.group==GRAPHICS_MENU_PAGES-1 && m.selected<launcher_rows(&m));
     m.selected=launcher_graphics_rows(&m)+2; launcher_key(&m,'\r');
-    assert(m.page==0 && m.selected==4);
+    assert(m.page==0 && m.selected==5);
     assert(launcher_pointer(&m,200,49,1)==LAUNCH_PLAY);
     assert(launcher_pointer(&m,200,49,1)==0); launcher_pointer(&m,200,49,0);
-    m.selected=5; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
+    m.selected=6; m.test_scene=-1; launcher_key(&m,LAUNCH_RIGHT); assert(m.test_scene==0);
     launcher_key(&m,LAUNCH_LEFT); assert(m.test_scene==-1);
-    m.selected=11; assert(launcher_key(&m,'\r')==LAUNCH_QUIT);
-    puts("PASS graphics-only renderer/Bezier controls, all four pages, preset entry and pointer activation");
+    m.selected=7; assert(launcher_key(&m,'\r')==LAUNCH_TEST);
+    m.selected=12; assert(launcher_key(&m,'\r')==LAUNCH_QUIT);
+    puts("PASS graphics-only renderer/Bezier controls, all four pages, preset entry, tour row and pointer activation");
 }
 static void capabilities(void) {
     Settings s; Launcher m; int i;

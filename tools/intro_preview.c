@@ -8,10 +8,12 @@
      intro_preview --stream 25 | ffmpeg -f rawvideo -pixel_format rgb24
          -video_size 320x256 -framerate 25 -i - -i sound.wav intro.mp4
    --ecs, --ntsc and --rtg select the display layout.
-   --classic or --enhanced selects the renderer; --preset selects detail. */
+   --classic or --enhanced selects the renderer; --preset selects detail.
+   --tour renders the Solar System tour instead of the title sequence. */
 #include "astralbound.h"
 #include "settings.h"
 #include "intro.h"
+#include "tour.h"
 #include "audio.h"
 #include "music.h"
 #include <stdio.h>
@@ -20,6 +22,17 @@
 #include <strings.h>
 static Game g;
 static Intro intro;
+static Tour tour;
+static int touring;
+/* The title sequence or the tour, behind one interface. */
+static void start(void) {
+    if (touring) tour_start(&tour, &g, 0x53504143); else intro_start(&intro, &g, 0x53504143);
+}
+static int running(void) { return touring ? tour.running : intro.running; }
+static int position(void) { return touring ? tour.tick : intro.tick; }
+static int total(void) { return touring ? tour.length : INTRO_TICKS; }
+static void advance(int ticks) { if (touring) tour_frame(&tour, &g, ticks); else intro_frame(&intro, &g, ticks); }
+static void draw(Frame *f) { if (touring) render_tour(&tour, &g, f); else render_intro(&intro, &g, f); }
 static void put_ppm(FILE *o, const Frame *f) {
     int i;
     fprintf(o, "P6\n%d %d\n255\n", f->w, f->h);
@@ -38,8 +51,8 @@ static void put_rgb(FILE *o, const Frame *f) {
 static void put32(FILE *o, uint32_t v) { fputc((int)(v & 255), o); fputc((int)(v >> 8 & 255), o); fputc((int)(v >> 16 & 255), o); fputc((int)(v >> 24), o); }
 /* Advance to the tick without rendering. */
 static void seek(int tick) {
-    if (!intro.running || intro.tick > tick) intro_start(&intro, &g, 0x53504143);
-    if (tick > intro.tick) intro_frame(&intro, &g, tick - intro.tick);
+    if (!running() || position() > tick) start();
+    if (tick > position()) advance(tick - position());
 }
 int main(int argc, char **argv) {
     Frame f = {320, 256, 1, NULL, {0}};
@@ -53,6 +66,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--classic")) renderer_override = RENDERER_CLASSIC;
         else if (!strcmp(argv[i], "--enhanced")) renderer_override = RENDERER_ENHANCED;
         else if (!strcmp(argv[i], "--no-bezier")) bezier_override = 0;
+        else if (!strcmp(argv[i], "--tour")) touring = 1;
         else if (!strcmp(argv[i], "--preset") && i + 1 < argc) {
             int k;
             i++;
@@ -71,7 +85,7 @@ int main(int argc, char **argv) {
     f.pixels = malloc((size_t)f.w * f.h);
     if (!f.pixels || !render_init(&f) || i + 1 >= argc ||
         (strcmp(argv[i], "--stream") && i + 2 >= argc)) {
-        fputs("intro_preview [--ecs|--ntsc|--rtg] [--classic|--enhanced] [--no-bezier] [--preset NAME]"
+        fputs("intro_preview [--ecs|--ntsc|--rtg] [--classic|--enhanced] [--no-bezier] [--preset NAME] [--tour]"
               " --frame SECONDS OUT.ppm | --sheet STEP OUT.ppm |"
               " --stream FPS [OUT.wav]\n", stderr);
         return 1;
@@ -80,17 +94,20 @@ int main(int argc, char **argv) {
         FILE *o = fopen(argv[i + 2], "wb");
         seek((int)(atof(argv[i + 1]) * HZ));
         if (!o) return 1;
-        render_intro(&intro, &g, &f); put_ppm(o, &f); fclose(o);
+        draw(&f); put_ppm(o, &f); fclose(o);
     } else if (!strcmp(argv[i], "--sheet")) {
         /* Half-size thumbnails, ten to a row. */
-        int step = (int)(atof(argv[i + 1]) * HZ), count = (INTRO_TICKS + step - 1) / step, n, x, y;
-        int tw = f.w / 2, th = f.h / 2, cols = 10, rows = (count + cols - 1) / cols;
-        uint32_t *sheet = calloc((size_t)tw * cols * th * rows, sizeof(uint32_t));
+        int step = (int)(atof(argv[i + 1]) * HZ), count, n, x, y;
+        int tw = f.w / 2, th = f.h / 2, cols = 10, rows;
+        uint32_t *sheet;
+        start();
+        count = (total() + step - 1) / step; rows = (count + cols - 1) / cols;
+        sheet = calloc((size_t)tw * cols * th * rows, sizeof(uint32_t));
         FILE *o = fopen(argv[i + 2], "wb");
         if (!sheet || !o) return 1;
         for (n = 0; n < count; n++) {
             seek(n * step);
-            render_intro(&intro, &g, &f);
+            draw(&f);
             for (y = 0; y < th; y++) for (x = 0; x < tw; x++)
                 sheet[(size_t)(n / cols * th + y) * tw * cols + n % cols * tw + x] = f.palette[f.pixels[y * 2 * f.w + x * 2]];
         }
@@ -100,31 +117,32 @@ int main(int argc, char **argv) {
         }
         fclose(o); free(sheet);
     } else if (!strcmp(argv[i], "--stream")) {
-        int fps = atoi(argv[i + 1]), frame_count = INTRO_TICKS * fps / HZ, n, done = 0;
+        int fps = atoi(argv[i + 1]), frame_count, n, done = 0;
         FILE *wav = i + 2 < argc ? fopen(argv[i + 2], "wb") : NULL;
         SpaceAudio sound;
         int8_t pcm[AUDIO_RATE / HZ];
         if (fps <= 0) return 1;
+        start();
+        frame_count = total() * fps / HZ;
         if (wav) {
-            uint32_t bytes = (uint32_t)INTRO_TICKS * (AUDIO_RATE / HZ);
+            uint32_t bytes = (uint32_t)total() * (AUDIO_RATE / HZ);
             music_load("music", 1);
             fputs("RIFF", wav); put32(wav, 36 + bytes); fputs("WAVEfmt ", wav); put32(wav, 16);
             put32(wav, 1 | 1 << 16); put32(wav, AUDIO_RATE); put32(wav, AUDIO_RATE); put32(wav, 1 | 8 << 16);
             fputs("data", wav); put32(wav, bytes);
         }
-        intro_start(&intro, &g, 0x53504143);
         audio_init(&sound, &g);
         for (n = 0; n < frame_count; n++) {
             int target = n * HZ / fps;
             while (done < target) {
-                if (intro.running) intro_frame(&intro, &g, 1);
+                if (running()) advance(1);
                 done++;
                 audio_observe(&sound, &g);
                 audio_mix(&sound, pcm, sizeof(pcm));
                 if (wav) { int k; for (k = 0; k < (int)sizeof(pcm); k++) fputc(pcm[k] + 128, wav); }
             }
-            if (!intro.running) break;
-            render_intro(&intro, &g, &f);
+            if (!running()) break;
+            draw(&f);
             put_rgb(stdout, &f);
         }
         if (wav) fclose(wav);

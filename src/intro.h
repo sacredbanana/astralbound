@@ -18,6 +18,10 @@ typedef struct {
     /* Presentation for the current tick, rebuilt by every script step. */
     Vec eye; /* Q8 system position */
     int yaw, pitch, roll;
+    /* When exact, the Q14 right/up/front axes replace the table angles for
+       turns finer than a table step; the angles stay close for effects. */
+    int exact;
+    Vec axes[3];
     int hero; /* draw the commander's hull at g->pos */
     int escort; /* draw the ally hull */
     IntroHull ally;

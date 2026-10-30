@@ -7,6 +7,7 @@
 #include "body_map.h"
 #include "fpu.h"
 #include "intro.h"
+#include "tour.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -170,7 +171,13 @@ static void text(int x, int y, int c, const char *s) {
             rect(x, y + 3, 5, 1, c);
         else if (ch == '.')
             pixel(x + 2, y + 6, c);
-        else if (ch == ':') {
+        else if (ch == ',') {
+            pixel(x + 2, y + 6, c);
+            pixel(x + 1, y + 7, c);
+        } else if (ch == '\'') {
+            pixel(x + 2, y, c);
+            pixel(x + 2, y + 1, c);
+        } else if (ch == ':') {
             pixel(x + 2, y + 2, c);
             pixel(x + 2, y + 5, c);
         } else if (ch == '/')
@@ -4139,6 +4146,7 @@ static void render_game_full(const Game *g, Frame *f) {
     if (cinema) {
         camera_position = cinema->eye;
         camera_yaw = cinema->yaw; camera_pitch = cinema->pitch; camera_roll = cinema->roll;
+        if (cinema->exact) view_basis(cinema->axes);
     } else if (g->death_started) {
         const Wreck *w = &g->wrecks[0];
         Vec up = w->body < 0 ? vec(0, 16384, 0) :
@@ -4371,6 +4379,7 @@ void c2p(const uint8_t *src, uint8_t *dst, int width, int height, int depth) {
 }
 
 #include "render_intro.inc"
+#include "render_tour.inc"
 
 /* Launch UI is deliberately a flat 320x200 page, with no animated backdrop. */
 void render_launcher(const Launcher *m, Frame *f) {

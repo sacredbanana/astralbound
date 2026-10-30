@@ -3,7 +3,8 @@
 #define ASTRALBOUND_LAUNCHER_H
 #include "performance.h"
 enum { LAUNCH_UP=1001, LAUNCH_DOWN, LAUNCH_LEFT, LAUNCH_RIGHT };
-enum { LAUNCH_NONE, LAUNCH_PLAY, LAUNCH_TEST, LAUNCH_QUIT };
+/* 4 asks the platform to save settings and stay in the menu. */
+enum { LAUNCH_NONE, LAUNCH_PLAY, LAUNCH_TEST, LAUNCH_QUIT, LAUNCH_TOUR = 5 };
 /* Row geometry of the 320x200 launcher page, shared by drawing and pointer. */
 #define LAUNCHER_ROW_TOP 44
 #define LAUNCHER_ROW_PITCH 9

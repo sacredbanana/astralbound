@@ -132,7 +132,8 @@ first-launch defaults. The installer preserves both preferences and commanders.
 
 `--nomenu` (Workbench `NOMENU`) bypasses setup using saved settings. Mode flags,
 `--lowres`, `--nosound` and `--nointro` prefill setup; `--preset low|medium|high|ultra|custom`
-selects a preset. `--benchmark` runs the suite directly and prints its results. `--profile` on Amiga retains
+selects a preset. `--benchmark` runs the suite directly and prints its results. `--tour`
+plays the Solar System tour directly. `--profile` on Amiga retains
 its 120-frame flight timing mode and bypasses setup. Headless host frame previews
 bypass setup and use deterministic defaults unless flags select another preset;
 `--render-menu FILE.ppm [--custom]` previews the setup pages. Host `--config PATH`
@@ -163,6 +164,29 @@ or the `NOINTRO` tooltype disables it. Host preview flags that stage a scene
 `--render-intro SECONDS FILE.ppm` writes one frame of the sequence. `make intro-preview`
 writes a contact sheet to `build/intro-sheet.ppm`; `build/intro-preview --stream`
 writes raw frames and a WAV for encoding a video (usage in `tools/intro_preview.c`).
+
+## Solar System tour
+
+**Solar System Tour**, the second row of the setup menu, flies one unbroken camera
+path from deep space to the Sun, past all eight planets and their 20 major moons, then
+Pluto and Charon, and back out to view the Sun from 60 AU (just over six
+minutes). Each body gets a card: its name, measured radius and surface gravity, and
+three or four facts typed beneath a letterboxed view. Between bodies the bars show
+the destination, range, speed and progress along the route. Music comes from the
+`intro` folder (space-flight if empty), as for the title sequence.
+
+Flights never cut. The camera leaves a body on a sphere whose radius grows
+exponentially, so the body recedes at a steady rate at any scale. It swings onto
+the line to the next body and arrives the same way in reverse, with speed peaking
+between them. A hop from Earth to the Moon and the crossing from Uranus to Neptune
+each take a few seconds. The view turns about the camera's own up and levels gently
+toward ecliptic north. World time is frozen at J2000. Each moon is moved round its
+real orbit to show it lit with its planet behind it, and tidally locked moons turn
+with their orbits, so they keep their real near sides. Ports and traffic are hidden.
+Unmapped moons use the engine's generic surfaces. It runs in both renderers and on
+ECS, AGA and RTG. Any key, mouse button, fire or controller button returns to setup.
+`build/intro-preview --tour` writes its frames, sheets and soundtrack like the title
+sequence's.
 
 `--render FILE.ppm --surface` and `--render FILE.ppm --orbit` write deterministic
 frames without opening a window. `--render FILE.ppm --city-overhead --rtg`
@@ -532,8 +556,8 @@ work is tracked in [docs/roadmap.md](docs/roadmap.md), and current test evidence
 
 The supplied ProTracker MODs are installed in the `music` drawer beside the
 executable. You can add more tracks directly to `battle`, `planetary-flight`, `space-flight`,
-`docked`, `game-over` and `intro` (the title sequence; without it, space-flight
-music plays). The host preview also checks the repository's `music`
+`docked`, `game-over` and `intro` (the title sequence and Solar System tour;
+without it, space-flight music plays). The host preview also checks the repository's `music`
 folder when launched there. Both `tune.mod` and `MOD.tune` names are recognized,
 case-insensitively. The ZIP/LHA packages include the repository music tracks.
 

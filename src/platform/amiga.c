@@ -6,6 +6,7 @@
 #include "native_video.h"
 #include "controller.h"
 #include "intro.h"
+#include "tour.h"
 #include "launcher.h"
 #include <proto/lowlevel.h>
 #include <libraries/lowlevel.h>
@@ -51,10 +52,11 @@ static ULONG pad_state;
 static uint64_t analog_last;
 static int profiling, show_intro = 1;
 static Intro intro;
+static Tour tour;
 static Settings preferences;
 static Launcher launch_menu;
 static Performance performance;
-static int testing, testing_armed, no_menu;
+static int testing, testing_armed, no_menu, touring;
 static BPTR wb_old_dir;
 static int wb_changed;
 static struct MsgPort *timer_port;
@@ -485,6 +487,7 @@ int main(int argc, char **argv) {
     for (i = 1; i < argc; i++) {
         if(!strcmp(argv[i],"--nomenu")) no_menu=1;
         else if(!strcmp(argv[i],"--benchmark")) { testing=1; no_menu=1; }
+        else if(!strcmp(argv[i],"--tour")) { touring=1; no_menu=1; }
         else if(!strcmp(argv[i],"--preset") && i+1<argc) {
             static const char *names[]={"low","medium","high","ultra","custom"}; int k; i++;
             for(k=0;k<5;k++) if(!strcmp(argv[i],names[k])) settings_preset(&preferences,k);
@@ -500,7 +503,7 @@ int main(int argc, char **argv) {
             lowres = 1;
         else if(!strcmp(argv[i],"--ecs")) aga=rtg=highcolour=0;
         else {
-            puts("Astralbound --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--nointro] [--profile] [--nomenu] [--preset low|medium|high|ultra|custom] [--benchmark]");
+            puts("Astralbound --ecs | --aga | --rtg | --rtg16 [--lowres] [--analog] [--nosound] [--nointro] [--profile] [--nomenu] [--preset low|medium|high|ultra|custom] [--benchmark] [--tour]");
             return 1;
         }
     }
@@ -509,7 +512,7 @@ int main(int argc, char **argv) {
     launcher_init(&launch_menu,&preferences,1,1);
 launch_again:
     accumulator=0; render_ticks=output_ticks=tick_start=0; frames=0; back=1; quit=0;
-    memset(&intro,0,sizeof(intro)); testing_armed=0;
+    memset(&intro,0,sizeof(intro)); memset(&tour,0,sizeof(tour)); testing_armed=0;
 
     GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR) "graphics.library", 39);
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR) "intuition.library", 39);
@@ -530,6 +533,7 @@ launch_again:
         if(!settings_save(&launch_menu.settings,settings_path)) puts("Graphics settings could not be saved.");
         if(action==LAUNCH_QUIT) { close_all(); return 0; }
         testing=action==LAUNCH_TEST;
+        touring=action==LAUNCH_TOUR;
         preferences=launch_menu.settings;
     }
     aga=preferences.mode==VIDEO_AGA; rtg=preferences.mode>=VIDEO_RTG;
@@ -563,6 +567,7 @@ launch_again:
     /* The title sequence chooses its light with DOS still running, so the
        search cannot stall a native display. Profiling measures flight. */
     if(testing) { performance_begin(&performance,&g,&preferences,launch_menu.test_scene); performance.report.width=f.w; performance.report.height=f.h; }
+    else if (touring) tour_start(&tour, &g, 0x53504143);
     else if (show_intro && !profiling) intro_start(&intro, &g, 0x53504143);
     if (analog) {
         PotgoBase = OpenResource((CONST_STRPTR)POTGONAME);
@@ -664,7 +669,7 @@ launch_again:
                     if (code == SELECTDOWN) mouse_left = 1;
                     if (code == SELECTUP) mouse_left = 0;
                     if (!mouse_right) mouse_stick(&mouse, 0, 0, 0);
-                    if (!testing && !intro.running) { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                    if (!testing && !intro.running && !tour.running) { int u = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
                       if (u == UI_SAVE) request = 1;
                       if (u == UI_LOAD) request = 2;
                       if (u == UI_EXIT) quit = 1;
@@ -672,7 +677,7 @@ launch_again:
                 } else if (m->Class == IDCMP_MOUSEMOVE) {
                     if (!mouse_right) {
                         ui_move(&g, &f, g.ui_x + m->MouseX, g.ui_y + m->MouseY);
-                        if (!testing && !intro.running) ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
+                        if (!testing && !intro.running && !tour.running) ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
                     }
                     mouse_stick(&mouse, m->MouseX, m->MouseY,
                                 mouse_right && g.page == FLIGHT && !g.paused);
@@ -687,7 +692,7 @@ launch_again:
             }
         } else
             keyboard();
-        if (!testing && input_active && !intro.running) {
+        if (!testing && input_active && !intro.running && !tour.running) {
             int ui_request = ui_pointer(&g, &f, g.ui_x, g.ui_y, mouse_left);
             if (ui_request == UI_SAVE) request = 1;
             if (ui_request == UI_LOAD) request = 2;
@@ -702,14 +707,16 @@ launch_again:
             if(pressed[0x45] || (testing_armed && buttons)) quit=1;
             memset(pressed,0,sizeof(pressed));
         }
-        if (intro.running) {
-            /* Any key, click, fire button or pad button skips the sequence. */
+        if (intro.running || tour.running) {
+            /* Any key, click, fire button or pad button skips the sequence;
+               skipping the tour returns to the launcher. */
             int skip = mouse_left || !(*(volatile UBYTE *)0xbfe001 & 0x80);
             ULONG type = pad_state & JP_TYPE_MASK;
             if (LowLevelBase && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK) &&
                 controller_buttons(pad_state)) skip = 1;
             for (i = 0; i < 128; i++) { skip |= pressed[i]; pressed[i] = 0; }
-            if (skip && intro_skippable(&intro)) {
+            if (skip && tour_skippable(&tour)) { tour_finish(&tour, &g); quit = 1; }
+            else if (skip && intro_skippable(&intro)) {
                 intro_finish(&intro, &g);
                 audio_init(&sound, &g);
             }
@@ -807,7 +814,7 @@ launch_again:
         }
         /* Fire already down when the commander steps out is not a tap. */
         if (!g.on_foot) walker = (FootStick){1, 1};
-        if (!testing && input_active && !g.ui_quit && !intro.running) {
+        if (!testing && input_active && !g.ui_quit && !intro.running && !tour.running) {
             ULONG type = pad_state & JP_TYPE_MASK;
             int usb_analog = type == JP_TYPE_ANALOGUE;
             unsigned buttons = !analog && (type == JP_TYPE_GAMECTLR || type == JP_TYPE_JOYSTK || usb_analog)
@@ -833,17 +840,20 @@ launch_again:
                 int due = (int)(accumulator / clock_rate);
                 accumulator -= (uint64_t)due * clock_rate;
                 if(testing) performance_animate(&performance,&g);
+                else if (tour.running) { if (!tour_frame(&tour, &g, due)) quit = 1; }
                 else if (intro.running) {
                     if (!intro_frame(&intro, &g, due)) audio_init(&sound, &g);
                 } else game_frame(&g, c, due);
                 g.draw_lag = 256 - (int)(accumulator * 256 / clock_rate);
             }
         }
+        if (quit && touring) break;
         sound_update();
         if (profiling) tick_start = clock_now();
         if(testing) render_start=clock_now();
         g.ui_visible = input_active && !mouse_right && !intro.running;
-        if (intro.running) render_intro(&intro, &g, &f);
+        if (tour.running) render_tour(&tour, &g, &f);
+        else if (intro.running) render_intro(&intro, &g, &f);
         else if(testing) render_performance_scene(&g,&f);
         else render_game(&g, &f);
         if(testing) { render_performance(&performance,&f); output_start=clock_now(); }
@@ -898,11 +908,12 @@ launch_again:
     close_all();
     if(testing) performance_print(stdout,&performance.report);
     if(testing && !no_menu) { launcher_results(&launch_menu,&performance.report); goto launch_again; }
+    if(touring && !no_menu) goto launch_again;
     return 0;
 session_failed:
     close_all();
     if(no_menu || profiling) return 1;
     snprintf(launch_menu.message,sizeof(launch_menu.message),"VIDEO/MEMORY FAILED - LOWER OPTIONS");
-    launch_menu.page=0; launch_menu.selected=1;
+    launch_menu.page=0; launch_menu.selected=2;
     goto launch_again;
 }

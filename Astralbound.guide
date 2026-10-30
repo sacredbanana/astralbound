@@ -14,6 +14,7 @@
   @{"Installation " link install}
   @{"Startup / GFX" link graphics}
   @{"Title        " link intro}
+  @{"Sol Tour     " link tour}
   @{"Flight       " link flight}
   @{"Dock / Ashore" link parking}
   @{"Navigation   " link navigation}
@@ -127,7 +128,7 @@
 @node intro "Title Sequence"
 @toc main
 @prev graphics
-@next flight
+@next tour
 
   After Start Game, the optional title sequence runs for three minutes: a
   courier lifts off from Haven at dawn, meets an escort in the rain and
@@ -143,6 +144,32 @@
 
   Music: MODs in the intro drawer of the music folder play during the
   sequence. If that drawer is empty, space-flight music is used.
+
+@endnode
+
+@node tour "Solar System Tour"
+@toc main
+@prev intro
+@next flight
+
+  Solar System Tour, the second row of the setup menu, flies one unbroken
+  camera path from deep space to the Sun, past all eight planets and their
+  20 major moons, then Pluto and Charon, and out to see the Sun from 60 AU.
+  It lasts just over six minutes.
+
+  Each body gets a card: its name, measured radius and surface gravity,
+  and three or four facts typed beneath the view. Between bodies the bars
+  show the destination, its range, the camera's speed and progress along
+  the route.
+
+  The camera never cuts. It pulls away from each body exponentially, so
+  the body shrinks steadily at any distance, swings onto the line to the
+  next body and closes on it the same way. Moons are shown lit with their
+  planets behind them. Tidally locked moons keep their real near sides.
+
+  Any key, mouse button, fire or CD32 button returns to setup. --tour
+  plays it directly. Music comes from the intro drawer, as for the title
+  sequence. It runs in both renderers and on ECS, AGA and RTG.
 
 @endnode
 
@@ -629,7 +656,8 @@
   Services S / Contracts B / Market M / Shipyard U / Equipment 0 / Crew 9
   Steer arrows / Set speed W S / Fire Ctrl / Assist E / Exit or Board K
   Time [ ] / Pause Space / Save F5 / Load F9 / Quit dialog Escape
-  Any key skips the title sequence; --nointro or NOINTRO disables it
+  Any key skips the title sequence or tour; --nointro or NOINTRO disables
+  the title sequence
 
   @{"Flight details" link flight}
   @{"Navigation    " link navigation}

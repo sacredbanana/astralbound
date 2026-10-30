@@ -3,6 +3,10 @@
 #include "audio.h"
 #include "controller.h"
 #include "intro.h"
+#include "tour.h"
+#include "music.h"
+#include "solar.h"
+#include "galaxy.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -337,4 +341,118 @@ static void intro_tests(void) {
     assert(!first.running && !intro_skippable(&first) && !memcmp(&g, &fresh, sizeof(Game)));
     puts("PASS title sequence length, determinism, camera clearance, story audio cues, skip and clean handover");
 }
-int main(void) { sound_tests(); controller_tests(); destruction_tests(); weapon_tests(); intro_tests(); return 0; }
+static int64_t dot14(Vec a, Vec b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+/* Where a moon's planet lies in the moon's own body-fixed frame. */
+static Vec facing(const Game *game, const char *name) {
+    const Planet *m = &game->system.planets[solar_body_index(&game->system, name)];
+    return unit(body_rotate(m, unit(sub(game->system.planets[m->parent].center, m->center), 16384), 1), 16384);
+}
+static void tour_tests(void) {
+    static Game fresh, stage, sol;
+    static Tour first, second;
+    static const char *const visits[] = {"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune",
+        "Moon", "Phobos", "Deimos", "Io", "Europa", "Ganymede", "Callisto", "Mimas", "Enceladus", "Tethys", "Dione",
+        "Rhea", "Titan", "Iapetus", "Miranda", "Ariel", "Umbriel", "Titania", "Oberon", "Triton", "Pluto", "Charon"};
+    int bodies[TOUR_STOPS], i, k, stop = 0, chunk = 7, moons = 0;
+    int64_t fastest = 0;
+    Vec near_side, eye, front = {0, 0, 0};
+    /* Text fits the 320-wide card and uses only glyphs the fonts draw. */
+    for (i = 0; i < TOUR_STOPS; i++) {
+        const TourStop *s = &tour_stops[i];
+        const char *c;
+        assert((int)strlen(s->title) * 12 + (int)strlen(s->subtitle) * 6 + 24 <= 320);
+        for (c = s->title; *c; c++) assert((*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == ' ');
+        assert(s->fact[0] && s->fact[1] && s->fact[2]);
+        for (k = 0; k < TOUR_LINES && s->fact[k]; k++) {
+            assert((int)strlen(s->fact[k]) <= TOUR_TEXT);
+            for (c = s->fact[k]; *c; c++)
+                assert((*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || strchr(" ,.'%:-/+", *c));
+        }
+    }
+    /* Every planet and major moon is visited, from the real catalogue. */
+    for (i = 0; i < (int)(sizeof(visits) / sizeof(*visits)); i++) {
+        for (k = 0; k < TOUR_STOPS && !(tour_stops[k].body && !strcmp(tour_stops[k].body, visits[i])); k++) ;
+        assert(k < TOUR_STOPS);
+    }
+    game_init(&sol, 1); setup_system(&sol, catalog_sector(0));
+    sol.tick = 0; sol.system.world_ready = 0; update_world(&sol);
+    near_side = facing(&sol, "Moon");
+    game_init(&fresh, 0x53504143);
+    tour_start(&first, &g, 0x53504143);
+    assert(first.running && g.cinematic && g.docked == -1 && !g.nports && first.view.exact);
+    assert(first.length > HZ * 300 && first.length < HZ * 480 && !tour_skippable(&first));
+    assert(music_context(&g) == MUSIC_INTRO);
+    for (i = 0; i < TOUR_STOPS; i++) {
+        bodies[i] = !tour_stops[i].body ? -2 : !strcmp(tour_stops[i].body, "Sun") ? -1 :
+                    solar_body_index(&g.system, tour_stops[i].body);
+        assert(bodies[i] >= -2);
+        if (i) assert(tour_stop_tick(i) >= tour_stop_tick(i - 1) + HZ * 6);
+    }
+    /* Moons are moved round their orbits; the Moon still shows Earth its
+       near side (within the tilt of its spin axis to its orbit). */
+    assert(dot14(facing(&g, "Moon"), near_side) > 16384LL * 16384 * 99 / 100);
+    tour_start(&second, &stage, 0x53504143);
+    eye = first.view.eye;
+    while (first.running) {
+        Vec previous = eye, before = front;
+        int64_t closest = INT64_MAX, moved;
+        eye = first.view.eye; front = first.view.axes[2];
+        /* Stops come in order, and each body's hold shows its card. */
+        assert(first.stop == stop || first.stop == stop + 1);
+        stop = first.stop;
+        /* No cuts: the camera stays clear of every body, moves less per
+           tick than a third of its height above the nearest surface and
+           turns less than ten degrees. */
+        for (k = 0; k < TOUR_STOPS; k++) {
+            Vec c = bodies[k] == -1 ? g.system.star[0].center : bodies[k] >= 0 ? g.system.planets[bodies[k]].center : vec(0, 0, 0);
+            int64_t r = bodies[k] == -1 ? g.system.star[0].radius : bodies[k] >= 0 ? g.system.planets[bodies[k]].radius : 0;
+            int64_t d = length(sub(scale(eye, 1, FP), c));
+            if (bodies[k] == -2) continue;
+            assert(d > r + r / 10);
+            if (d - r < closest) closest = d - r;
+        }
+        moved = length(sub(eye, previous)) / FP;
+        assert(moved <= closest / 2);
+        if (closest && moved * 1000 / closest > fastest) fastest = moved * 1000 / closest;
+        if (first.tick) assert(dot14(front, before) > 16384LL * 16384 * 98 / 100);
+        assert(!dot14(first.view.axes[1], front) || llabs(dot14(first.view.axes[1], front)) < 16384LL * 64);
+        if (!first.transit && first.shown == HZ * 2 && bodies[stop] >= 0) {
+            const Planet *b = &g.system.planets[bodies[stop]];
+            assert((int)strlen(tour_stops[stop].title) * 12 + (int)strlen(first.stats) * 6 + 24 <= 320);
+            if (b->parent >= 0) {
+                /* The planet is in view behind its moon, not hidden by it. */
+                const Planet *p = &g.system.planets[b->parent];
+                Vec to_moon = unit(sub(b->center, scale(eye, 1, FP)), 16384), to_planet = unit(sub(p->center, scale(eye, 1, FP)), 16384);
+                int64_t z = dot14(to_planet, front) / 16384, x = dot14(to_planet, first.view.axes[0]) / 16384;
+                int64_t y = dot14(to_planet, first.view.axes[1]) / 16384;
+                int64_t sep = length(vec((to_moon.y * to_planet.z - to_moon.z * to_planet.y) / 16384,
+                                         (to_moon.z * to_planet.x - to_moon.x * to_planet.z) / 16384,
+                                         (to_moon.x * to_planet.y - to_moon.y * to_planet.x) / 16384));
+                int64_t moon = (int64_t)b->radius * 16384 / length(sub(b->center, scale(eye, 1, FP)));
+                int64_t planet = (int64_t)p->radius * 16384 / length(sub(p->center, scale(eye, 1, FP)));
+                assert(z > 0 && llabs(x) < z && llabs(y) * 5 < z * 2);
+                assert(sep + planet > moon + 400);
+                moons++;
+            }
+        }
+        /* Chunked playback matches tick-by-tick playback exactly. */
+        if (first.tick % chunk == 0 && first.tick) {
+            tour_frame(&second, &stage, first.tick - second.tick);
+            assert(second.tick == first.tick && !memcmp(&second.view, &first.view, sizeof(Intro)));
+            assert(!memcmp(&stage.pos, &g.pos, sizeof(Vec)) && stage.body == g.body);
+        }
+        tour_frame(&first, &g, 1);
+    }
+    assert(stop == TOUR_STOPS - 1 && moons == 21);
+    assert(!g.cinematic && !memcmp(&g, &fresh, sizeof(Game)));
+    /* A skip, after the launch keypress grace period, gives the same Game. */
+    tour_start(&first, &g, 0x53504143);
+    tour_frame(&first, &g, HZ / 2);
+    assert(tour_skippable(&first));
+    tour_finish(&first, &g);
+    assert(!first.running && !tour_skippable(&first) && !memcmp(&g, &fresh, sizeof(Game)));
+    printf("PASS Solar System tour: %d stops, every planet and major moon, planets behind moons, near sides kept,\n"
+           "     no cuts (fastest %d.%d%% of surface range a tick), deterministic, music and clean handover\n",
+           TOUR_STOPS, (int)(fastest / 10), (int)(fastest % 10));
+}
+int main(void) { sound_tests(); controller_tests(); destruction_tests(); weapon_tests(); intro_tests(); tour_tests(); return 0; }

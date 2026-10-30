@@ -6,6 +6,7 @@
 #include "music.h"
 #include "controller.h"
 #include "intro.h"
+#include "tour.h"
 #include "launcher.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -14,6 +15,8 @@
 #include <strings.h>
 static Game g;
 static Intro intro;
+static Tour tour;
+static int touring; /* the launcher asked for the Solar System tour */
 static Settings preferences;
 static Performance performance;
 static int testing, test_scene=-1;
@@ -147,7 +150,9 @@ static int host_run(int argc, char **argv) {
         render_shutdown();
         return 0;
     }
+    memset(&tour,0,sizeof(tour));
     if(testing) { performance_begin(&performance,&g,&preferences,test_scene); performance.report.width=f.w; performance.report.height=f.h; }
+    else if (touring) tour_start(&tour, &g, 0x53504143);
     else if (show_intro) intro_start(&intro, &g, 0x53504143);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "%s\n", SDL_GetError());
@@ -210,8 +215,8 @@ static int host_run(int argc, char **argv) {
                 if(e.type==SDL_QUIT || (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_ESCAPE) || e.type==SDL_JOYBUTTONDOWN || e.type==SDL_CONTROLLERBUTTONDOWN || e.type==SDL_MOUSEBUTTONDOWN) quit=1;
                 continue;
             }
-            if (intro.running) {
-                /* Any key, button or click skips the title sequence. */
+            if (intro.running || tour.running) {
+                /* Any key, button or click skips the title sequence or tour. */
                 if (e.type == SDL_QUIT) quit = 1;
                 if ((e.type == SDL_KEYDOWN && !e.key.repeat) || e.type == SDL_MOUSEBUTTONDOWN ||
                     e.type == SDL_JOYBUTTONDOWN || e.type == SDL_CONTROLLERBUTTONDOWN) skip = 1;
@@ -271,7 +276,10 @@ static int host_run(int argc, char **argv) {
                     game_action(&g, k);
             }
         }
-        if (intro.running) {
+        if (tour.running) {
+            /* Skipping or finishing the tour returns to the launcher. */
+            if (skip && tour_skippable(&tour)) { tour_finish(&tour, &g); quit = 1; }
+        } else if (intro.running) {
             if (skip && intro_skippable(&intro)) intro_finish(&intro, &g);
         } else if(!testing) ui_pointer(&g, &f, g.ui_x, g.ui_y, g.ui_down);
         keys = SDL_GetKeyboardState(0);
@@ -280,7 +288,7 @@ static int host_run(int argc, char **argv) {
             SDL_SetRelativeMouseMode(SDL_FALSE);
             mouse_stick(&mouse, 0, 0, 0);
         }
-        if (!testing && !intro.running && !g.ui_quit && g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
+        if (!testing && !intro.running && !tour.running && !g.ui_quit && g.page == FLIGHT && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             c.pitch = keys[SDL_SCANCODE_DOWN] - keys[SDL_SCANCODE_UP];
             c.roll = keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
             c.thrust = keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S];
@@ -316,7 +324,7 @@ static int host_run(int argc, char **argv) {
         }
         /* Fire already down when the commander steps out is not a tap. */
         if (!g.on_foot) walker = (FootStick){1, 1};
-        if (!testing && !intro.running && !g.ui_quit && gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
+        if (!testing && !intro.running && !tour.running && !g.ui_quit && gamepad && (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS)) {
             unsigned buttons = 0;
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_A)) buttons |= PAD_FIRE;
             if (SDL_GameControllerGetButton(gamepad, SDL_CONTROLLER_BUTTON_B)) buttons |= PAD_BRAKE;
@@ -340,6 +348,7 @@ static int host_run(int argc, char **argv) {
             int due = (int)(accumulator / freq);
             accumulator -= (uint64_t)due * freq;
             if(testing) performance_animate(&performance,&g);
+            else if (tour.running) { if (!tour_frame(&tour, &g, due)) quit = 1; }
             else if (intro.running) intro_frame(&intro, &g, due);
             else game_frame(&g, c, due);
             g.draw_lag = 256 - (int)(accumulator * 256 / freq);
@@ -355,9 +364,11 @@ static int host_run(int argc, char **argv) {
         if(testing) performance_audio(&performance,&sound,&g);
         else audio_observe(&sound, &g);
         if (audio_device) SDL_UnlockAudioDevice(audio_device);
+        if (quit) break;
         g.ui_visible = !intro.running && !mouse_right && !!(SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS);
         render_start=SDL_GetPerformanceCounter();
-        if (intro.running) render_intro(&intro, &g, &f);
+        if (tour.running) render_tour(&tour, &g, &f);
+        else if (intro.running) render_intro(&intro, &g, &f);
         else if(testing) render_performance_scene(&g,&f);
         else render_game(&g, &f);
         if(testing) render_performance(&performance,&f);
@@ -467,6 +478,7 @@ int main(int argc, char **argv) {
         if(!strcmp(argv[i],"--render") || !strcmp(argv[i],"--render-intro") || !strcmp(argv[i],"--render-menu")) preview=1;
         if(!strcmp(argv[i],"--nomenu")) skip_menu=1;
         if(!strcmp(argv[i],"--benchmark")) { testing=1; skip_menu=1; }
+        if(!strcmp(argv[i],"--tour")) { touring=1; skip_menu=1; }
     }
     settings_defaults(&preferences,0);
     if(!preview) settings_load(&preferences,path);
@@ -501,8 +513,10 @@ int main(int argc, char **argv) {
         if(!settings_save(&menu.settings,path)) fprintf(stderr,"Unable to save graphics settings to %s\n",path);
         if(action==LAUNCH_QUIT) return 0;
         preferences=menu.settings; testing=action==LAUNCH_TEST; test_scene=menu.test_scene;
+        touring=action==LAUNCH_TOUR;
         result=host_run(argc,argv);
-        if(result) { snprintf(menu.message,sizeof(menu.message),"DISPLAY FAILED - LOWER OPTIONS OR CHANGE VIDEO"); menu.page=0; menu.selected=1; continue; }
+        if(result) { snprintf(menu.message,sizeof(menu.message),"DISPLAY FAILED - LOWER OPTIONS OR CHANGE VIDEO"); menu.page=0; menu.selected=2; continue; }
+        if(touring) continue;
         if(!testing) return result;
         launcher_results(&menu,&performance.report);
     }

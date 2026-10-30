@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Unlicense
    Both renderers, side by side: every performance scene (3D and interface)
-   and the title sequence in ECS, AGA and RTG must render deterministically,
+   the title sequence and the Solar System tour in ECS, AGA and RTG must
+   render deterministically,
    draw real content and stay inside their frame. Planet outlines must agree
    exactly between Enhanced and Classic, as both come from planet_view. */
 #include <assert.h>
@@ -9,9 +10,11 @@
 #include <string.h>
 #include "performance.h"
 #include "intro.h"
+#include "tour.h"
 #define GUARD 4096
 static Game g;
 static Intro intro;
+static Tour tour;
 typedef struct { int w, h, enhanced; const char *name; } Mode;
 static const Mode modes[] = {{320, 200, 0, "ECS"}, {320, 256, 1, "AGA"}, {640, 480, 1, "RTG"}};
 static uint8_t *buffer;
@@ -84,6 +87,47 @@ static void title_sequence(void) {
         render_shutdown();
     }
     puts("PASS title sequence through both renderers, frames in bounds");
+}
+/* Every display in both renderers: a hold at each body draws the body inside
+   the view between the bars, and holds and flights render identically twice. */
+static void solar_tour(void) {
+    static uint8_t first[640 * 480];
+    Settings s;
+    int renderer, mode, stop, checked = 0;
+    for (renderer = 0; renderer < 2; renderer++) for (mode = 0; mode < 3; mode++) {
+        Frame f = {modes[mode].w, modes[mode].h, modes[mode].enhanced, NULL, {0}};
+        int n = f.w * f.h, scale = f.w >= 640 ? 2 : 1;
+        settings_defaults(&s, 0); settings_preset(&s, QUALITY_HIGH);
+        render_graphics(&s.gfx); render_renderer(renderer);
+        f.pixels = frame_pixels(); memset(buffer, 0xA5, GUARD * 2 + 640 * 480);
+        assert(render_init(&f));
+        tour_start(&tour, &g, 0x53504143);
+        for (stop = 1; stop < TOUR_STOPS - 1; stop += 3) {
+            int hold = tour_stop_tick(stop) + HZ * 5, k, lit = 0, top = 28 * scale, bottom = f.h - 40 * scale;
+            tour_frame(&tour, &g, hold - tour.tick);
+            assert(tour.running && tour.stop == stop && !tour.transit);
+            render_tour(&tour, &g, &f); guards(f.w, f.h);
+            memcpy(first, f.pixels, (size_t)n);
+            render_tour(&tour, &g, &f);
+            assert(!memcmp(first, f.pixels, (size_t)n));
+            /* The body fills part of the view: count the pixels of its colours
+               near the centre of the view (stars are single pixels). */
+            for (k = 0; k < f.w * f.h; k++) {
+                int x = k % f.w, y = k / f.w;
+                if (y > top && y < bottom && x > f.w / 8 && x < f.w * 7 / 8 && f.pixels[k] != f.pixels[(top + 2) * f.w + 1]) lit++;
+            }
+            assert(lit > n / 100);
+            for (k = 0; k < f.w; k++) assert(f.pixels[(top - 1) * f.w + k] == f.pixels[(top - 1) * f.w]);
+            /* The flight onwards, a second out. */
+            tour_frame(&tour, &g, tour_stop_tick(stop + 1) - HZ - tour.tick);
+            assert(tour.transit && tour.stop == stop);
+            render_tour(&tour, &g, &f); guards(f.w, f.h);
+            assert(colours(f.pixels, n) >= 3);
+            checked += 2;
+        }
+        render_shutdown();
+    }
+    printf("PASS %d Solar System tour frames in ECS/AGA/RTG in both renderers, bodies drawn, deterministic and in bounds\n", checked);
 }
 /* Solid ocean-world silhouettes at three ranges, stars and atmosphere off.
    Translucent, differently shaded halos are tested separately; they must not
@@ -184,6 +228,7 @@ int main(void) {
     buffer = malloc(GUARD * 2 + 640 * 480);
     assert(buffer);
     full_resolution();
+    solar_tour();
     planet_outlines();
     bezier_option();
     scenes();
