@@ -65,6 +65,26 @@ def tiff_float(path):
     return a
 
 
+def tiff_u8(path):
+    """One-band uncompressed 8-bit strip TIFF (a USGS ISIS mosaic): linear
+    I/F, with 0 marking pixels no spacecraft imaged."""
+    d = Path(path).read_bytes()
+    bo = '<' if d[:2] == b'II' else '>'
+    ifd, = struct.unpack(bo + 'I', d[4:8])
+    tags = {}
+    for i in range(struct.unpack(bo + 'H', d[ifd:ifd + 2])[0]):
+        tag, kind, count, value = struct.unpack(bo + 'HHII', d[ifd + 2 + 12 * i:ifd + 14 + 12 * i])
+        if kind == 3 and count == 1:
+            value = struct.unpack(bo + 'H', d[ifd + 10 + 12 * i:ifd + 12 + 12 * i])[0]
+        tags[tag] = (kind, count, value)
+    w, h = tags[256][2], tags[257][2]
+    assert tags[258][2] == 8 and tags[259][2] == 1 and tags[277][2] == 1, '8-bit, uncompressed, one band'
+    offsets = np.frombuffer(d[tags[273][2]:tags[273][2] + 4 * h], bo + 'u4') if h > 1 else [tags[273][2]]
+    a = np.stack([np.frombuffer(d[o:o + w], np.uint8) for o in offsets]).astype(np.float64)
+    a[a == 0] = np.nan
+    return a
+
+
 def luminance(rgb):
     """Linear relative luminance of sRGB-encoded pixels."""
     lin = (rgb / 255) ** 2.2
@@ -76,17 +96,19 @@ def from_east(a, west):
     return np.roll(a, int(round((west + 180) / 360 * a.shape[1])), axis=1)
 
 
-def area_mean(a, weight=None):
-    """Mean of every source pixel whose centre falls in each 1-degree cell.
-    NaN pixels and zero weights are left out; empty cells become NaN."""
+def area_mean(a, weight=None, cells=1):
+    """Mean of every source pixel whose centre falls in each 1-degree cell,
+    or each 1/cells degree. NaN pixels and zero weights are left out; empty
+    cells become NaN."""
     h, w = a.shape
-    idx = ((np.arange(h) * H // h)[:, None] * W + (np.arange(w) * W // w)[None, :]).ravel()
+    gw, gh = W * cells, H * cells
+    idx = ((np.arange(h) * gh // h)[:, None] * gw + (np.arange(w) * gw // w)[None, :]).ravel()
     ok = ~np.isnan(a)
     wt = ok.astype(np.float64) if weight is None else weight * ok
-    s = np.bincount(idx, (np.where(ok, a, 0) * wt).ravel(), W * H)
-    c = np.bincount(idx, wt.ravel(), W * H)
+    s = np.bincount(idx, (np.where(ok, a, 0) * wt).ravel(), gw * gh)
+    c = np.bincount(idx, wt.ravel(), gw * gh)
     with np.errstate(invalid='ignore', divide='ignore'):
-        return (s / c).reshape(H, W)
+        return (s / c).reshape(gh, gw)
 
 
 def shift(a, dy, dx):
@@ -121,7 +143,7 @@ def latitudes(h):
 
 def write_pgm(name, a, top, comment=b''):
     a = np.clip(np.rint(a), 0, top).astype('>u2' if top > 255 else 'u1')
-    (OUT / name).write_bytes(b'P5\n' + comment + b'%d %d\n%d\n' % (W, H, top) + a.tobytes())
+    (OUT / name).write_bytes(b'P5\n' + comment + b'%d %d\n%d\n' % (a.shape[1], a.shape[0], top) + a.tobytes())
     print('wrote', name)
 
 
@@ -204,6 +226,54 @@ def mapped_image(src, folder, name, west, blank=False):
     write_albedo(name, fill(cells, 4) if blank else fill(cells))
 
 
+def mosaic(src, folder, name, west, cells=1, smooth=0):
+    """A USGS ISIS global mosaic (linear I/F) at 1/cells degree; west is
+    the east longitude of its left edge. Unimaged cells take neighbours'.
+    smooth: blur over this many cells, for a body whose look is regional."""
+    a = fill(area_mean(from_east(tiff_u8(next((src / folder).glob('*.tif'))), west), cells=cells), 4 * cells)
+    write_albedo(name, blur(a, smooth) if smooth else a)
+
+
+def blur(a, cells):
+    """Box blur over 2 * cells + 1 grid cells, three times (nearly Gaussian).
+    Longitude wraps; latitude clamps at the poles."""
+    for _ in range(3):
+        a = sum(np.roll(a, k, 1) for k in range(-cells, cells + 1)) / (2 * cells + 1)
+        rows = [np.vstack([np.repeat(a[:1], max(0, -k), 0), a[max(0, k):a.shape[0] + min(0, k)],
+                           np.repeat(a[-1:], max(0, k), 0)]) for k in range(-cells, cells + 1)]
+        a = sum(rows) / (2 * cells + 1)
+    return a
+
+
+def spread(a, cells, pick):
+    """Grey-level dilation (pick np.maximum) or erosion (np.minimum) over a
+    square of 2 * cells + 1 grid cells."""
+    for _ in range(cells):
+        rows = [np.vstack([a[:1], a[:-1]]), a, np.vstack([a[1:], a[-1:]])]  # poles repeat
+        a = pick.reduce([np.roll(r, dx, 1) for r in rows for dx in (-1, 0, 1)])
+    return a
+
+
+def europa(src):
+    """Europa's lineae: 10-20 km dark bands, and the dark spots of chaos
+    terrain. A black top-hat (closing minus image, over 2.5 degrees) keeps
+    only dark features narrower than that, not the broad dark hemispheres
+    or the steps where Galileo and Voyager tiles meet, and only those
+    deeper than the mosaic's grain. Each band is widened
+    by a half-degree cell either side, so the cube map's lattice cannot step
+    between them; beside unimaged ground there are none. Under them the
+    regional brightness is compressed to a gentle mottle, so the bands are
+    the darkest ground and alone take the body's dark ramp."""
+    raw = area_mean(from_east(tiff_u8(next((src / 'europa').glob('*.tif'))), 0), cells=2)
+    seen = spread(np.isfinite(raw).astype(np.float64), 4, np.minimum)
+    a = fill(raw, 8)
+    closing = spread(spread(a, 2, np.maximum), 2, np.minimum)
+    # Mosaic grain is 3% deep at the median; bands are over 10%.
+    depth = spread(np.maximum((closing - a) / closing * seen - 0.08, 0), 1, np.maximum)
+    regional = blur(a, 8)
+    write_albedo('europa-albedo.pgm', (regional / np.median(regional)) ** 0.3 * (1 - 3 * depth))
+
+
 def jupiter(src):
     """Cassini's map by whiteness (blue over red), not brightness: the Red
     Spot is no darker than a belt but much redder than its zone. Halfway to
@@ -251,7 +321,12 @@ SOURCES = {
     'uranus': lambda s: banded(s, 'uranus', 'uranus-albedo.pgm'),
     'neptune': lambda s: banded(s, 'neptune', 'neptune-albedo.pgm'),
     'io': lambda s: mapped_image(s, 'io', 'io-albedo.pgm', -180),
-    'europa': lambda s: mapped_image(s, 'europa', 'europa-albedo.pgm', 0, blank=True),
+    # The 500 m mosaics: Europa's left edge is 0E (360W); Iapetus's is
+    # 180W, with Cassini Regio dark across the leading hemisphere round 90W.
+    'europa': europa,
+    # Its photometry is flattened (dark and bright differ 1.5x, not 10x), so
+    # its two tones are drawn from the regional brightness, not craters.
+    'iapetus': lambda s: mosaic(s, 'iapetus', 'iapetus-albedo.pgm', -180, smooth=2),
     'ganymede': lambda s: mapped_image(s, 'ganymede', 'ganymede-albedo.pgm', 0, blank=True),
     'callisto': lambda s: mapped_image(s, 'callisto', 'callisto-albedo.pgm', 0, blank=True),
     # New Horizons: the south was in polar night, black in the mosaics.

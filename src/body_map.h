@@ -26,14 +26,14 @@ enum {
 #define BODY_MAP_ARID 2 /* land brighter than the median is desert (Earth) */
 struct BodyMap {
     const char *name;
-    int n, flags;
+    int n, flags;             /* n 0: palette ramps alone, no channels */
     const uint8_t *continent; /* ocean worlds: the continent field / 16 */
     const uint8_t *relief;    /* other worlds: 128 + metres / relief_step */
     int relief_step;
     const uint8_t *albedo;    /* 128 at the body's median reflectance */
     const uint8_t *ice;       /* 128 at the ice margin, frozen above */
     uint8_t ramp[6];          /* per material, RAMP_MATERIAL keeps the default */
-    uint8_t dark_ramp;        /* gas and veil: below-median albedo, or 0 */
+    uint8_t dark_ramp;        /* below-median albedo (belts, dark terrain), or 0 */
 };
 const BodyMap *body_map_find(const char *name);
 /* One channel at a body-fixed direction of any length, as 256 * value. */

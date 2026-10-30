@@ -311,13 +311,15 @@ static int disc_colour(const Disc *s, const DiscSample *m, int x, int y) {
         /* x/15 as x * 4369 >> 16, exact for these small products. */
         shade = shade * (8 + ((fz + 16384) * 2330 >> 22) % 8) * 4369 >> 16;
         shade = shade * (12 + fx * 2 / 16384 + fy / 16384) * 4369 >> 16;
-    } else if (material >= 1 && material <= 3) {
+    } else if (material >= 1 && material <= 4) {
         /* Sub-pixel lowland/forest/rock, mixed in their expected shares. */
-        if (s->field->type == OCEAN)
+        if (s->field->type == OCEAN && material <= 3)
             material = (bayer4[((y + 1) & 3) * 4 + ((x + 2) & 3)] * 16 + 8) < mix[2] ? 3 : 1;
         shade += m->albedo * shade / (14 * 256);
-    } else if (material == 4)
-        shade += m->albedo * shade / (14 * 256);
+        /* Measured dark ground takes its own ramp, dithered in like belts. */
+        if (s->field->map && s->field->map->albedo && s->field->map->dark_ramp)
+            dark = m->albedo + (t - 8) * 32 < 0;
+    }
     if (shade < 0) shade = 0;
     if (shade > 224) shade = 224;
     ramp = body_ramp(s->p, material, dark);

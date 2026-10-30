@@ -76,6 +76,7 @@ typedef struct {
     int eccentricity, ascending_node, periapsis; /* catalog ellipse; e in millionths */
     int catalog; /* 0 generated, 1 measured radius, 2 unknown radius (proxy geometry) */
     const BodyMap *map; /* measured Solar System surface maps, or NULL */
+    const BodyMap *palette; /* colour ramps: the map's, or alone over a procedural surface */
     Vec orbit_start, orbit_end, velocity;
     Vec cruise_velocity; /* transient averaged Q8 system velocity */
     int32_t spin_sin, spin_cos; /* transient Q30 rotation about body Z */

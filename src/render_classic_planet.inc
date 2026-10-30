@@ -388,9 +388,9 @@ static int cl_body_colour(void *ctx, unsigned mask) {
     else if (mask & CLB_ICE) material = 4;
     else if (b->type == OCEAN) material = mask & CLB_LAND ? (mask & CLB_ROCK ? 3 : 1) : 0;
     else material = b->material;
-    /* Belts take their own ramp where the body has one; elsewhere dark
-       regions are a step dimmer. */
-    if ((mask & CLB_DARK) && material == 5 && p->map && p->map->dark_ramp) dark = 1;
+    /* Belts and measured dark ground take their own ramp where the body has
+       one; elsewhere dark regions are a step dimmer. */
+    if ((mask & CLB_DARK) && material != 0 && p->map && p->map->albedo && p->map->dark_ramp) dark = 1;
     else if ((mask & CLB_DARK) && material != 0 && shade > 1) shade -= frame->enhanced ? 2 : p->map ? 1 : 0;
     ramp = body_ramp(p, material, dark);
     return frame->enhanced ? ramp->aga + shade * ramp->step : ramp->ecs + shade;

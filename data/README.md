@@ -201,19 +201,22 @@ Sources: [NASA Pluto facts](https://science.nasa.gov/dwarf-planets/pluto/facts/)
 
 ### Surface and cloud-top maps
 
-Sixteen Sol bodies take their planet-scale appearance from measured global maps
+Seventeen Sol bodies take their planet-scale appearance from measured global maps
 instead of seeded noise: Earth's coasts, deserts and ice sheets; Mars's relief,
 albedo and residual caps; the Moon's relief and maria; Mercury; Jupiter's belts
-and Red Spot; Saturn, Uranus and Neptune's bands; Io, Europa, Ganymede,
-Callisto, Pluto and Charon. Venus and Titan show their opaque cloud deck or haze
+and Red Spot; Saturn, Uranus and Neptune's bands; Io, Europa (with its lineae),
+Ganymede, Callisto, Iapetus's two tones, Pluto and Charon. The other moons
+have no global maps here; each takes palette ramps alone (`n` 0 in `maps.csv`)
+chosen from its colour in spacecraft images: grey Phobos, Deimos and Uranus's
+five, near-white Mimas, Enceladus, Tethys, Dione and Rhea, pale Triton. Venus and Titan show their opaque cloud deck or haze
 from orbit. Local landforms, ground texture and weather stay procedural on top.
 
 Each source was area-averaged to 1 degree by `tools/import_maps.py` into
 `data/maps/*.pgm` (equirectangular, -180..180 east, north up; heights 16-bit with
 their metre range in a `# metres` comment). `tools/compile_maps.py` bakes those,
 with the per-body choices in `maps.csv` (cube-map size, relief scale, albedo
-contrast, palette ramps), into `src/body_maps.inc`: about 120 KB of cube maps,
-24 to 48 cells per face edge. Both steps are offline; the second needs only
+contrast, reference level, palette ramps), into `src/body_maps.inc`: about 175 KB
+of cube maps, 24 to 96 cells per face edge. Both steps are offline; the second needs only
 Python's standard library, the first numpy and macOS `sips`.
 
 | Body | Product | Source |
@@ -227,16 +230,21 @@ Python's standard library, the first numpy and macOS `sips`.
 | Mercury | MESSENGER MDIS basemap, 1024 preview | [USGS Astrogeology](https://astrogeology.usgs.gov/ckan/dataset/17ebee80-ed66-485a-9b06-5ffd10e935e3) |
 | Jupiter | Cassini cylindrical map, December 2000 (PIA07782) | [NASA/JPL/SSI](https://assets.science.nasa.gov/content/dam/science/psd/photojournal/pia/pia07/pia07782/PIA07782.jpg) |
 | Saturn, Uranus, Neptune | Hubble OPAL global maps (Saturn 2025a, Uranus 2024a, Neptune 2025b) | [STScI MAST](https://archive.stsci.edu/hlsps/opal/) |
-| Io, Europa, Ganymede, Callisto | Galileo SSI/Voyager global mosaics, 1024 previews | [USGS Astrogeology](https://astrogeology.usgs.gov/ckan/dataset) |
+| Io, Ganymede, Callisto | Galileo SSI/Voyager global mosaics, 1024 previews | [USGS Astrogeology](https://astrogeology.usgs.gov/ckan/dataset) |
+| Europa | Voyager/Galileo SSI global mosaic, 500 m | [USGS Astrogeology](https://planetarymaps.usgs.gov/mosaic/Europa_Voyager_GalileoSSI_global_mosaic_500m.tif) |
+| Iapetus | Cassini/Voyager global mosaic, 783 m | [USGS Astrogeology](https://planetarymaps.usgs.gov/mosaic/Iapetus_Cassini_Voyager_mosaic_global_783m.tif) |
 | Pluto, Charon | New Horizons global mosaics, July 2017, 1024 previews | [USGS Astrogeology](https://astrogeology.usgs.gov/ckan/dataset) |
 
 Retrieved on 30 October 2026. Each product's longitude convention was checked
 against a landmark, not assumed: Caloris at 162.7E, Pele at 255W, Europa's dark
-trailing hemisphere, Ganymede's Galileo Regio, Callisto's Asgard, Sputnik
-Planitia west in Pluto's heart, and the turbulent wake trailing west of Jupiter's
-Red Spot. `tests/test_planet.c` asserts landmarks on the baked maps: oceans,
-deserts, forests and ice sheets on Earth, the Moon's maria and South Pole-Aitken,
-Olympus Mons above Hellas, Syrtis Major and the Martian caps, Jupiter's belts.
+trailing hemisphere (the 500 m mosaic matches the earlier preview with correlation
+0.98), Ganymede's Galileo Regio, Callisto's Asgard, Iapetus's Cassini Regio round
+its leading apex at 90W, Sputnik Planitia west in Pluto's heart, and the turbulent
+wake trailing west of Jupiter's Red Spot. `tests/test_planet.c` asserts landmarks
+on the baked maps: oceans, deserts, forests and ice sheets on Earth, the Moon's
+maria and South Pole-Aitken, Olympus Mons above Hellas, Syrtis Major and the
+Martian caps, Jupiter's belts, Cassini Regio, and Europa's dark ground as a few
+percent of narrow bands; and that no moon shows the generator's brown rock.
 
 Approximations:
 - Earth's dryness is a colour index of the cloud-free Blue Marble (red over green,
@@ -257,6 +265,16 @@ Approximations:
   ice, all but invisible in sunlight, and are left out.
 - Unimaged regions (Pluto and Charon's south, edges of the Galilean mosaics) take
   the body's median brightness.
+- Europa's lineae (10-20 km bands) are separated from its broad brightness by a
+  black top-hat over 2.5 degrees of its half-degree grid, keeping dark features
+  narrower than that and deeper than the mosaic's grain; each is widened by half
+  a degree either side so the 96-cell cube map holds it, and the broad
+  brightness beneath is compressed to a gentle mottle. Below its 10th
+  percentile (`level`), ground takes the rust ramp: the bands and chaos spots.
+- Iapetus's mosaic is photometrically flattened (its two tones differ 1.5x, not
+  the real 10x), so its map is blurred to regional brightness and split at the
+  valley between its two modes (the 32nd percentile): Cassini Regio across the
+  leading hemisphere is brown, the trailing side and poles bright.
 - Images are brightness, not calibrated albedo, apart from TES; each body's map is
   relative to its own median, with a contrast chosen per body in `maps.csv`.
 - Map north is body -z, the positive (spin) pole: the game's coordinates are
@@ -275,7 +293,8 @@ free with the acknowledgement above).
 Reproduce the maps from the downloaded files, each in its own folder under one
 directory (`earth-height/`, `earth-colour/`, `mars-height/`, `mars-albedo/`,
 `moon-height/`, `moon-albedo/`, `mercury/`, `jupiter/`, `saturn/`, `uranus/`,
-`neptune/`, `io/`, `europa/`, `ganymede/`, `callisto/`, `pluto/`, `charon/`):
+`neptune/`, `io/`, `europa/`, `ganymede/`, `callisto/`, `iapetus/`, `pluto/`,
+`charon/`):
 
 ```sh
 python3 -I tools/import_maps.py /path/to/sources

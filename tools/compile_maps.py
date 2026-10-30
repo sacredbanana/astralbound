@@ -7,7 +7,12 @@ up), written by tools/import_maps.py: heights are 16-bit, linear between the
 metre limits in their "# metres LO HI" comment; albedo has the body's median
 at 128 and ice its frozen fraction, both 8-bit. Each channel becomes a cube map of (n + 1)^2 lattice points
 per face, directions exactly as src/body_map.c and planet_contours.c index
-them, so points on a face edge are the same sample from both faces."""
+them, so points on a face edge are the same sample from both faces.
+
+A row with n 0 has no channels: its ramps colour a body whose surface
+stays procedural. level, when given, is the percentile of a body's
+reflectance that sits at 128, so only ground darker than it is "dark"
+(and takes dark_ramp); the median otherwise."""
 import csv, math
 from pathlib import Path
 
@@ -104,6 +109,8 @@ def channel(row, key):
 
 def bake(row):
     n = int(row['n'])
+    if not n:
+        return 0, {}
     dirs = lattice_dirs(n, 'RETROGRADE' in row['flags'].split())
     out = {}
     height = channel(row, 'height')
@@ -130,7 +137,8 @@ def bake(row):
         raw = [at(la, lo_) for la, lo_ in dirs]
         contrast = float(row['contrast'])
         # Earth's channel is already centred on the desert margin.
-        ref = 128 if 'ARID' in row['flags'] else median(raw)
+        level = float(row.get('level') or 50)
+        ref = 128 if 'ARID' in row['flags'] else sorted(raw)[min(len(raw) - 1, int(len(raw) * level / 100))]
         out['albedo'] = [clamp(128 + 128 * contrast * (a / ref - 1)) for a in raw]
     ice = channel(row, 'ice')
     if ice:
@@ -168,7 +176,7 @@ def main():
             ramps, row['dark_ramp'] or 'MATERIAL'))
     lines += ['static const BodyMap body_maps[] = {'] + table + ['};']
     (ROOT / 'src' / 'body_maps.inc').write_text('\n'.join(lines) + '\n')
-    print(len(rows), 'mapped bodies')
+    print(sum(1 for r in rows if int(r['n'])), 'mapped bodies,', sum(1 for r in rows if not int(r['n'])), 'palettes')
 
 
 if __name__ == '__main__':

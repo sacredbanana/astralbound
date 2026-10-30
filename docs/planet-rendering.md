@@ -146,7 +146,7 @@ terrain generation changes.
 
 ## Measured Solar System maps: `body_map`
 
-Sixteen Sol bodies replace the planet-scale noise with measured maps (sources in
+Seventeen Sol bodies replace the planet-scale noise with measured maps (sources in
 `data/README.md`). `body_map_sample` reads a cube map of (n + 1)^2 lattice
 points per face, bilinearly, in 32-bit integers: two divisions give the
 gnomonic face coordinates, and no trigonometry is needed. Edge points are
@@ -172,7 +172,12 @@ identical in orbit, on the ground and in collision:
 
 Each map also names palette ramps per material (`body_ramp` in `render.c`):
 rust Mars, grey Moon, tan deserts and Saturn, cyan Uranus, deep-blue Neptune,
-and a darker ramp for Jupiter's belts. All are existing 16- or 32-entry ramps,
+and a darker ramp for ground below the map's reference level: Jupiter's
+belts, Europa's lineae, Iapetus's Cassini Regio. Both renderers switch on the
+same threshold (Classic's dark contour). A row with no cells (`n` 0) is a
+palette alone: `Planet.palette` gives the moon its colours while `Planet.map`
+stays NULL and its ground stays procedural (Phobos, Deimos, Saturn's and
+Uranus's other moons, Triton). Every ramp a body names comes from `palette`. All are existing 16- or 32-entry ramps,
 so the palette is unchanged. On ECS, Classic dims a mapped body's dark regions
 by one shade; generated worlds are untouched.
 

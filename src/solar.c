@@ -117,7 +117,9 @@ void solar_system(System *s) {
         /* Fictional ports only; the celestial catalog remains real. */
         p->settled=i==2 || i==3 || !strcmp(d->name,"Moon");
         snprintf(p->name,sizeof(p->name),"%s",d->name);
-        p->map=body_map_find(d->name);
+        /* An entry without cells chooses colours only; the surface stays procedural. */
+        p->palette=body_map_find(d->name);
+        p->map=p->palette && p->palette->n ? p->palette : NULL;
         p->tilted=1; p->spin_phase=d->spin_phase;
         memcpy(p->tilt,d->tilt,sizeof(p->tilt));
     }

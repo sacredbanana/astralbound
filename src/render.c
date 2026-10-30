@@ -1426,7 +1426,7 @@ static const Ramp body_ramps[RAMP_TYPES] = {
 };
 /* dark: a belt or other below-median region of a body that has a dark ramp. */
 static const Ramp *body_ramp(const Planet *p, int material, int dark) {
-    const BodyMap *m = p->map;
+    const BodyMap *m = p->palette;
     int r = m ? (dark && m->dark_ramp ? m->dark_ramp : m->ramp[material]) : RAMP_MATERIAL;
     return r ? &body_ramps[r] : &material_ramps[material];
 }
@@ -1449,6 +1449,10 @@ static int material_color(const Planet *planet, Vec local, int material) {
             /* Broad body-fixed longitude variation makes gas rotation visible. */
             shade = shade * (12 + (int)fixed.x * 2 / 16384 + (int)fixed.y / 16384) / 15;
         }
+    } else if (material && planet->map && planet->map->albedo && planet->map->dark_ramp) {
+        /* Measured dark ground (Europa's lineae, Iapetus's Cassini Regio). */
+        Vec fixed = unit(body_rotate(planet, local, 1), 16384);
+        dark = body_map_regional_albedo(planet->map, scale(fixed, 4, 1)) < 0;
     }
     return ramp_colour(body_ramp(planet, material, dark), shade);
 }

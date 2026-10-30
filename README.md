@@ -183,7 +183,7 @@ each take a few seconds. The view turns about the camera's own up and levels gen
 toward ecliptic north. World time is frozen at J2000. Each moon is moved round its
 real orbit to show it lit with its planet behind it, and tidally locked moons turn
 with their orbits, so they keep their real near sides. Ports and traffic are hidden.
-Unmapped moons use the engine's generic surfaces. It runs in both renderers and on
+It runs in both renderers and on
 ECS, AGA and RTG. Any key, mouse button, fire or controller button returns to setup.
 `build/intro-preview --tour` writes its frames, sheets and soundtrack like the title
 sequence's.

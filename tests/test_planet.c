@@ -402,6 +402,25 @@ static int albedo_at(const System *s, const char *name, real lat, real lon) {
 static int relief_at(const System *s, const char *name, real lat, real lon) {
     return body_map_relief(s->planets[solar_body_index(s, name)].map, place(lat, lon));
 }
+/* Every moon has its own colours: none shows the generator's brown rock
+   from orbit. Palette-only bodies keep a procedural surface. */
+static void moon_palettes(void) {
+    static System s;
+    int body, moons = 0, palettes = 0;
+    solar_system(&s);
+    for (body = 0; body < s.count; body++) {
+        const Planet *p = &s.planets[body];
+        if (p->parent < 0) continue;
+        moons++;
+        /* Titan's haze hides its ground, which is brown under it anyway. */
+        assert(p->palette && (p->palette->ramp[3] != RAMP_MATERIAL || (p->palette->flags & BODY_MAP_VEIL)));
+        if (!p->palette->n) { assert(!p->map); palettes++; }
+        else assert(p->map == p->palette);
+    }
+    assert(moons == 21 && palettes == 13);
+    printf("PASS all %d moons coloured: %d by measured maps, %d by palette over procedural ground\n",
+           moons, moons - palettes, palettes);
+}
 static void landmarks(void) {
     static System s;
     solar_system(&s);
@@ -429,7 +448,22 @@ static void landmarks(void) {
     assert(material_at(&s, "Mars", 88, 0) == 4 && material_at(&s, "Mars", 0, 0) == 3);
     /* Jupiter: the Red Spot and the belts are below the zones' brightness. */
     assert(albedo_at(&s, "Jupiter", 0, 0) > albedo_at(&s, "Jupiter", 15, 0));
-    printf("PASS landmarks on Earth, the Moon, Mars and Jupiter\n");
+    /* Iapetus: Cassini Regio dark round the leading apex (90 W), the
+       trailing hemisphere and the poles bright. */
+    assert(albedo_at(&s, "Iapetus", 0, -90) < 0 && albedo_at(&s, "Iapetus", 10, -120) < 0);
+    assert(albedo_at(&s, "Iapetus", 0, 90) > 0 && albedo_at(&s, "Iapetus", 80, -90) > 0);
+    {
+        /* Europa: its dark ground is a network of narrow bands, a few
+           percent of the surface, not a dark hemisphere. */
+        int lat, lon, dark = 0, all = 0;
+        for (lat = -60; lat <= 60; lat += 2)
+            for (lon = -180; lon < 180; lon += 2) {
+                dark += albedo_at(&s, "Europa", lat, lon) < 0;
+                all++;
+            }
+        assert(dark * 100 > all * 3 && dark * 100 < all * 20);
+    }
+    printf("PASS landmarks on Earth, the Moon, Mars, Jupiter, Iapetus and Europa\n");
 }
 /* Real spin axes: angles in degrees between body directions and system
    ones, and where a body-fixed direction points. */
@@ -508,6 +542,7 @@ static void spin_axes(void) {
 int main(void) {
     spin_axes();
     landmarks();
+    moon_palettes();
     map_sampling();
     measured_bodies();
     polar_geography();
