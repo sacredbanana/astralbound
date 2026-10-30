@@ -21,7 +21,8 @@ typedef struct {
        the elevation. */
     short reach, azimuth, drift, elevation;
     /* A landmark the camera faces, degrees north and east on the body (when
-       face): the tour's moment is chosen so it is in afternoon light. */
+       face), brought into afternoon light: a planet turns on its axis, a
+       moon is placed on its orbit where its lock carries the landmark. */
     short face, lat, lon;
 } TourStop;
 extern const TourStop tour_stops[TOUR_STOPS];

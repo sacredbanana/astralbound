@@ -273,6 +273,11 @@ Approximations:
   percentile (`level`), ground takes the rust ramp: the bands and chaos spots.
   A level moves only that edge (values stay under 128 or a dither step above
   it); brightness stays relative to the median.
+- Jupiter's Red Spot is the one feature far redder than its latitude (0.6 below
+  that latitude's median whiteness; nothing else passes 0.3). Grown by a degree
+  where still clearly redder, it is set under every belt and drawn with its own
+  deep (rust) ramp: `deep` in `maps.csv`, a fraction of the median, for giants.
+  Classic outlines it in the slot and mask bit a giant's absent ice would use.
 - Pluto is red-brown tholin (the rust ramp) with its brightest tenth pale (the
   cloud ramp): the heart, Tombaugh Regio, and bright northern ices. Unimaged
   holes in its map take the median and stay red. Charon's darkest 6 percent,

@@ -452,6 +452,9 @@ static void landmarks(void) {
        trailing hemisphere and the poles bright. */
     assert(albedo_at(&s, "Iapetus", 0, -90) < 0 && albedo_at(&s, "Iapetus", 10, -120) < 0);
     assert(albedo_at(&s, "Iapetus", 0, 90) > 0 && albedo_at(&s, "Iapetus", 80, -90) > 0);
+    /* Jupiter: the Red Spot alone is deep (its own ramp), at 22 S. */
+    assert(albedo_at(&s, "Jupiter", -22, 131) <= -5 && albedo_at(&s, "Jupiter", -22, -60) > -5);
+    assert(albedo_at(&s, "Jupiter", -15, 131) > -5 && albedo_at(&s, "Jupiter", 0, 131) > -5);
     /* Pluto: the heart (Tombaugh Regio) bright, Cthulhu dark; Charon's
        north polar cap (Mordor Macula) dark. */
     assert(albedo_at(&s, "Pluto", 20, -170) > 0 && albedo_at(&s, "Pluto", 15, 175) > 0);

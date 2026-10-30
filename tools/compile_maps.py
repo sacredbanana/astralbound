@@ -12,7 +12,8 @@ them, so points on a face edge are the same sample from both faces.
 A row with n 0 has no channels: its ramps colour a body whose surface
 stays procedural. Albedo is relative to the body's median; level, when
 given, is the percentile below which ground is "dark" (under 128, taking
-dark_ramp) and above which it is not, the median otherwise."""
+dark_ramp) and above which it is not, the median otherwise. A giant's deep
+(a fraction of its median) marks spots darker still, for deep_ramp."""
 import csv, math
 from pathlib import Path
 
@@ -146,6 +147,10 @@ def bake(row):
             # dither with which Enhanced blends a dark ramp in.
             cut = sorted(raw)[min(len(raw) - 1, int(len(raw) * float(row['level']) / 100))]
             vals = [min(v, 127) if a < cut else max(v, 144) for a, v in zip(raw, vals)]
+        if row.get('deep'):
+            # A giant's deep spots: under deep times the median, at or below
+            # 63 for the deep ramp; everything else held a dither step above.
+            vals = [min(v, 63) if a < ref * float(row['deep']) else max(v, 80) for a, v in zip(raw, vals)]
         out['albedo'] = vals
     ice = channel(row, 'ice')
     if ice:
@@ -177,10 +182,11 @@ def main():
         flags = ' | '.join('BODY_MAP_' + f for f in row['flags'].split() if f != 'RETROGRADE') or '0'
         ramps = ','.join('RAMP_' + r for r in row['ramps'].split())
         assert all(r in RAMPS for r in row['ramps'].split()) and len(row['ramps'].split()) == 6, row['name']
-        table.append('    {"%s",%d,%s,%s,%s,%d,%s,%s,{%s},RAMP_%s},' % (
+        assert not row.get('deep') or row['type'] == 'GAS_GIANT', 'deep spots are for giants: ' + row['name']
+        table.append('    {"%s",%d,%s,%s,%s,%d,%s,%s,{%s},RAMP_%s,RAMP_%s},' % (
             row['name'], n, flags, refs.get('continent', 'NULL'), refs.get('relief', 'NULL'),
             out.get('relief_step', 0), refs.get('albedo', 'NULL'), refs.get('ice', 'NULL'),
-            ramps, row['dark_ramp'] or 'MATERIAL'))
+            ramps, row['dark_ramp'] or 'MATERIAL', row.get('deep_ramp') or 'MATERIAL'))
     lines += ['static const BodyMap body_maps[] = {'] + table + ['};']
     (ROOT / 'src' / 'body_maps.inc').write_text('\n'.join(lines) + '\n')
     print(sum(1 for r in rows if int(r['n'])), 'mapped bodies,', sum(1 for r in rows if not int(r['n'])), 'palettes')

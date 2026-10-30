@@ -17,7 +17,8 @@
 enum {
     CLB_LAND = 1, CLB_ROCK = 2, CLB_ICE = 4, CLB_DARK = 8,
     CLB_LIGHT = 16,  /* five bits, 16..256 */
-    CLB_BAND = 512   /* seven bits, 512..32768 */
+    CLB_BAND = 512,  /* seven bits, 512..32768: edges carry 16 bits */
+    CLB_DEEP = CLB_ICE /* a giant has no ice: its deep spot (Jupiter's Red Spot) */
 };
 #define CL_LIGHT_CAPS 5
 #define CL_GAS_BANDS 7
@@ -51,6 +52,7 @@ static uint16_t cl_body_toggles[1025];
 static ClBody cl_body;
 static int16_t cl_first[1024], cl_last[1024];
 /* Classic geographic caches: coast, highland, dark-region and ice loops for the
+   (a giant has no ice: that slot holds its deep spots' loops instead)
    two most recently drawn worlds. */
 static struct { PlanetContours coast, highland, dark, ice; uint32_t key; unsigned used; } cl_contours[2];
 static unsigned cl_contour_clock;
@@ -79,7 +81,8 @@ static int cl_contour_slot(const Planet *p) {
         /* A coarse 16-cell coast mesh cuts across narrow polar bays in
            pole-on views. Ice needs at least 24 cells even on Low; extraction
            is cached, and the extra edges only surround the two small poles. */
-        planet_contours_build(&cl_contours[oldest].ice, f, n < 24 ? 24 : n, CONTOUR_ICE);
+        if (p->type == GAS_GIANT) planet_contours_build(&cl_contours[oldest].ice, f, n, CONTOUR_DEEP);
+        else planet_contours_build(&cl_contours[oldest].ice, f, n < 24 ? 24 : n, CONTOUR_ICE);
     }
     cl_contours[oldest].key = key; cl_contours[oldest].used = ++cl_contour_clock;
     return oldest;
@@ -287,6 +290,7 @@ static unsigned cl_body_mask(const ClBodyInfo *b, const int16_t *m) {
         Vec q = vec(n[0] * 4, n[1] * 4, n[2] * 4);
         if (b->material == 5) {
             if (cl_mapped_tops(p) && planet_field_region(f, q) < 2048) mask |= CLB_DARK;
+            if (cl_mapped_tops(p) && p->map->deep_ramp && planet_field_region(f, q) < 1024) mask |= CLB_DEEP;
             return mask;
         }
         if (p->type != ICE && planet_field_ice(f, q) >= 0) mask |= CLB_ICE;
@@ -348,6 +352,7 @@ static void cl_body_seed(ClBodyInfo *b) {
         }
         if (!planet_contours_positive(&cl_contours[slot].dark, q)) actual |= CLB_DARK;
         if (p->type != ICE && b->material != 5 && planet_contours_positive(&cl_contours[slot].ice, q)) actual |= CLB_ICE;
+        if (b->material == 5 && p->map->deep_ramp && !planet_contours_positive(&cl_contours[slot].ice, q)) actual |= CLB_DEEP;
     }
     for (k = 0; k < cl_circle_count; k++) {
         int i, small = cl_circles[k].cosr >= 0, inside = small;
@@ -390,7 +395,8 @@ static int cl_body_colour(void *ctx, unsigned mask) {
     else material = b->material;
     /* Belts and measured dark ground take their own ramp where the body has
        one; elsewhere dark regions are a step dimmer. */
-    if ((mask & CLB_DARK) && material != 0 && p->map && p->map->albedo && p->map->dark_ramp) dark = 1;
+    if ((mask & CLB_DEEP) && material == 5 && p->map && p->map->deep_ramp) dark = 2;
+    else if ((mask & CLB_DARK) && material != 0 && p->map && p->map->albedo && p->map->dark_ramp) dark = 1;
     else if ((mask & CLB_DARK) && material != 0 && shade > 1) shade -= frame->enhanced ? 2 : p->map ? 1 : 0;
     ramp = body_ramp(p, material, dark);
     return frame->enhanced ? ramp->aga + shade * ramp->step : ramp->ecs + shade;
@@ -558,13 +564,13 @@ static void cl_draw_planet(ClBodyInfo *b) {
     } else {
         /* Under six pixels Frontier drew a plain shaded disc: no surface
            features, and none in the bottom mask, so parity holds. */
-        if (b->view.radius_px < 6 * 256) b->bottom_mask &= ~(unsigned)(CLB_LAND | CLB_ROCK | CLB_DARK | CLB_ICE);
+        if (b->view.radius_px < 6 * 256) b->bottom_mask &= ~(unsigned)(CLB_LAND | CLB_ROCK | CLB_DARK | CLB_ICE | CLB_DEEP);
         else {
             int slot = cl_contour_slot(p);
             cl_body_contours(b, &cl_contours[slot].coast, CLB_LAND);
             cl_body_contours(b, &cl_contours[slot].highland, CLB_ROCK);
             cl_body_contours(b, &cl_contours[slot].dark, CLB_DARK);
-            cl_body_contours(b, &cl_contours[slot].ice, CLB_ICE);
+            cl_body_contours(b, &cl_contours[slot].ice, b->material == 5 ? CLB_DEEP : CLB_ICE);
         }
     }
     if (b->view.radius_px >= 6 * 256) cl_body_seed(b);

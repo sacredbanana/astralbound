@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: Unlicense
    The Solar System tour: a single camera flight from deep space to the Sun,
    out through every planet and its major moons to Pluto and Charon, and back
-   into deep space. World time is frozen days after J2000, when Pluto's
-   heart is in daylight, so every stop is a fixed point and the flight
-   between two stops is a pure function of time.
+   into deep space. World time is frozen at J2000, so every stop is a fixed
+   point and the flight between two stops is a pure function of time. A
+   planet with a landmark to show (Earth's Africa, Jupiter's Red Spot,
+   Pluto's heart) is turned on its axis to bring it into afternoon light.
 
    A flight never cuts. It leaves one stop on a sphere round that body whose
    radius grows exponentially, so the body recedes at a steady rate whatever
@@ -47,7 +48,8 @@ const TourStop tour_stops[TOUR_STOPS] = {
       "SPINS BACKWARDS: ITS DAY OUTLASTS ITS YEAR", "THE BRIGHTEST PLANET IN EARTH'S NIGHT SKY"}, 32, 42, 14, 12, 0, 0, 0},
     {"Earth", "EARTH", "OUR HOME",
      {"THE ONLY WORLD KNOWN TO HARBOUR LIFE", "OCEANS COVER 71% OF ITS SURFACE",
-      "THE DENSEST PLANET IN THE SOLAR SYSTEM", "ITS MAGNETIC FIELD DEFLECTS THE SOLAR WIND"}, 32, 42, 14, 12, 0, 0, 0},
+      "THE DENSEST PLANET IN THE SOLAR SYSTEM", "ITS MAGNETIC FIELD DEFLECTS THE SOLAR WIND"}, 32, 0, 10, 0,
+     1, 25, 15}, /* Africa, Europe and Arabia */
     {"Moon", "MOON", "EARTH'S NATURAL SATELLITE",
      {"TIDALLY LOCKED: IT ALWAYS SHOWS EARTH ONE FACE", "DRIFTING AWAY FROM EARTH BY 3.8 CM A YEAR",
       "12 PEOPLE WALKED ON IT BETWEEN 1969 AND 1972", "PROBABLY BORN IN A GIANT IMPACT ON EARTH"}, 36, 24, 10, 0, 0, 0, 0},
@@ -62,13 +64,15 @@ const TourStop tour_stops[TOUR_STOPS] = {
       "NAMED FOR THE GREEK SPIRIT OF DREAD", NULL}, 40, 24, 10, 0, 0, 0, 0},
     {"Jupiter", "JUPITER", "KING OF THE PLANETS",
      {"MORE THAN TWICE THE MASS OF ALL OTHER PLANETS", "THE GREAT RED SPOT IS A STORM WIDER THAN EARTH",
-      "THE SHORTEST DAY: ONE TURN IN UNDER 10 HOURS", "THE STRONGEST MAGNETIC FIELD OF ANY PLANET"}, 32, 42, 14, 12, 0, 0, 0},
+      "THE SHORTEST DAY: ONE TURN IN UNDER 10 HOURS", "THE STRONGEST MAGNETIC FIELD OF ANY PLANET"}, 32, 0, 10, 0,
+     1, -22, 132}, /* the Great Red Spot, where Cassini mapped it */
     {"Io", "IO", "THE VOLCANIC MOON",
      {"THE MOST VOLCANIC WORLD IN THE SOLAR SYSTEM", "JUPITER'S TIDES FLEX AND MELT ITS INTERIOR",
       "SULPHUR PLUMES RISE UP TO 400 KM HIGH", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Europa", "EUROPA", "AN OCEAN UNDER ICE",
      {"A SALTWATER OCEAN LIES BENEATH ITS ICE SHELL", "IT MAY HOLD TWICE THE WATER OF EARTH'S OCEANS",
-      "A PRIME PLACE TO SEARCH FOR LIFE BEYOND EARTH", NULL}, 36, 24, 10, 0, 0, 0, 0},
+      "A PRIME PLACE TO SEARCH FOR LIFE BEYOND EARTH", NULL}, 26, 24, 8, 0,
+     1, 5, 155}, /* its densest lineae, beside the anti-Jovian point */
     {"Ganymede", "GANYMEDE", "THE LARGEST MOON",
      {"BIGGER THAN THE PLANET MERCURY", "THE ONLY MOON WITH ITS OWN MAGNETIC FIELD",
       "A HIDDEN OCEAN LIES BETWEEN LAYERS OF ICE", NULL}, 36, 24, 10, 0, 0, 0, 0},
@@ -395,32 +399,25 @@ static Vec landmark(const Planet *p, const TourStop *s) {
     Vec fixed = vec(fcos(la) * fcos(lo) / (1 << 18), fcos(la) * fsin(lo) / (1 << 18), -fsin(la) * 64);
     return unit30(body_rotate(p, fixed, 0));
 }
-/* The tour's frozen moment: J2000, or the time within one turn of a body
-   with a landmark that puts the landmark nearest 35 degrees from the Sun,
-   lit with a terminator in view. Planets barely move in that time, and
-   moons are placed afterwards. */
-static uint32_t tour_moment(Game *g) {
-    int i, k;
-    for (i = 0; i < TOUR_STOPS; i++) {
-        const TourStop *s = &tour_stops[i];
-        Planet p;
-        uint32_t turn, best = 0;
-        int64_t error = INT64_MAX, aim = fcos(DEGREES(35)) << 6;
-        if (!s->face) continue;
-        p = g->system.planets[solar_body_index(&g->system, s->body)];
-        turn = rotation_period(&p) * (uint32_t)HZ;
-        for (k = 0; k < 256; k++) {
-            uint32_t t = (uint32_t)((uint64_t)turn * (uint64_t)k / 256);
-            Vec sun = unit30(sub(g->system.star[0].center, body_position(&g->system, solar_body_index(&g->system, s->body), t)));
-            int64_t off;
-            set_rotation(&p, t);
-            off = dot30(landmark(&p, s), sun) - aim;
-            if (off < 0) off = -off;
-            if (off < error) { error = off; best = t; }
-        }
-        return best;
+/* Turn a planet on its axis (a planet's spin is free in a frozen world)
+   until its landmark stands 35 degrees from the Sun: lit, with a
+   terminator in view. */
+static void face_landmark(Game *g, const TourStop *s) {
+    Planet *p = &g->system.planets[solar_body_index(&g->system, s->body)];
+    Vec sun = unit30(sub(g->system.star[0].center, p->center));
+    uint32_t base = p->spin_phase, best = base;
+    int64_t error = INT64_MAX, aim = fcos(DEGREES(35)) << 6;
+    int k;
+    for (k = 0; k < 256; k++) {
+        int64_t off;
+        p->spin_phase = base + ((uint32_t)k << 24);
+        set_rotation(p, g->tick);
+        off = dot30(landmark(p, s), sun) - aim;
+        if (off < 0) off = -off;
+        if (off < error) { error = off; best = p->spin_phase; }
     }
-    return 0;
+    p->spin_phase = best;
+    set_rotation(p, g->tick);
 }
 /* Unit direction of a catalog orbit at a table angle (eccentricity aside). */
 static Vec orbit_direction(const Planet *p, int a) {
@@ -439,24 +436,31 @@ static int32_t bearing(Vec a, Vec b, Vec axis) {
    point 75 degrees from the Sun, on the side a bearing 75 degrees round from
    it. A steep orbit (Uranus's moons) trades light for a level line to the
    planet, which keeps flights between its moons off the vertical; a later
-   moon keeps to the side of the one before it. A tidally locked moon turns
-   with its orbit, so it still shows its real near side. Returns the moon's
-   direction from its planet. */
-static Vec place_moon(Game *g, int body, const Vec *after_moon) {
+   moon keeps to the side of the one before it. A moon with a landmark goes
+   where its landmark, carried round by the lock, stands 35 degrees from the
+   Sun. A tidally locked moon turns with its orbit, so it still shows its
+   real near side. Returns the moon's direction from its planet. */
+static Vec place_moon(Game *g, int body, const Vec *after_moon, const TourStop *face) {
     Planet *m = &g->system.planets[body];
     const Planet *host = &g->system.planets[m->parent];
     Vec h = scale(host->center, FP, 1), sun = unit30(sub(sun_q8(g), h));
     Vec target = turn(sunward(g, h), north, DEGREES(75)), before, after, spin;
     uint64_t cycle = m->period * HZ;
     int a, best = 0, now;
-    int64_t score = INT64_MIN, quarter = fcos(DEGREES(75)) << 6;
+    int64_t score = INT64_MIN, quarter = fcos(DEGREES(75)) << 6, lit = fcos(DEGREES(35)) << 6;
+    Vec mark = face ? landmark(m, face) : north, axis = unit30(body_tilt(m, vec(0, 0, ONE), 0));
+    before = unit30(sub(host->center, m->center));
     for (a = 0; a < 1024; a++) {
         Vec d = orbit_direction(m, a);
         int64_t off = dot30(d, sun) - quarter, s = (after_moon ? 4 * dot30(d, *after_moon) : dot30(d, target) / 8) -
                       4 * (off < 0 ? -off : off) - 3 * (d.y < 0 ? -d.y : d.y);
+        if (face) {
+            /* The landmark where the lock carries it with the moon here. */
+            int64_t light = dot30(turn(mark, axis, bearing(before, scale(d, -1, 1), axis)), sun) - lit;
+            s = -8 * (light < 0 ? -light : light) - (d.y < 0 ? -d.y : d.y);
+        }
         if (s > score) { score = s; best = a; }
     }
-    before = unit30(sub(host->center, m->center));
     /* Mean anomaly is the phase plus the time part; the table angle stands
        in for it, within the eccentricity. */
     now = (int)(((uint64_t)g->tick % cycle) * 1024 / cycle);
@@ -626,7 +630,7 @@ void tour_start(Tour *t, Game *g, uint32_t seed) {
     t->running = 1;
     game_init(g, seed);
     setup_system(g, catalog_sector(0));
-    g->tick = tour_moment(g); /* within days of J2000 */
+    g->tick = 0; /* J2000 */
     g->system.world_ready = 0;
     update_world(g);
     {
@@ -638,10 +642,13 @@ void tour_start(Tour *t, Game *g, uint32_t seed) {
             if (tour_stops[i].body && strcmp(tour_stops[i].body, "Sun")) {
                 int body = solar_body_index(&g->system, tour_stops[i].body), parent = g->system.planets[body].parent;
                 if (parent < 0) continue;
-                last = place_moon(g, body, parent == host ? &last : NULL);
+                last = place_moon(g, body, parent == host ? &last : NULL, tour_stops[i].face ? &tour_stops[i] : NULL);
                 host = parent;
             }
     }
+    for (i = 0; i < TOUR_STOPS; i++)
+        if (tour_stops[i].face && g->system.planets[solar_body_index(&g->system, tour_stops[i].body)].parent < 0)
+            face_landmark(g, &tour_stops[i]);
     g->system.world_ready = 0;
     update_world(g);
     /* Fictional ports and traffic stay out of the real Solar System. */

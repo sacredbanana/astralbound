@@ -1424,10 +1424,12 @@ static const Ramp body_ramps[RAMP_TYPES] = {
     {80, 1, 25},   /* DEEP: Neptune's blue */
     {160, 2, 25},  /* SLATE */
 };
-/* dark: a belt or other below-median region of a body that has a dark ramp. */
+/* dark: 1 a belt or other below-median region of a body that has a dark
+   ramp, 2 a giant's deep spot (Jupiter's Red Spot) where it has a deep ramp. */
 static const Ramp *body_ramp(const Planet *p, int material, int dark) {
     const BodyMap *m = p->palette;
-    int r = m ? (dark && m->dark_ramp ? m->dark_ramp : m->ramp[material]) : RAMP_MATERIAL;
+    int r = m ? (dark == 2 && m->deep_ramp ? m->deep_ramp : dark && m->dark_ramp ? m->dark_ramp : m->ramp[material])
+              : RAMP_MATERIAL;
     return r ? &body_ramps[r] : &material_ramps[material];
 }
 /* shade: 0..14 on the material's luminance scale. */
@@ -1441,7 +1443,7 @@ static int material_color(const Planet *planet, Vec local, int material) {
         if (planet->map && planet->map->albedo) {
             /* Measured belts, zones and spots. */
             int albedo = body_map_regional_albedo(planet->map, scale(fixed, 4, 1));
-            dark = albedo < 0;
+            dark = albedo < -4 && planet->map->deep_ramp ? 2 : albedo < 0;
             shade += albedo * shade / 14;
             if (shade > 14) shade = 14;
         } else if (!planet->map) {

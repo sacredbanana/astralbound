@@ -175,7 +175,10 @@ rust Mars, grey Moon, tan deserts and Saturn, cyan Uranus, deep-blue Neptune,
 and a dark ramp for ground below the map's reference level: Jupiter's belts,
 Europa's lineae, Iapetus's Cassini Regio, Pluto's red-brown tholins around its
 pale heart, Charon's red cap. Both renderers switch on the same threshold
-(Classic's dark contour). A row with no cells (`n` 0) is a palette alone:
+(Classic's dark contour). A giant may add a deep ramp for spots darker still
+(regional albedo -5 or less): Jupiter's Red Spot is rust. Classic outlines it
+with a `CONTOUR_DEEP` loop set in the ice slot, under the ice mask bit, since
+a giant has no ice and its edges carry only 16 mask bits. A row with no cells (`n` 0) is a palette alone:
 `Planet.palette` gives the moon its colours while `Planet.map` stays NULL and
 its ground stays procedural (Phobos, Deimos, Saturn's and Uranus's other moons,
 Triton). Every ramp a body names comes from `palette`. All are existing 16- or

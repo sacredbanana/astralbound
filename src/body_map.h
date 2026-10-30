@@ -34,6 +34,7 @@ struct BodyMap {
     const uint8_t *ice;       /* 128 at the ice margin, frozen above */
     uint8_t ramp[6];          /* per material, RAMP_MATERIAL keeps the default */
     uint8_t dark_ramp;        /* below-median albedo (belts, dark terrain), or 0 */
+    uint8_t deep_ramp;        /* a giant's deep spots, regional albedo -5 or less (Jupiter's Red Spot), or 0 */
 };
 const BodyMap *body_map_find(const char *name);
 /* One channel at a body-fixed direction of any length, as 256 * value. */

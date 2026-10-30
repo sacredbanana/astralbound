@@ -353,7 +353,7 @@ static void tour_tests(void) {
     static const char *const visits[] = {"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune",
         "Moon", "Phobos", "Deimos", "Io", "Europa", "Ganymede", "Callisto", "Mimas", "Enceladus", "Tethys", "Dione",
         "Rhea", "Titan", "Iapetus", "Miranda", "Ariel", "Umbriel", "Titania", "Oberon", "Triton", "Pluto", "Charon"};
-    int bodies[TOUR_STOPS], i, k, stop = 0, chunk = 7, moons = 0;
+    int bodies[TOUR_STOPS], i, k, stop = 0, chunk = 7, moons = 0, faced = 0;
     int64_t fastest = 0;
     Vec near_side, eye, front = {0, 0, 0};
     /* Text fits the 320-wide card and uses only glyphs the fonts draw. */
@@ -376,8 +376,7 @@ static void tour_tests(void) {
     }
     game_init(&fresh, 0x53504143);
     tour_start(&first, &g, 0x53504143);
-    /* The tour freezes within a Pluto day of J2000 (its heart lit). */
-    assert(g.tick < HZ * 7U * 86400U);
+    assert(g.tick == 0); /* J2000; planets turn to show their landmarks */
     game_init(&sol, 1); setup_system(&sol, catalog_sector(0));
     sol.tick = g.tick; sol.system.world_ready = 0; update_world(&sol);
     near_side = facing(&sol, "Moon");
@@ -420,12 +419,16 @@ static void tour_tests(void) {
         assert(!dot14(first.view.axes[1], front) || llabs(dot14(first.view.axes[1], front)) < 16384LL * 64);
         if (!first.transit && first.shown == HZ * 2 && bodies[stop] >= 0) {
             const Planet *b = &g.system.planets[bodies[stop]];
-            if (!strcmp(tour_stops[stop].body, "Pluto")) {
-                /* Pluto shows its heart, in daylight, near the middle. */
-                Vec heart = unit(body_rotate(b, vec(-15162, -2673, -5604), 0), 16384); /* 20 N, 170 W */
+            if (tour_stops[stop].face) {
+                /* Earth's Africa, Jupiter's Red Spot, Europa's lineae and
+                   Pluto's heart face the camera, in daylight. */
+                int la = tour_stops[stop].lat * 1024 / 360, lo = tour_stops[stop].lon * 1024 / 360;
+                Vec fixed = vec((int64_t)cosi(la) * cosi(lo) / 16384, (int64_t)cosi(la) * sini(lo) / 16384, -sini(la));
+                Vec mark = unit(body_rotate(b, fixed, 0), 16384);
                 Vec sun = unit(sub(g.system.star[0].center, b->center), 16384);
                 Vec back = unit(sub(scale(eye, 1, FP), b->center), 16384);
-                assert(dot14(heart, back) > 16384LL * 16384 * 9 / 10 && dot14(heart, sun) > 16384LL * 16384 / 2);
+                assert(dot14(mark, back) > 16384LL * 16384 * 9 / 10 && dot14(mark, sun) > 16384LL * 16384 / 2);
+                faced++;
             }
             assert((int)strlen(tour_stops[stop].title) * 12 + (int)strlen(first.stats) * 6 + 24 <= 320);
             if (b->parent >= 0) {
@@ -452,7 +455,7 @@ static void tour_tests(void) {
         }
         tour_frame(&first, &g, 1);
     }
-    assert(stop == TOUR_STOPS - 1 && moons == 21);
+    assert(stop == TOUR_STOPS - 1 && moons == 21 && faced == 4);
     assert(!g.cinematic && !memcmp(&g, &fresh, sizeof(Game)));
     /* A skip, after the launch keypress grace period, gives the same Game. */
     tour_start(&first, &g, 0x53504143);
@@ -461,6 +464,7 @@ static void tour_tests(void) {
     tour_finish(&first, &g);
     assert(!first.running && !tour_skippable(&first) && !memcmp(&g, &fresh, sizeof(Game)));
     printf("PASS Solar System tour: %d stops, every planet and major moon, planets behind moons, near sides kept,\n"
+           "     Africa, the Red Spot, Europa's lineae and Pluto's heart in view and in daylight,\n"
            "     no cuts (fastest %d.%d%% of surface range a tick), deterministic, music and clean handover\n",
            TOUR_STOPS, (int)(fastest / 10), (int)(fastest % 10));
 }

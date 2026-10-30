@@ -278,10 +278,19 @@ def jupiter(src):
     """Cassini's map by whiteness (blue over red), not brightness: the Red
     Spot is no darker than a belt but much redder than its zone. Halfway to
     each latitude's median, belts and zones stay continuous through their
-    festoons and white ovals, while the Red Spot still stands out."""
+    festoons and white ovals. The Red Spot is the one feature far redder
+    than its latitude (0.6 below its median; nothing else passes 0.3): it is
+    set at 0.3 of the map's median, under every belt, for the deep ramp."""
     rgb = source(src, 'jupiter')
     cells = fill(area_mean(from_east((rgb[..., 2] + 8) / (rgb[..., 0] + 8), 0)))
-    write_albedo('jupiter-albedo.pgm', (cells + np.median(cells, axis=1, keepdims=True)) / 2)
+    zonal = np.median(cells, axis=1, keepdims=True)
+    out = (cells + zonal) / 2
+    red = (cells - zonal) / np.median(cells)
+    # The core, grown by a degree where it is still clearly redder: the
+    # oval rather than only its reddest heart.
+    spot = spread((red < -0.35).astype(np.float64), 1, np.maximum).astype(bool) & (red < -0.12)
+    out[spot] = 0.3 * np.median(out)
+    write_albedo('jupiter-albedo.pgm', out)
 
 
 def banded(src, folder, name):

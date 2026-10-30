@@ -301,6 +301,8 @@ static int disc_colour(const Disc *s, const DiscSample *m, int x, int y) {
            belt ramp is ordered-dithered in over two albedo steps, so belts
            shade into zones instead of breaking into blotches. */
         dark = m->albedo + (t - 8) * 32 < 0;
+        /* The Red Spot: deep ground, under -4 in regional albedo. */
+        if (s->field->map->deep_ramp && m->albedo + (t - 8) * 32 < -4 * 256) dark = 2;
         shade += m->albedo * shade / (14 * 256);
     } else if (material == 5) {
         /* Gas bands follow latitude; broad longitude variation shows spin
