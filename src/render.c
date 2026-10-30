@@ -3701,8 +3701,10 @@ void render_palette(Frame *f) {
             ((uint32_t)(30 + i * 5) << 16) | ((uint32_t)(12 + i * 3) << 8) | (unsigned)(8 + i * 2);
         f->palette[160 + i] =
             ((uint32_t)(12 + i * 3) << 16) | ((uint32_t)(14 + i * 3) << 8) | (unsigned)(30 + i * 5);
+        /* Tan: sand, sulphur, Saturn's ammonia and Titan's haze, up to a
+           pale gold (211, 179, 117) at the brightest drawn shade. */
         f->palette[192 + i] =
-            ((uint32_t)(22 + i * 4) << 16) | ((uint32_t)(18 + i * 3) << 8) | (unsigned)(12 + i * 2);
+            ((uint32_t)(22 + i * 27 / 4) << 16) | ((uint32_t)(18 + i * 23 / 4) << 8) | (unsigned)(12 + i * 15 / 4);
     }
     /* Cloud ramp: night slate, shadowed blue-grey, sunlit white. */
     for (i = 0; i < 32; i++) {

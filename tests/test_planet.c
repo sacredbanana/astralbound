@@ -452,6 +452,11 @@ static void landmarks(void) {
        trailing hemisphere and the poles bright. */
     assert(albedo_at(&s, "Iapetus", 0, -90) < 0 && albedo_at(&s, "Iapetus", 10, -120) < 0);
     assert(albedo_at(&s, "Iapetus", 0, 90) > 0 && albedo_at(&s, "Iapetus", 80, -90) > 0);
+    /* Pluto: the heart (Tombaugh Regio) bright, Cthulhu dark; Charon's
+       north polar cap (Mordor Macula) dark. */
+    assert(albedo_at(&s, "Pluto", 20, -170) > 0 && albedo_at(&s, "Pluto", 15, 175) > 0);
+    assert(albedo_at(&s, "Pluto", -5, -100) < 0 && albedo_at(&s, "Pluto", 0, 0) < 0);
+    assert(albedo_at(&s, "Charon", 85, 0) < 0 && albedo_at(&s, "Charon", 0, 0) > 0);
     {
         /* Europa: its dark ground is a network of narrow bands, a few
            percent of the surface, not a dark hemisphere. */
@@ -463,7 +468,7 @@ static void landmarks(void) {
             }
         assert(dark * 100 > all * 3 && dark * 100 < all * 20);
     }
-    printf("PASS landmarks on Earth, the Moon, Mars, Jupiter, Iapetus and Europa\n");
+    printf("PASS landmarks on Earth, the Moon, Mars, Jupiter, Iapetus, Europa, Pluto and Charon\n");
 }
 /* Real spin axes: angles in degrees between body directions and system
    ones, and where a body-fixed direction points. */

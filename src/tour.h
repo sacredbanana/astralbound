@@ -20,6 +20,9 @@ typedef struct {
        the planet's far side towards the Sun), its change over the hold and
        the elevation. */
     short reach, azimuth, drift, elevation;
+    /* A landmark the camera faces, degrees north and east on the body (when
+       face): the tour's moment is chosen so it is in afternoon light. */
+    short face, lat, lon;
 } TourStop;
 extern const TourStop tour_stops[TOUR_STOPS];
 typedef struct {

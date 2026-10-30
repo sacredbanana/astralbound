@@ -180,7 +180,8 @@ exponentially, so the body recedes at a steady rate at any scale. It swings onto
 the line to the next body and arrives the same way in reverse, with speed peaking
 between them. A hop from Earth to the Moon and the crossing from Uranus to Neptune
 each take a few seconds. The view turns about the camera's own up and levels gently
-toward ecliptic north. World time is frozen at J2000. Each moon is moved round its
+toward ecliptic north. World time is frozen six days after J2000, when Pluto's heart
+faces the camera in afternoon light. Each moon is moved round its
 real orbit to show it lit with its planet behind it, and tidally locked moons turn
 with their orbits, so they keep their real near sides. Ports and traffic are hidden.
 It runs in both renderers and on

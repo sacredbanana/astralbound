@@ -374,11 +374,13 @@ static void tour_tests(void) {
         for (k = 0; k < TOUR_STOPS && !(tour_stops[k].body && !strcmp(tour_stops[k].body, visits[i])); k++) ;
         assert(k < TOUR_STOPS);
     }
-    game_init(&sol, 1); setup_system(&sol, catalog_sector(0));
-    sol.tick = 0; sol.system.world_ready = 0; update_world(&sol);
-    near_side = facing(&sol, "Moon");
     game_init(&fresh, 0x53504143);
     tour_start(&first, &g, 0x53504143);
+    /* The tour freezes within a Pluto day of J2000 (its heart lit). */
+    assert(g.tick < HZ * 7U * 86400U);
+    game_init(&sol, 1); setup_system(&sol, catalog_sector(0));
+    sol.tick = g.tick; sol.system.world_ready = 0; update_world(&sol);
+    near_side = facing(&sol, "Moon");
     assert(first.running && g.cinematic && g.docked == -1 && !g.nports && first.view.exact);
     assert(first.length > HZ * 300 && first.length < HZ * 480 && !tour_skippable(&first));
     assert(music_context(&g) == MUSIC_INTRO);
@@ -418,6 +420,13 @@ static void tour_tests(void) {
         assert(!dot14(first.view.axes[1], front) || llabs(dot14(first.view.axes[1], front)) < 16384LL * 64);
         if (!first.transit && first.shown == HZ * 2 && bodies[stop] >= 0) {
             const Planet *b = &g.system.planets[bodies[stop]];
+            if (!strcmp(tour_stops[stop].body, "Pluto")) {
+                /* Pluto shows its heart, in daylight, near the middle. */
+                Vec heart = unit(body_rotate(b, vec(-15162, -2673, -5604), 0), 16384); /* 20 N, 170 W */
+                Vec sun = unit(sub(g.system.star[0].center, b->center), 16384);
+                Vec back = unit(sub(scale(eye, 1, FP), b->center), 16384);
+                assert(dot14(heart, back) > 16384LL * 16384 * 9 / 10 && dot14(heart, sun) > 16384LL * 16384 / 2);
+            }
             assert((int)strlen(tour_stops[stop].title) * 12 + (int)strlen(first.stats) * 6 + 24 <= 320);
             if (b->parent >= 0) {
                 /* The planet is in view behind its moon, not hidden by it. */

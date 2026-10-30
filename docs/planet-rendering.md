@@ -172,14 +172,16 @@ identical in orbit, on the ground and in collision:
 
 Each map also names palette ramps per material (`body_ramp` in `render.c`):
 rust Mars, grey Moon, tan deserts and Saturn, cyan Uranus, deep-blue Neptune,
-and a darker ramp for ground below the map's reference level: Jupiter's
-belts, Europa's lineae, Iapetus's Cassini Regio. Both renderers switch on the
-same threshold (Classic's dark contour). A row with no cells (`n` 0) is a
-palette alone: `Planet.palette` gives the moon its colours while `Planet.map`
-stays NULL and its ground stays procedural (Phobos, Deimos, Saturn's and
-Uranus's other moons, Triton). Every ramp a body names comes from `palette`. All are existing 16- or 32-entry ramps,
-so the palette is unchanged. On ECS, Classic dims a mapped body's dark regions
-by one shade; generated worlds are untouched.
+and a dark ramp for ground below the map's reference level: Jupiter's belts,
+Europa's lineae, Iapetus's Cassini Regio, Pluto's red-brown tholins around its
+pale heart, Charon's red cap. Both renderers switch on the same threshold
+(Classic's dark contour). A row with no cells (`n` 0) is a palette alone:
+`Planet.palette` gives the moon its colours while `Planet.map` stays NULL and
+its ground stays procedural (Phobos, Deimos, Saturn's and Uranus's other moons,
+Triton). Every ramp a body names comes from `palette`. All are existing 16- or
+32-entry ramps; the tan ramp reaches a pale gold, so sand, Io's sulphur,
+Saturn's ammonia and Titan's haze are not khaki. On ECS, Classic dims a mapped
+body's dark regions by one shade; generated worlds are untouched.
 
 Map north is body -z, the positive (spin) pole, with the prime meridian at
 +x. Astralbound's camera is left-handed (right x up points forward), and so

@@ -271,6 +271,12 @@ Approximations:
   a degree either side so the 96-cell cube map holds it, and the broad
   brightness beneath is compressed to a gentle mottle. Below its 10th
   percentile (`level`), ground takes the rust ramp: the bands and chaos spots.
+  A level moves only that edge (values stay under 128 or a dither step above
+  it); brightness stays relative to the median.
+- Pluto is red-brown tholin (the rust ramp) with its brightest tenth pale (the
+  cloud ramp): the heart, Tombaugh Regio, and bright northern ices. Unimaged
+  holes in its map take the median and stay red. Charon's darkest 6 percent,
+  the red north polar cap (Mordor Macula), is rust on its grey.
 - Iapetus's mosaic is photometrically flattened (its two tones differ 1.5x, not
   the real 10x), so its map is blurred to regional brightness and split at the
   valley between its two modes (the 32nd percentile): Cassini Regio across the

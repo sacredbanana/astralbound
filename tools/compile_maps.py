@@ -10,9 +10,9 @@ per face, directions exactly as src/body_map.c and planet_contours.c index
 them, so points on a face edge are the same sample from both faces.
 
 A row with n 0 has no channels: its ramps colour a body whose surface
-stays procedural. level, when given, is the percentile of a body's
-reflectance that sits at 128, so only ground darker than it is "dark"
-(and takes dark_ramp); the median otherwise."""
+stays procedural. Albedo is relative to the body's median; level, when
+given, is the percentile below which ground is "dark" (under 128, taking
+dark_ramp) and above which it is not, the median otherwise."""
 import csv, math
 from pathlib import Path
 
@@ -137,9 +137,16 @@ def bake(row):
         raw = [at(la, lo_) for la, lo_ in dirs]
         contrast = float(row['contrast'])
         # Earth's channel is already centred on the desert margin.
-        level = float(row.get('level') or 50)
-        ref = 128 if 'ARID' in row['flags'] else sorted(raw)[min(len(raw) - 1, int(len(raw) * level / 100))]
-        out['albedo'] = [clamp(128 + 128 * contrast * (a / ref - 1)) for a in raw]
+        ref = 128 if 'ARID' in row['flags'] else median(raw)
+        vals = [clamp(128 + 128 * contrast * (a / ref - 1)) for a in raw]
+        if row.get('level'):
+            # Brightness stays relative to the median; the level only moves
+            # the dark edge, across which values are kept on their own side:
+            # under 128, or a full step (16) above it, clear of the ordered
+            # dither with which Enhanced blends a dark ramp in.
+            cut = sorted(raw)[min(len(raw) - 1, int(len(raw) * float(row['level']) / 100))]
+            vals = [min(v, 127) if a < cut else max(v, 144) for a, v in zip(raw, vals)]
+        out['albedo'] = vals
     ice = channel(row, 'ice')
     if ice:
         at = sampler(ice)

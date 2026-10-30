@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: Unlicense
    The Solar System tour: a single camera flight from deep space to the Sun,
    out through every planet and its major moons to Pluto and Charon, and back
-   into deep space. World time is frozen at J2000, so every stop is a fixed
-   point and the flight between two stops is a pure function of time.
+   into deep space. World time is frozen days after J2000, when Pluto's
+   heart is in daylight, so every stop is a fixed point and the flight
+   between two stops is a pure function of time.
 
    A flight never cuts. It leaves one stop on a sphere round that body whose
    radius grows exponentially, so the body recedes at a steady rate whatever
@@ -34,103 +35,104 @@ enum { FAR_START = 0, SUN_STOP = 1, FAR_END = TOUR_STOPS - 1 };
 const TourStop tour_stops[TOUR_STOPS] = {
     {NULL, "THE SOLAR SYSTEM", "A GUIDED TOUR",
      {"ONE STAR, EIGHT PLANETS AND HUNDREDS OF MOONS", "FORMED 4.6 BILLION YEARS AGO FROM A GAS CLOUD",
-      "ANY KEY RETURNS TO THE MENU", NULL}, 30, 35, 0, 32},
+      "ANY KEY RETURNS TO THE MENU", NULL}, 30, 35, 0, 32, 0, 0, 0},
     {"Sun", "THE SUN", "A YELLOW DWARF STAR",
      {"HOLDS 99.86% OF ALL THE MASS IN THE SOLAR SYSTEM", "1.3 MILLION EARTHS WOULD FIT INSIDE IT",
-      "ITS CORE BURNS AT ABOUT 15 MILLION C", "SUNLIGHT TAKES 8 MINUTES 20 SECONDS TO REACH EARTH"}, 45, -60, 16, 10},
+      "ITS CORE BURNS AT ABOUT 15 MILLION C", "SUNLIGHT TAKES 8 MINUTES 20 SECONDS TO REACH EARTH"}, 45, -60, 16, 10, 0, 0, 0},
     {"Mercury", "MERCURY", "THE SMALLEST PLANET",
      {"A YEAR LASTS 88 DAYS, ONE SUNRISE TO THE NEXT 176", "430 C BY DAY, -180 C AT NIGHT: NO AIR HOLDS HEAT",
-      "ITS IRON CORE FILLS 85% OF THE PLANET'S RADIUS", "WATER ICE HIDES IN SHADOWED POLAR CRATERS"}, 32, 42, 14, 12},
+      "ITS IRON CORE FILLS 85% OF THE PLANET'S RADIUS", "WATER ICE HIDES IN SHADOWED POLAR CRATERS"}, 32, 42, 14, 12, 0, 0, 0},
     {"Venus", "VENUS", "THE HOTTEST PLANET",
      {"465 C AT THE SURFACE: HOT ENOUGH TO MELT LEAD", "AIR 92 TIMES DENSER THAN EARTH'S, ACID CLOUDS",
-      "SPINS BACKWARDS: ITS DAY OUTLASTS ITS YEAR", "THE BRIGHTEST PLANET IN EARTH'S NIGHT SKY"}, 32, 42, 14, 12},
+      "SPINS BACKWARDS: ITS DAY OUTLASTS ITS YEAR", "THE BRIGHTEST PLANET IN EARTH'S NIGHT SKY"}, 32, 42, 14, 12, 0, 0, 0},
     {"Earth", "EARTH", "OUR HOME",
      {"THE ONLY WORLD KNOWN TO HARBOUR LIFE", "OCEANS COVER 71% OF ITS SURFACE",
-      "THE DENSEST PLANET IN THE SOLAR SYSTEM", "ITS MAGNETIC FIELD DEFLECTS THE SOLAR WIND"}, 32, 42, 14, 12},
+      "THE DENSEST PLANET IN THE SOLAR SYSTEM", "ITS MAGNETIC FIELD DEFLECTS THE SOLAR WIND"}, 32, 42, 14, 12, 0, 0, 0},
     {"Moon", "MOON", "EARTH'S NATURAL SATELLITE",
      {"TIDALLY LOCKED: IT ALWAYS SHOWS EARTH ONE FACE", "DRIFTING AWAY FROM EARTH BY 3.8 CM A YEAR",
-      "12 PEOPLE WALKED ON IT BETWEEN 1969 AND 1972", "PROBABLY BORN IN A GIANT IMPACT ON EARTH"}, 36, 24, 10, 0},
+      "12 PEOPLE WALKED ON IT BETWEEN 1969 AND 1972", "PROBABLY BORN IN A GIANT IMPACT ON EARTH"}, 36, 24, 10, 0, 0, 0, 0},
     {"Mars", "MARS", "THE RED PLANET",
      {"OLYMPUS MONS: THE TALLEST VOLCANO KNOWN, 22 KM", "VALLES MARINERIS RUNS 4000 KM ACROSS IT",
-      "RUSTY IRON OXIDE DUST GIVES IT ITS COLOUR", "A DAY LASTS 24 HOURS 40 MINUTES"}, 32, 42, 14, 12},
+      "RUSTY IRON OXIDE DUST GIVES IT ITS COLOUR", "A DAY LASTS 24 HOURS 40 MINUTES"}, 32, 42, 14, 12, 0, 0, 0},
     {"Phobos", "PHOBOS", "INNER MOON OF MARS",
      {"ORBITS 6000 KM UP, THREE TIMES A MARTIAN DAY", "STICKNEY CRATER IS 9 KM WIDE: A THIRD OF PHOBOS",
-      "SPIRALLING INWARD: GONE IN 30 TO 50 MILLION YEARS", NULL}, 40, 24, 10, 0},
+      "SPIRALLING INWARD: GONE IN 30 TO 50 MILLION YEARS", NULL}, 40, 24, 10, 0, 0, 0, 0},
     {"Deimos", "DEIMOS", "OUTER MOON OF MARS",
      {"ONLY ABOUT 12 KM ACROSS", "ESCAPE SPEED 5.6 M/S: A HARD JUMP COULD LEAVE IT",
-      "NAMED FOR THE GREEK SPIRIT OF DREAD", NULL}, 40, 24, 10, 0},
+      "NAMED FOR THE GREEK SPIRIT OF DREAD", NULL}, 40, 24, 10, 0, 0, 0, 0},
     {"Jupiter", "JUPITER", "KING OF THE PLANETS",
      {"MORE THAN TWICE THE MASS OF ALL OTHER PLANETS", "THE GREAT RED SPOT IS A STORM WIDER THAN EARTH",
-      "THE SHORTEST DAY: ONE TURN IN UNDER 10 HOURS", "THE STRONGEST MAGNETIC FIELD OF ANY PLANET"}, 32, 42, 14, 12},
+      "THE SHORTEST DAY: ONE TURN IN UNDER 10 HOURS", "THE STRONGEST MAGNETIC FIELD OF ANY PLANET"}, 32, 42, 14, 12, 0, 0, 0},
     {"Io", "IO", "THE VOLCANIC MOON",
      {"THE MOST VOLCANIC WORLD IN THE SOLAR SYSTEM", "JUPITER'S TIDES FLEX AND MELT ITS INTERIOR",
-      "SULPHUR PLUMES RISE UP TO 400 KM HIGH", NULL}, 36, 24, 10, 0},
+      "SULPHUR PLUMES RISE UP TO 400 KM HIGH", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Europa", "EUROPA", "AN OCEAN UNDER ICE",
      {"A SALTWATER OCEAN LIES BENEATH ITS ICE SHELL", "IT MAY HOLD TWICE THE WATER OF EARTH'S OCEANS",
-      "A PRIME PLACE TO SEARCH FOR LIFE BEYOND EARTH", NULL}, 36, 24, 10, 0},
+      "A PRIME PLACE TO SEARCH FOR LIFE BEYOND EARTH", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Ganymede", "GANYMEDE", "THE LARGEST MOON",
      {"BIGGER THAN THE PLANET MERCURY", "THE ONLY MOON WITH ITS OWN MAGNETIC FIELD",
-      "A HIDDEN OCEAN LIES BETWEEN LAYERS OF ICE", NULL}, 36, 24, 10, 0},
+      "A HIDDEN OCEAN LIES BETWEEN LAYERS OF ICE", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Callisto", "CALLISTO", "THE BATTERED MOON",
      {"THE MOST HEAVILY CRATERED SURFACE KNOWN", "ITS SURFACE IS ABOUT 4 BILLION YEARS OLD",
-      "VALHALLA: AN IMPACT BASIN 3800 KM ACROSS", NULL}, 36, 24, 10, 0},
+      "VALHALLA: AN IMPACT BASIN 3800 KM ACROSS", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Saturn", "SATURN", "THE RINGED PLANET",
      {"LESS DENSE THAN WATER: IT WOULD FLOAT IN A BATH", "ITS RINGS SPAN 280000 KM YET ARE OFTEN 10 M THICK",
-      "A HEXAGONAL JET STREAM CIRCLES ITS NORTH POLE", "WINDS REACH 1800 KM/H"}, 54, 42, 14, 24},
+      "A HEXAGONAL JET STREAM CIRCLES ITS NORTH POLE", "WINDS REACH 1800 KM/H"}, 54, 42, 14, 24, 0, 0, 0},
     {"Mimas", "MIMAS", "THE CRATER MOON",
      {"HERSCHEL CRATER SPANS A THIRD OF ITS WIDTH", "THE IMPACT NEARLY SHATTERED IT",
-      "ITS PULL CLEARS THE CASSINI DIVISION IN THE RINGS", NULL}, 36, 24, 10, 0},
+      "ITS PULL CLEARS THE CASSINI DIVISION IN THE RINGS", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Enceladus", "ENCELADUS", "THE ICE FOUNTAIN",
      {"GEYSERS AT ITS SOUTH POLE SPRAY WATER INTO SPACE", "THE SPRAY FEEDS SATURN'S FAINT E RING",
-      "IT REFLECTS ALMOST ALL THE SUNLIGHT THAT HITS IT", NULL}, 36, 24, 10, 0},
+      "IT REFLECTS ALMOST ALL THE SUNLIGHT THAT HITS IT", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Tethys", "TETHYS", "A MOON OF WATER ICE",
      {"ALMOST PURE WATER ICE, AS LIGHT AS WATER", "ITHACA CHASMA: A CANYON 2000 KM LONG",
-      "ODYSSEUS CRATER IS 445 KM WIDE", NULL}, 36, 24, 10, 0},
+      "ODYSSEUS CRATER IS 445 KM WIDE", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Dione", "DIONE", "THE CLIFFED MOON",
      {"BRIGHT ICE CLIFFS HUNDREDS OF METRES HIGH", "A WHISPER OF OXYGEN AROUND IT",
-      "SHARES ITS ORBIT WITH HELENE AND POLYDEUCES", NULL}, 36, 24, 10, 0},
+      "SHARES ITS ORBIT WITH HELENE AND POLYDEUCES", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Rhea", "RHEA", "SATURN'S SECOND MOON BY SIZE",
      {"A FROZEN BALL OF ICE AND ROCK", "AROUND -200 C ON ITS SHADED SIDE",
-      "A THIN HAZE OF OXYGEN AND CARBON DIOXIDE", NULL}, 36, 24, 10, 0},
+      "A THIN HAZE OF OXYGEN AND CARBON DIOXIDE", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Titan", "TITAN", "THE HAZY MOON",
      {"ITS AIR IS 1.5 TIMES THE PRESSURE OF EARTH'S", "METHANE RAIN FILLS RIVERS, LAKES AND SEAS",
-      "LARGER THAN THE PLANET MERCURY", "THE HUYGENS PROBE LANDED HERE IN 2005"}, 36, 24, 10, 0},
+      "LARGER THAN THE PLANET MERCURY", "THE HUYGENS PROBE LANDED HERE IN 2005"}, 36, 24, 10, 0, 0, 0, 0},
     {"Iapetus", "IAPETUS", "THE TWO-TONED MOON",
      {"ONE HEMISPHERE COAL DARK, THE OTHER SNOW BRIGHT", "A RIDGE UP TO 20 KM HIGH GIRDLES ITS EQUATOR",
-      "DISCOVERED BY GIOVANNI CASSINI IN 1671", NULL}, 36, 24, 10, 0},
+      "DISCOVERED BY GIOVANNI CASSINI IN 1671", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Uranus", "URANUS", "THE TILTED GIANT",
      {"IT ROLLS ROUND THE SUN TIPPED 98 DEGREES", "EACH POLE GETS 42 YEARS OF SUN, THEN 42 OF NIGHT",
-      "THE COLDEST AIR OF ANY PLANET: -224 C", "THE FIRST PLANET FOUND BY TELESCOPE, IN 1781"}, 34, 42, 14, 12},
+      "THE COLDEST AIR OF ANY PLANET: -224 C", "THE FIRST PLANET FOUND BY TELESCOPE, IN 1781"}, 34, 42, 14, 12, 0, 0, 0},
     {"Miranda", "MIRANDA", "THE PATCHWORK MOON",
      {"A JUMBLE OF TERRAINS, AS IF SMASHED AND REBUILT", "VERONA RUPES MAY BE THE TALLEST CLIFF KNOWN",
-      "ONLY 470 KM ACROSS", NULL}, 36, 24, 10, 0},
+      "ONLY 470 KM ACROSS", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Ariel", "ARIEL", "THE BRIGHT MOON",
      {"THE BRIGHTEST OF URANUS'S MOONS", "LONG FAULT VALLEYS CRISSCROSS ITS FACE",
-      "ITS SURFACE MAY BE THE YOUNGEST OF THE FIVE", NULL}, 36, 24, 10, 0},
+      "ITS SURFACE MAY BE THE YOUNGEST OF THE FIVE", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Umbriel", "UMBRIEL", "THE DARK MOON",
      {"THE DARKEST OF URANUS'S LARGE MOONS", "AN ANCIENT, HEAVILY CRATERED SURFACE",
-      "A BRIGHT RING SITS IN WUNDA CRATER", NULL}, 36, 24, 10, 0},
+      "A BRIGHT RING SITS IN WUNDA CRATER", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Titania", "TITANIA", "URANUS'S LARGEST MOON",
      {"1580 KM ACROSS", "MESSINA CHASMA: A CANYON 1500 KM LONG",
-      "NAMED FOR SHAKESPEARE'S QUEEN OF THE FAIRIES", NULL}, 36, 24, 10, 0},
+      "NAMED FOR SHAKESPEARE'S QUEEN OF THE FAIRIES", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Oberon", "OBERON", "THE OUTERMOST GIANT MOON",
      {"THE FARTHEST OF URANUS'S MAJOR MOONS", "AN OLD, ICY SURFACE SCARRED BY CRATERS",
-      "FOUND BY WILLIAM HERSCHEL IN 1787", NULL}, 36, 24, 10, 0},
+      "FOUND BY WILLIAM HERSCHEL IN 1787", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Neptune", "NEPTUNE", "THE WINDY GIANT",
      {"THE FASTEST WINDS KNOWN: OVER 2000 KM/H", "FOUND BY MATHEMATICS BEFORE IT WAS SEEN, 1846",
-      "ONE ORBIT OF THE SUN TAKES 165 YEARS", "SUNLIGHT HERE IS 900 TIMES DIMMER THAN AT EARTH"}, 34, 42, 14, 12},
+      "ONE ORBIT OF THE SUN TAKES 165 YEARS", "SUNLIGHT HERE IS 900 TIMES DIMMER THAN AT EARTH"}, 34, 42, 14, 12, 0, 0, 0},
     {"Triton", "TRITON", "THE BACKWARDS MOON",
      {"IT ORBITS AGAINST NEPTUNE'S SPIN: A CAPTURED WORLD", "NITROGEN GEYSERS ERUPT FROM ITS FROZEN SURFACE",
-      "ONE OF THE COLDEST SURFACES KNOWN: -235 C", NULL}, 36, 24, 10, 0},
+      "ONE OF THE COLDEST SURFACES KNOWN: -235 C", NULL}, 36, 24, 10, 0, 0, 0, 0},
     {"Pluto", "PLUTO", "THE DWARF PLANET",
      {"A HEART-SHAPED GLACIER OF NITROGEN ICE", "WATER-ICE MOUNTAINS RISE UP TO 6 KM HIGH",
-      "A YEAR ON PLUTO LASTS 248 EARTH YEARS", "NEW HORIZONS FLEW PAST IN 2015"}, 34, 42, 14, 12},
+      "A YEAR ON PLUTO LASTS 248 EARTH YEARS", "NEW HORIZONS FLEW PAST IN 2015"}, 30, 0, 10, 0,
+     1, 20, -170}, /* Tombaugh Regio, the heart, with Sputnik Planitia in its west */
     {"Charon", "CHARON", "PLUTO'S PARTNER",
      {"HALF PLUTO'S SIZE: THEY ORBIT A POINT BETWEEN THEM", "EACH ALWAYS SHOWS THE OTHER THE SAME FACE",
-      "A DARK RED CAP COLOURS ITS NORTH POLE", NULL}, 40, 24, 10, 0},
+      "A DARK RED CAP COLOURS ITS NORTH POLE", NULL}, 40, 24, 10, 0, 0, 0, 0},
     {NULL, "FAREWELL", "THE SUN FROM 60 AU",
      {"FROM HERE THE SUN IS JUST THE BRIGHTEST STAR", "ITS LIGHT TAKES 8 HOURS TO REACH THIS FAR",
-      "VOYAGER 1 HAS FLOWN MORE THAN TWICE AS FAR", "THANK YOU FOR FLYING ASTRALBOUND"}, 600, 25, 0, 28},
+      "VOYAGER 1 HAS FLOWN MORE THAN TWICE AS FAR", "THANK YOU FOR FLYING ASTRALBOUND"}, 600, 25, 0, 28, 0, 0, 0},
 };
 
 /* ---- Fine angles and Q30 directions ------------------------------------ */
@@ -386,6 +388,40 @@ static Vec flight_eye(int i, int t) {
     }
 }
 /* ---- Staging ------------------------------------------------------------ */
+/* A stop's landmark as a system-frame Q30 direction from its body's centre. */
+static Vec landmark(const Planet *p, const TourStop *s) {
+    int32_t la = DEGREES(s->lat), lo = DEGREES(s->lon);
+    /* Body north is -z; east turns from +x towards +y (body_map.h). */
+    Vec fixed = vec(fcos(la) * fcos(lo) / (1 << 18), fcos(la) * fsin(lo) / (1 << 18), -fsin(la) * 64);
+    return unit30(body_rotate(p, fixed, 0));
+}
+/* The tour's frozen moment: J2000, or the time within one turn of a body
+   with a landmark that puts the landmark nearest 35 degrees from the Sun,
+   lit with a terminator in view. Planets barely move in that time, and
+   moons are placed afterwards. */
+static uint32_t tour_moment(Game *g) {
+    int i, k;
+    for (i = 0; i < TOUR_STOPS; i++) {
+        const TourStop *s = &tour_stops[i];
+        Planet p;
+        uint32_t turn, best = 0;
+        int64_t error = INT64_MAX, aim = fcos(DEGREES(35)) << 6;
+        if (!s->face) continue;
+        p = g->system.planets[solar_body_index(&g->system, s->body)];
+        turn = rotation_period(&p) * (uint32_t)HZ;
+        for (k = 0; k < 256; k++) {
+            uint32_t t = (uint32_t)((uint64_t)turn * (uint64_t)k / 256);
+            Vec sun = unit30(sub(g->system.star[0].center, body_position(&g->system, solar_body_index(&g->system, s->body), t)));
+            int64_t off;
+            set_rotation(&p, t);
+            off = dot30(landmark(&p, s), sun) - aim;
+            if (off < 0) off = -off;
+            if (off < error) { error = off; best = t; }
+        }
+        return best;
+    }
+    return 0;
+}
 /* Unit direction of a catalog orbit at a table angle (eccentricity aside). */
 static Vec orbit_direction(const Planet *p, int a) {
     const int32_t *b = p->orbit_basis;
@@ -480,6 +516,8 @@ static void stage_place(Game *g, int i) {
             p->base = along(&lit, Q16);
             p->azimuth = 0;
         } else p->base = sunward(g, p->centre);
+        /* Facing a landmark: the azimuth then turns from it. */
+        if (s->face) p->base = landmark(b, s);
         /* Ringed worlds are seen from above their sunlit face. */
         if (b->rings) {
             p->pole = unit30(body_tilt(b, vec(0, 0, ONE), 0));
@@ -588,7 +626,7 @@ void tour_start(Tour *t, Game *g, uint32_t seed) {
     t->running = 1;
     game_init(g, seed);
     setup_system(g, catalog_sector(0));
-    g->tick = 0; /* J2000 */
+    g->tick = tour_moment(g); /* within days of J2000 */
     g->system.world_ready = 0;
     update_world(g);
     {
